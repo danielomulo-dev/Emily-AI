@@ -198,7 +198,16 @@ def _route_to_model(text, has_attachments=False, attachment_types=None):
         r'(?:weather|forecast|temperature)',
         r'(?:when\s+(?:is|does|did|will))',
         r'(?:score|results?\s+(?:of|for))',
-        r'(?:oscar|grammy|emmy|golden\s+globe)\s+(?:nominat|winner|award)',
+        # Awards — match in any word order
+        r'(?:oscar|grammy|emmy|golden\s+globe)',
+        r'(?:nominat|nominee|winner|award).*(?:20\d{2})',
+        # Factual lookups that need search
+        r'(?:list|tell\s+me).*(?:nominat|winner|award|candidate)',
+        r'(?:who\s+(?:is|are|was|were)\s+)',
+        r'(?:what\s+(?:is|are|was|were)\s+the\s+)',
+        r'(?:how\s+much\s+(?:is|does|did))',
+        r'(?:where\s+(?:is|are|can\s+i))',
+        r'(?:20(?:2[4-9]|3\d))',  # Any year 2024-2039 mentioned = probably needs search
     ]
     for pattern in news_patterns:
         if re.search(pattern, text_lower):
@@ -805,10 +814,13 @@ async def get_ai_response(conversation_history, user_id, chosen_model, route_rea
         # Add model-specific instructions
         if chosen_model == "gemini":
             emily_prompt += """
-SEARCH RULES:
-- Use Google Search AGGRESSIVELY for factual questions.
-- NEVER answer factual questions from memory. SEARCH FIRST.
-- If you cannot find confirmed info, say so. Do NOT fabricate.
+ABSOLUTE SEARCH RULES — VIOLATION IS UNACCEPTABLE:
+- You MUST use Google Search for ANY factual question: awards, events, people, dates, news, scores.
+- If a message contains [IMPORTANT: You MUST use Google Search], you MUST search. No exceptions.
+- NEVER list nominees, winners, facts, stats, or current events without searching first.
+- If you answer a factual question without searching, you are WRONG. Always search.
+- If search returns no results, say "I couldn't verify that right now" — NEVER guess or fabricate.
+- When you search, cite what you found. Be specific with names, dates, and details from search results.
 """
         else:
             emily_prompt += """
@@ -821,6 +833,27 @@ IMPORTANT:
 """
 
         logger.info(f"🧠 Hive Mind → {chosen_model.upper()} | Reason: {route_reason}")
+
+        # ─── FORCE SEARCH: Inject search instruction for factual queries ───
+        # Gemini sometimes ignores the system prompt and answers from memory.
+        # This prepends a direct instruction to the user's message forcing it to search.
+        if chosen_model == "gemini" and route_reason == "Real-time search needed":
+            if conversation_history:
+                last_msg = conversation_history[-1]
+                if last_msg.get("role") == "user" and last_msg.get("parts"):
+                    first_part = last_msg["parts"][0]
+                    original_text = first_part if isinstance(first_part, str) else first_part.get("text", "")
+                    forced_text = (
+                        f"[IMPORTANT: You MUST use Google Search to answer this. "
+                        f"Do NOT answer from memory. Search first, then respond.]\n\n"
+                        f"{original_text}"
+                    )
+                    # Modify a copy, not the original
+                    conversation_history = [m for m in conversation_history]
+                    conversation_history[-1] = {
+                        "role": "user",
+                        "parts": [{"text": forced_text}] + last_msg["parts"][1:]
+                    }
 
         # ─── TRY PRIMARY MODEL ───
         final_text = ""
