@@ -554,45 +554,69 @@ async def process_attachments(message):
     warnings = []
     attachment_types = []
 
-    for att in message.attachments:
-        is_voice = (hasattr(att, 'is_voice_message') and att.is_voice_message) or \
-                   (message.flags.value & (1 << 13))
+    # Check if the MESSAGE itself is flagged as a voice message
+    is_voice_message = bool(message.flags.value & (1 << 13))
 
-        if _is_audio_attachment(att) or is_voice:
-            data = await download_attachment(att)
-            if data:
-                audio_bytes = data
-                audio_mime = (att.content_type or "audio/ogg").split(";")[0].strip()
-                attachment_types.append("audio")
-            else:
-                warnings.append("Couldn't download that voice note.")
-        elif _is_image_attachment(att):
+    for att in message.attachments:
+        # Check specific types FIRST — images, PDFs, text files take priority
+        # This prevents the voice message flag from capturing non-audio attachments
+        if _is_image_attachment(att):
             part, err = await process_image(att)
             if part:
                 parts.append(part)
                 attachment_types.append("image")
+                logger.info(f"Image processed: {att.filename}")
             if err:
                 warnings.append(err)
+
         elif _is_pdf_attachment(att):
             part, err = await process_pdf(att)
             if part:
                 parts.append(part)
                 attachment_types.append("pdf")
+                logger.info(f"PDF processed: {att.filename}")
             if err:
                 warnings.append(err)
+
         elif _is_text_attachment(att):
             part, err = await process_text_file(att)
             if part:
                 parts.append(part)
                 attachment_types.append("text_file")
+                logger.info(f"Text file processed: {att.filename}")
             if err:
                 warnings.append(err)
+
         elif _is_document_attachment(att):
             part, err = await process_document(att)
             if part:
                 parts.append(part)
             if err:
                 warnings.append(err)
+
+        elif _is_audio_attachment(att) or \
+             (is_voice_message and hasattr(att, 'is_voice_message') and att.is_voice_message):
+            # Only treat as audio if it's actually an audio file or a confirmed voice message
+            data = await download_attachment(att)
+            if data:
+                audio_bytes = data
+                audio_mime = (att.content_type or "audio/ogg").split(";")[0].strip()
+                attachment_types.append("audio")
+                logger.info(f"Audio processed: {att.filename}")
+            else:
+                warnings.append("Couldn't download that voice note.")
+
+        elif is_voice_message:
+            # Last resort: message is flagged as voice but attachment type is unknown
+            data = await download_attachment(att)
+            if data:
+                audio_bytes = data
+                audio_mime = (att.content_type or "audio/ogg").split(";")[0].strip()
+                attachment_types.append("audio")
+                logger.info(f"Voice message (flag): {att.filename}")
+            else:
+                warnings.append("Couldn't download that voice note.")
+
         else:
             warnings.append(f"Can't process `{att.filename}` — try PDF, image, or text!")
 
