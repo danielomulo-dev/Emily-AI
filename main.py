@@ -23,7 +23,7 @@ import anthropic
 # Tool Imports
 from memory import get_user_profile, update_user_fact, set_voice_mode, add_message_to_history, get_chat_history
 from image_tools import get_media_link
-from web_tools import search_video_link
+from web_tools import search_video_link, extract_text_from_url
 from finance_tools import get_stock_price
 from voice_tools import generate_voice_note, cleanup_voice_file
 
@@ -316,6 +316,13 @@ def _route_to_model(text, has_attachments=False, attachment_types=None):
     for pattern in opinion_patterns:
         if re.search(pattern, text_lower):
             return "claude", "Analysis/opinion request"
+
+    # URL analysis (Claude is better at summarizing/analyzing fetched content)
+    if re.search(r'https?://[^\s]+', text_lower):
+        analysis_words = ["summarize", "summary", "analyze", "analyse", "read", "review",
+                         "what does", "what is", "tell me about", "explain", "tldr", "tl;dr"]
+        if any(w in text_lower for w in analysis_words):
+            return "claude", "URL content analysis"
 
     # Long messages likely need deeper reasoning
     if len(text_lower) > 500:
@@ -656,6 +663,40 @@ async def send_voice_reply(message, text_response):
         logger.error(f"Voice reply failed: {e}")
         cleanup_voice_file(f"reply_{message.id}.mp3")
         return False
+
+
+# ══════════════════════════════════════════════
+# URL EXTRACTION & CONTENT FETCHING
+# ══════════════════════════════════════════════
+URL_PATTERN = re.compile(r'https?://[^\s<>"\')\]]+')
+
+async def extract_and_fetch_urls(text):
+    """
+    Find URLs in message text, fetch their content, and return as text parts.
+    Returns: (list of text part dicts, list of extracted URLs)
+    """
+    urls = URL_PATTERN.findall(text)
+    if not urls:
+        return [], []
+
+    parts = []
+    fetched_urls = []
+
+    # Limit to 3 URLs max to avoid slowdowns
+    for url in urls[:3]:
+        try:
+            logger.info(f"Fetching URL: {url}")
+            content = await asyncio.to_thread(extract_text_from_url, url)
+            if content and len(content.strip()) > 50:
+                parts.append({"text": f"[Content from {url}]:\n{content[:5000]}"})
+                fetched_urls.append(url)
+                logger.info(f"URL fetched: {url} ({len(content)} chars)")
+            else:
+                logger.warning(f"URL returned minimal content: {url}")
+        except Exception as e:
+            logger.error(f"Failed to fetch URL {url}: {e}")
+
+    return parts, fetched_urls
 
 
 # ══════════════════════════════════════════════
@@ -1016,6 +1057,13 @@ async def on_message(message):
             user_parts.extend(attachment_parts)
             if not clean_msg and attachment_parts:
                 user_parts.insert(0, {"text": "I'm sending you this file. What do you think?"})
+
+            # ─── URL EXTRACTION: Fetch linked content ───
+            if clean_msg and URL_PATTERN.search(clean_msg):
+                url_parts, fetched_urls = await extract_and_fetch_urls(clean_msg)
+                if url_parts:
+                    user_parts.extend(url_parts)
+                    logger.info(f"Fetched {len(fetched_urls)} URL(s): {fetched_urls}")
 
             # ─── STOCK AUTO-DETECT ───
             if clean_msg:
