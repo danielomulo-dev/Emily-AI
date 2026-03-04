@@ -1,0 +1,29 @@
+# === Core ===
+discord.py
+google-genai
+anthropic
+python-dotenv
+pydantic
+pytz
+
+# === Database ===
+pymongo
+certifi
+
+# === Web/Scraping ===
+requests
+beautifulsoup4
+duckduckgo-search
+
+# === Media & Voice ===
+elevenlabs
+
+# === Document Processing ===
+pypdf
+python-docx
+
+# === Video ===
+youtube-transcript-api
+
+# === Utilities ===
+dateparser
