@@ -48,6 +48,10 @@ MAX_FILE_SIZE_MB = 20
 # --- PER-USER LOCKS ---
 _user_locks = defaultdict(asyncio.Lock)
 
+# --- MESSAGE DEDUP (prevent double replies) ---
+_processed_messages = set()
+MAX_DEDUP_SIZE = 500
+
 # --- TICKER MAP ---
 NAME_TO_TICKER = {
     "SAFARICOM": "SCOM", "EQUITY": "EQTY", "KCB": "KCB",
@@ -1021,6 +1025,17 @@ async def on_message(message):
         return
 
     user_id = str(message.author.id)
+
+    # ─── DEDUP: Skip if we already processed this message ───
+    if message.id in _processed_messages:
+        return
+    _processed_messages.add(message.id)
+    # Keep the set from growing forever
+    if len(_processed_messages) > MAX_DEDUP_SIZE:
+        # Remove oldest entries (sets are unordered, but this is good enough)
+        to_remove = list(_processed_messages)[:MAX_DEDUP_SIZE // 2]
+        for mid in to_remove:
+            _processed_messages.discard(mid)
 
     async with _user_locks[user_id]:
         async with message.channel.typing():
