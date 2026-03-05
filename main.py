@@ -75,6 +75,8 @@ NAME_TO_TICKER = {
 # --- FILE TYPES ---
 IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp"}
 IMAGE_MIMES = {"image/png", "image/jpeg", "image/gif", "image/webp", "image/bmp"}
+VIDEO_EXTENSIONS = {".mp4", ".mov", ".avi", ".webm", ".mkv", ".m4v", ".3gp"}
+VIDEO_MIMES = {"video/mp4", "video/quicktime", "video/x-msvideo", "video/webm", "video/x-matroska", "video/3gpp"}
 PDF_EXTENSIONS = {".pdf"}
 PDF_MIMES = {"application/pdf"}
 TEXT_EXTENSIONS = {
@@ -171,6 +173,15 @@ TOOL TAGS:
 - GIFs: [GIF: term], Images: [IMG: term], Videos: [VIDEO: term]
 - If user shares personal info, add [MEMORY SAVED] at the end.
 - Do NOT include source URLs — they are appended automatically.
+
+MEDIA HANDLING:
+═══════════════════════════════════════
+- When user sends an IMAGE: describe what you see, identify objects/people/scenes, give opinions.
+- When user sends a VIDEO: analyze the content, describe what's happening, comment on key moments.
+- When user sends a PDF: read and summarize, answer questions about the content.
+- When user sends CODE: review it, find bugs, suggest improvements.
+- For food photos: give honest, specific feedback on the dish.
+- For financial documents/screenshots: analyze numbers and advise.
 """
 
 
@@ -217,8 +228,8 @@ def _route_to_model(text, has_attachments=False, attachment_types=None):
         if re.search(pattern, text_lower):
             return "gemini", "Real-time search needed"
 
-    # Image analysis (Gemini has native vision + search)
-    if "image" in attachment_types or "pdf" in attachment_types:
+    # Image/video analysis (Gemini has native vision + search)
+    if "image" in attachment_types or "pdf" in attachment_types or "video" in attachment_types:
         # But if it's code review or document analysis, Claude is better
         analysis_words = ["review", "analyze", "analyse", "explain", "summarize", "summary",
                          "what's wrong", "fix", "improve", "feedback", "opinion", "critique"]
@@ -494,6 +505,11 @@ def _is_image_attachment(att):
         return True
     return _get_file_extension(att.filename) in IMAGE_EXTENSIONS
 
+def _is_video_attachment(att):
+    if att.content_type and any(t in att.content_type for t in VIDEO_MIMES):
+        return True
+    return _get_file_extension(att.filename) in VIDEO_EXTENSIONS
+
 def _is_pdf_attachment(att):
     if att.content_type and any(t in att.content_type for t in PDF_MIMES):
         return True
@@ -523,6 +539,25 @@ async def process_image(att):
     if not data:
         return None, "Couldn't download that image."
     mime = (att.content_type or "image/png").split(";")[0].strip()
+    return {"inline_data": {"data": data, "mime_type": mime}}, None
+
+async def process_video(att):
+    """Download video and return as Gemini-ready inline_data part."""
+    size_mb = att.size / (1024 * 1024)
+    if size_mb > MAX_FILE_SIZE_MB:
+        return None, f"Video too large ({size_mb:.1f}MB). Max is {MAX_FILE_SIZE_MB}MB — try a shorter clip!"
+    data = await download_attachment(att)
+    if not data:
+        return None, "Couldn't download that video."
+    mime = (att.content_type or "video/mp4").split(";")[0].strip()
+    # Normalize mime types Gemini accepts
+    mime_map = {
+        "video/x-msvideo": "video/mp4",
+        "video/x-matroska": "video/mp4",
+        "video/3gpp": "video/mp4",
+    }
+    mime = mime_map.get(mime, mime)
+    logger.info(f"Video processed: {att.filename} ({size_mb:.1f}MB, {mime})")
     return {"inline_data": {"data": data, "mime_type": mime}}, None
 
 async def process_pdf(att):
@@ -577,6 +612,14 @@ async def process_attachments(message):
                 parts.append(part)
                 attachment_types.append("image")
                 logger.info(f"Image processed: {att.filename}")
+            if err:
+                warnings.append(err)
+
+        elif _is_video_attachment(att):
+            part, err = await process_video(att)
+            if part:
+                parts.append(part)
+                attachment_types.append("video")
             if err:
                 warnings.append(err)
 
