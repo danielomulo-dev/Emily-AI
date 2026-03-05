@@ -1064,6 +1064,22 @@ async def on_message(message):
                 await message.reply("Sasa! You pinged me but said nothing")
                 return
 
+            # ─── VOICE REPLY REQUEST (user asks for voice via text) ───
+            wants_voice_reply = False
+            voice_request_patterns = [
+                r'(?:in\s+your\s+voice)',
+                r'(?:voice\s+(?:note|message|reply|memo))',
+                r'(?:send\s+(?:me\s+)?(?:a\s+)?(?:voice|audio|recording))',
+                r'(?:speak|say)\s+(?:it|this|that)',
+                r'(?:tell\s+me\s+(?:out\s+)?loud)',
+                r'(?:audio\s+(?:reply|response|version))',
+                r'(?:read\s+(?:it|this|that)\s+(?:out|aloud|to\s+me))',
+            ]
+            for pattern in voice_request_patterns:
+                if re.search(pattern, clean_msg.lower()):
+                    wants_voice_reply = True
+                    break
+
             # ─── BUILD USER PARTS ───
             user_parts = []
             if clean_msg:
@@ -1087,7 +1103,7 @@ async def on_message(message):
                     stock_data = await asyncio.to_thread(get_stock_price, detected_ticker)
                     if stock_data and "couldn't find" not in stock_data:
                         full_response = "Sawa, let me pull that up!\n\n" + stock_data
-                        if is_voice_input:
+                        if is_voice_input or wants_voice_reply:
                             if not await send_voice_reply(message, full_response):
                                 await send_chunked_reply(message, full_response)
                         else:
@@ -1112,10 +1128,13 @@ async def on_message(message):
             )
             full_response = response_text + source_links
 
-            if is_voice_input:
-                if not await send_voice_reply(message, response_text):
+            if is_voice_input or wants_voice_reply:
+                # Send voice note + text fallback
+                voice_sent = await send_voice_reply(message, response_text)
+                if not voice_sent:
                     await send_chunked_reply(message, full_response)
                 elif len(response_text) > 200 or source_links:
+                    # Also send text version for long responses or when sources exist
                     await send_chunked_reply(message, full_response)
             else:
                 await send_chunked_reply(message, full_response)
