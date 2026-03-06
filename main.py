@@ -6,14 +6,15 @@ import threading
 import io
 from collections import defaultdict
 from http.server import BaseHTTPRequestHandler, HTTPServer
-from datetime import datetime
+from datetime import datetime, timedelta
 import pytz
+import dateparser
 from dotenv import load_dotenv
 from pydantic import BaseModel, Field
 
 # Discord & Gemini Imports
 import discord
-from discord.ext import commands
+from discord.ext import commands, tasks
 from google import genai
 from google.genai import types
 
@@ -23,9 +24,16 @@ import anthropic
 # Tool Imports
 from memory import get_user_profile, update_user_fact, set_voice_mode, add_message_to_history, get_chat_history
 from image_tools import get_media_link
-from web_tools import search_video_link, extract_text_from_url
+from web_tools import search_video_link, extract_text_from_url, get_latest_news
 from finance_tools import get_stock_price
 from voice_tools import generate_voice_note, cleanup_voice_file
+from tracker_tools import (
+    log_expense, get_daily_spending, get_monthly_spending, set_budget_limit,
+    get_budget_limit, format_budget_summary,
+    add_holding, remove_holding, get_portfolio, format_portfolio,
+    add_reminder, get_due_reminders, mark_reminder_done, get_user_reminders,
+    get_server_settings, update_server_setting, set_news_channel, get_news_servers,
+)
 
 load_dotenv()
 logging.basicConfig(level=logging.INFO)
@@ -1073,11 +1081,338 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 async def on_ready():
     logger.info(f"Emily connected to Discord: {bot.user}")
     logger.info(f"Hive Mind active: Gemini ({MODEL_GEMINI}) + Claude ({MODEL_CLAUDE})")
+    # Start background tasks
+    if not check_reminders.is_running():
+        check_reminders.start()
+    if not daily_news_briefing.is_running():
+        daily_news_briefing.start()
+
+
+# ══════════════════════════════════════════════
+# BACKGROUND TASKS
+# ══════════════════════════════════════════════
+@tasks.loop(seconds=30)
+async def check_reminders():
+    """Check for due reminders every 30 seconds."""
+    try:
+        due = get_due_reminders()
+        for reminder in due:
+            try:
+                channel = bot.get_channel(int(reminder["channel_id"]))
+                if channel:
+                    user_mention = f"<@{reminder['user_id']}>"
+                    await channel.send(f"⏰ {user_mention} **Reminder:** {reminder['text']}")
+                mark_reminder_done(reminder["_id"])
+            except Exception as e:
+                logger.error(f"Reminder send error: {e}")
+                mark_reminder_done(reminder["_id"])
+    except Exception as e:
+        logger.error(f"Reminder loop error: {e}")
+
+@check_reminders.before_loop
+async def before_reminders():
+    await bot.wait_until_ready()
+
+@tasks.loop(minutes=1)
+async def daily_news_briefing():
+    """Post daily news at configured time for each server."""
+    try:
+        now = datetime.now(pytz.timezone('Africa/Nairobi'))
+        current_time = now.strftime("%H:%M")
+
+        servers = get_news_servers()
+        for server in servers:
+            news_time = server.get("news_time", "07:00")
+            if current_time != news_time:
+                continue
+
+            # Check if already posted today
+            last_posted = server.get("last_news_date", "")
+            today = now.strftime("%Y-%m-%d")
+            if last_posted == today:
+                continue
+
+            channel_id = server.get("news_channel_id")
+            if not channel_id:
+                continue
+
+            channel = bot.get_channel(int(channel_id))
+            if not channel:
+                continue
+
+            # Fetch news
+            topics = server.get("news_topics", ["Kenya", "business", "technology"])
+            news_parts = []
+            for topic in topics[:3]:
+                news = get_latest_news(topic, max_results=3)
+                if news:
+                    news_parts.append(news)
+
+            if news_parts:
+                briefing = "☀️ **Good Morning! Here's your daily briefing:**\n\n" + "\n".join(news_parts)
+                # Chunk if needed
+                if len(briefing) > 2000:
+                    briefing = briefing[:1997] + "..."
+                await channel.send(briefing)
+
+                # Mark as posted
+                update_server_setting(server["guild_id"], "last_news_date", today)
+                logger.info(f"News posted to server {server['guild_id']}")
+
+    except Exception as e:
+        logger.error(f"News briefing error: {e}")
+
+@daily_news_briefing.before_loop
+async def before_news():
+    await bot.wait_until_ready()
+
+
+# ══════════════════════════════════════════════
+# BOT COMMANDS (!help, !budget, !portfolio, !remind, !news, !reset, !forget)
+# ══════════════════════════════════════════════
+@bot.command(name="help")
+async def cmd_help(ctx):
+    """Show all available commands."""
+    help_text = """
+**Emily's Commands** 🇰🇪
+
+**Budget Tracking:**
+• `!budget` — View your spending summary
+• `!spent <amount> <description>` — Log an expense (e.g. `!spent 500 lunch at Java`)
+• `!setbudget <amount>` — Set your monthly budget limit
+
+**Portfolio:**
+• `!portfolio` — View your stock holdings
+• `!buy <ticker> <shares> <price>` — Add a holding (e.g. `!buy SCOM 100 25.50`)
+• `!sell <ticker>` — Remove a holding
+
+**Reminders:**
+• `!remind <time> <message>` — Set a reminder (e.g. `!remind 5pm call mum`)
+• `!reminders` — View your pending reminders
+
+**News:**
+• `!news` — Get latest Kenya news now
+• `!setnews` — Set this channel for daily morning briefings
+
+**Utilities:**
+• `!reset` — Clear your chat history with Emily
+• `!forget` — Clear Emily's memory about you
+
+Or just chat with me naturally — I understand spending, portfolio, and reminder requests! 😊
+"""
+    await ctx.send(help_text)
+
+
+@bot.command(name="spent")
+async def cmd_spent(ctx, amount: str, *, description: str = "General expense"):
+    """Log an expense. Usage: !spent 500 lunch at Java"""
+    try:
+        amt = float(amount.replace(",", "").replace("KES", "").replace("ksh", "").strip())
+        if amt <= 0:
+            await ctx.reply("Manze, that's not a valid amount!")
+            return
+        
+        # Try to detect category from description
+        category = _detect_expense_category(description)
+        
+        if log_expense(str(ctx.author.id), amt, description, category):
+            daily = get_daily_spending(str(ctx.author.id))
+            today_total = daily["total"] if daily else amt
+            await ctx.reply(f"✅ Logged: **KES {amt:,.2f}** — {description} ({category})\n📊 Today's total: **KES {today_total:,.2f}**")
+        else:
+            await ctx.reply("Eish, couldn't save that. Try again?")
+    except ValueError:
+        await ctx.reply("That amount doesn't look right. Try: `!spent 500 lunch`")
+
+
+@bot.command(name="budget")
+async def cmd_budget(ctx):
+    """View budget summary."""
+    summary = format_budget_summary(str(ctx.author.id))
+    await ctx.send(summary)
+
+
+@bot.command(name="setbudget")
+async def cmd_setbudget(ctx, amount: str):
+    """Set monthly budget limit."""
+    try:
+        amt = float(amount.replace(",", "").replace("KES", "").replace("ksh", "").strip())
+        if set_budget_limit(str(ctx.author.id), amt):
+            await ctx.reply(f"✅ Monthly budget set to **KES {amt:,.2f}**. I'll keep you accountable, manze!")
+        else:
+            await ctx.reply("Couldn't set budget. Try again?")
+    except ValueError:
+        await ctx.reply("Invalid amount. Try: `!setbudget 50000`")
+
+
+@bot.command(name="buy")
+async def cmd_buy(ctx, ticker: str, shares: str, price: str):
+    """Add a stock holding. Usage: !buy SCOM 100 25.50"""
+    try:
+        s = float(shares)
+        p = float(price.replace(",", ""))
+        if add_holding(str(ctx.author.id), ticker.upper(), s, p):
+            total = s * p
+            await ctx.reply(f"✅ Added: **{s:.0f} shares of {ticker.upper()}** at KES {p:,.2f} (Total: KES {total:,.2f})")
+        else:
+            await ctx.reply("Couldn't add that holding. Try again?")
+    except ValueError:
+        await ctx.reply("Format: `!buy SCOM 100 25.50`")
+
+
+@bot.command(name="sell")
+async def cmd_sell(ctx, ticker: str):
+    """Remove a stock holding."""
+    if remove_holding(str(ctx.author.id), ticker.upper()):
+        await ctx.reply(f"✅ Removed **{ticker.upper()}** from your portfolio.")
+    else:
+        await ctx.reply(f"Couldn't find {ticker.upper()} in your portfolio.")
+
+
+@bot.command(name="portfolio")
+async def cmd_portfolio(ctx):
+    """View portfolio."""
+    summary = format_portfolio(str(ctx.author.id))
+    await ctx.send(summary)
+
+
+@bot.command(name="remind")
+async def cmd_remind(ctx, *, reminder_text: str):
+    """Set a reminder. Usage: !remind 5pm call mum | !remind in 2 hours check oven"""
+    try:
+        # Try to parse time from the text
+        # Split into time part and message part
+        eat_zone = pytz.timezone('Africa/Nairobi')
+        
+        # Common patterns: "5pm call mum", "in 2 hours check oven", "tomorrow 9am meeting"
+        parsed_time = dateparser.parse(
+            reminder_text,
+            settings={
+                'PREFER_DATES_FROM': 'future',
+                'TIMEZONE': 'Africa/Nairobi',
+                'RETURN_AS_TIMEZONE_AWARE': True,
+            }
+        )
+
+        if not parsed_time:
+            await ctx.reply("Couldn't figure out the time. Try: `!remind 5pm call mum` or `!remind in 2 hours check oven`")
+            return
+
+        # Extract the message (remove time-related words)
+        # Simple approach: use everything that dateparser didn't consume
+        message = reminder_text
+        time_words = ["in", "at", "on", "tomorrow", "today", "tonight", "am", "pm",
+                      "hour", "hours", "minute", "minutes", "min", "mins"]
+        for w in time_words:
+            message = re.sub(rf'\b{w}\b', '', message, flags=re.IGNORECASE)
+        # Remove numbers that are likely part of the time
+        message = re.sub(r'\b\d{1,2}:\d{2}\b', '', message)
+        message = re.sub(r'\b\d{1,2}\s*(?:am|pm)\b', '', message, flags=re.IGNORECASE)
+        message = message.strip(' ,.-')
+        
+        if not message:
+            message = "Reminder!"
+
+        if add_reminder(str(ctx.author.id), str(ctx.channel.id), parsed_time, message):
+            time_str = parsed_time.strftime("%I:%M %p on %b %d")
+            await ctx.reply(f"⏰ Sawa! I'll remind you: **{message}** at **{time_str}** (EAT)")
+        else:
+            await ctx.reply("Couldn't set that reminder. Try again?")
+    except Exception as e:
+        logger.error(f"Remind error: {e}")
+        await ctx.reply("Something went wrong. Try: `!remind 5pm call mum`")
+
+
+@bot.command(name="reminders")
+async def cmd_reminders(ctx):
+    """List pending reminders."""
+    reminders = get_user_reminders(str(ctx.author.id))
+    if not reminders:
+        await ctx.reply("No pending reminders! Set one with `!remind 5pm do something`")
+        return
+    lines = ["⏰ **Your Reminders:**\n"]
+    for r in reminders:
+        time_str = r["remind_at"].strftime("%I:%M %p, %b %d")
+        lines.append(f"• **{r['text']}** — {time_str}")
+    await ctx.send("\n".join(lines))
+
+
+@bot.command(name="news")
+async def cmd_news(ctx):
+    """Get latest news now."""
+    async with ctx.typing():
+        news = get_latest_news("Kenya", max_results=5)
+        if news:
+            await ctx.send(news)
+        else:
+            await ctx.reply("Couldn't fetch news right now. Try again?")
+
+
+@bot.command(name="setnews")
+async def cmd_setnews(ctx):
+    """Set current channel for daily morning news briefing."""
+    if not ctx.guild:
+        await ctx.reply("This only works in a server, not DMs!")
+        return
+    if set_news_channel(str(ctx.guild.id), str(ctx.channel.id)):
+        await ctx.reply(f"✅ Daily news will be posted here every morning at 7:00 AM EAT!\nTopics: Kenya, business, technology")
+    else:
+        await ctx.reply("Couldn't set up news. Try again?")
+
+
+@bot.command(name="reset")
+async def cmd_reset(ctx):
+    """Clear chat history."""
+    from memory import clear_chat_history
+    clear_chat_history(str(ctx.author.id))
+    await ctx.reply("🗑️ Chat history cleared! Fresh start, manze.")
+
+
+@bot.command(name="forget")
+async def cmd_forget(ctx):
+    """Clear Emily's memory about you."""
+    from memory import clear_user_facts
+    clear_user_facts(str(ctx.author.id))
+    await ctx.reply("🧠 I've forgotten everything about you. We're strangers now, but not for long!")
+
+
+# ══════════════════════════════════════════════
+# EXPENSE CATEGORY DETECTOR
+# ══════════════════════════════════════════════
+def _detect_expense_category(description):
+    """Auto-detect expense category from description."""
+    desc = description.lower()
+    categories = {
+        "food": ["lunch", "dinner", "breakfast", "snack", "coffee", "tea", "meal", "restaurant",
+                 "java", "kfc", "pizza", "burger", "fries", "chapati", "ugali", "nyama",
+                 "mandazi", "samosa", "food", "eat", "supper", "brunch"],
+        "transport": ["uber", "bolt", "taxi", "matatu", "bus", "fare", "fuel", "petrol",
+                     "parking", "boda", "bodaboda", "sgr", "flight", "airfare", "transport"],
+        "shopping": ["clothes", "shoes", "shopping", "naivas", "carrefour", "quickmart",
+                    "supermarket", "mall", "buy", "purchase", "gift"],
+        "bills": ["rent", "electricity", "water", "wifi", "internet", "kplc", "safaricom",
+                 "airtel", "bill", "subscription", "netflix", "spotify", "dstv", "showmax"],
+        "health": ["hospital", "doctor", "pharmacy", "medicine", "medical", "nhif", "dental",
+                  "gym", "clinic", "drugs", "chemist"],
+        "entertainment": ["movie", "cinema", "concert", "drinks", "bar", "club", "party",
+                         "game", "bet", "sportpesa", "fun"],
+        "savings": ["mpesa", "m-pesa", "save", "invest", "sacco", "bank", "deposit"],
+    }
+    for cat, keywords in categories.items():
+        if any(k in desc for k in keywords):
+            return cat
+    return "general"
 
 @bot.event
 async def on_message(message):
     if message.author == bot.user:
         return
+
+    # Process prefix commands (! commands) first — these work without @mention
+    if message.content.startswith("!"):
+        await bot.process_commands(message)
+        return
+
     if not (bot.user.mentioned_in(message) or isinstance(message.channel, discord.DMChannel)):
         return
 
@@ -1152,6 +1487,42 @@ async def on_message(message):
                 if url_parts:
                     user_parts.extend(url_parts)
                     logger.info(f"Fetched {len(fetched_urls)} URL(s): {fetched_urls}")
+
+            # ─── NATURAL LANGUAGE SPENDING DETECTION ───
+            if clean_msg:
+                spend_match = re.search(
+                    r'(?:i\s+)?(?:spent|paid|used|bought|cost)\s+(?:KES\s*|Ksh\s*)?(\d[\d,]*\.?\d*)\s+(?:on\s+|for\s+)?(.+)',
+                    clean_msg, re.IGNORECASE
+                )
+                if not spend_match:
+                    spend_match = re.search(
+                        r'(?:KES\s*|Ksh\s*)(\d[\d,]*\.?\d*)\s+(?:on|for)\s+(.+)',
+                        clean_msg, re.IGNORECASE
+                    )
+                if spend_match:
+                    try:
+                        amount = float(spend_match.group(1).replace(",", ""))
+                        desc = spend_match.group(2).strip().rstrip('.!?')
+                        category = _detect_expense_category(desc)
+                        if amount > 0 and log_expense(user_id, amount, desc, category):
+                            daily = get_daily_spending(user_id)
+                            today_total = daily["total"] if daily else amount
+                            budget_note = ""
+                            limit = get_budget_limit(user_id)
+                            monthly = get_monthly_spending(user_id)
+                            if limit and monthly:
+                                remaining = limit - monthly["total"]
+                                if remaining > 0:
+                                    budget_note = f"\n💰 Monthly: KES {monthly['total']:,.2f} / KES {limit:,.2f} (KES {remaining:,.2f} left)"
+                                else:
+                                    budget_note = f"\n⚠️ Monthly: KES {monthly['total']:,.2f} / KES {limit:,.2f} — **Over budget!**"
+                            log_reply = f"✅ Logged: **KES {amount:,.2f}** — {desc} ({category})\n📊 Today's total: **KES {today_total:,.2f}**{budget_note}"
+                            await message.reply(log_reply)
+                            add_message_to_history(user_id, "user", [{"text": clean_msg}])
+                            add_message_to_history(user_id, "model", [{"text": log_reply}])
+                            # Don't return — still let Emily respond naturally about the spending
+                    except (ValueError, IndexError):
+                        pass  # Not a valid spend, continue normally
 
             # ─── STOCK AUTO-DETECT ───
             if clean_msg:
