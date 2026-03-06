@@ -1408,8 +1408,12 @@ async def on_message(message):
     if message.author == bot.user:
         return
 
-    # Process prefix commands (! commands) first — these work without @mention
-    if message.content.startswith("!"):
+    # Process prefix commands (! commands) — works with or without @mention
+    # Strip mention to check if the actual message is a command
+    clean_content = re.sub(r'<@!?\d+>\s*', '', message.content).strip()
+    if clean_content.startswith("!"):
+        # Rewrite message content so discord.py can parse the command
+        message.content = clean_content
         await bot.process_commands(message)
         return
 
