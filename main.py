@@ -34,6 +34,11 @@ from tracker_tools import (
     add_reminder, get_due_reminders, mark_reminder_done, get_user_reminders,
     get_server_settings, update_server_setting, set_news_channel, get_news_servers,
 )
+from utility_tools import (
+    convert_currency, format_currency_result,
+    calculate_loan, calculate_mshwari, format_loan_result, format_mshwari_result,
+    generate_expense_pdf, get_daily_quote,
+)
 
 load_dotenv()
 logging.basicConfig(level=logging.INFO)
@@ -1176,29 +1181,38 @@ async def cmd_help(ctx):
     help_text = """
 **Emily's Commands** 🇰🇪
 
-**Budget Tracking:**
-• `!budget` — View your spending summary
-• `!spent <amount> <description>` — Log an expense (e.g. `!spent 500 lunch at Java`)
-• `!setbudget <amount>` — Set your monthly budget limit
+**💰 Budget Tracking:**
+• `!spent <amount> <description>` — Log expense (e.g. `!spent 500 lunch at Java`)
+• `!budget` — View spending summary
+• `!setbudget <amount>` — Set monthly limit
+• `!report` — Generate PDF expense report
 
-**Portfolio:**
-• `!portfolio` — View your stock holdings
-• `!buy <ticker> <shares> <price>` — Add a holding (e.g. `!buy SCOM 100 25.50`)
-• `!sell <ticker>` — Remove a holding
+**📈 Portfolio:**
+• `!buy <ticker> <shares> <price>` — Add holding (e.g. `!buy SCOM 100 25.50`)
+• `!sell <ticker>` — Remove holding
+• `!portfolio` — View your stocks
 
-**Reminders:**
-• `!remind <time> <message>` — Set a reminder (e.g. `!remind 5pm call mum`)
-• `!reminders` — View your pending reminders
+**💱 Finance Tools:**
+• `!convert <amount> <from> <to>` — Currency converter (e.g. `!convert 100 USD KES`)
+• `!loan <amount> <rate%> <months>` — Loan calculator (e.g. `!loan 500000 14 12`)
+• `!mshwari <amount>` — M-Shwari loan cost calculator
 
-**News:**
-• `!news` — Get latest Kenya news now
-• `!setnews` — Set this channel for daily morning briefings
+**⏰ Reminders:**
+• `!remind <time> <message>` — Set reminder (e.g. `!remind 5pm call mum`)
+• `!reminders` — View pending reminders
 
-**Utilities:**
-• `!reset` — Clear your chat history with Emily
+**📰 News & Fun:**
+• `!news` — Latest Kenya news
+• `!setnews` — Daily morning briefing in this channel
+• `!quote` — Kenyan proverb or motivation
+• `!music <mood>` — Music recommendations (e.g. `!music chill`)
+
+**⚙️ Utilities:**
+• `!reset` — Clear chat history
 • `!forget` — Clear Emily's memory about you
+• `!help` — This menu
 
-Or just chat with me naturally — I understand spending, portfolio, and reminder requests! 😊
+_Or just chat naturally — I understand spending, reminders, and more!_ 😊
 """
     await ctx.send(help_text)
 
@@ -1379,6 +1393,137 @@ async def cmd_forget(ctx):
     from memory import clear_user_facts
     clear_user_facts(str(ctx.author.id))
     await ctx.reply("🧠 I've forgotten everything about you. We're strangers now, but not for long!")
+
+
+@bot.command(name="convert")
+async def cmd_convert(ctx, amount: str, from_curr: str, to_curr: str = "KES"):
+    """Convert currency. Usage: !convert 100 USD KES"""
+    try:
+        amt = float(amount.replace(",", ""))
+        # Handle "to" keyword: !convert 100 USD to KES
+        if from_curr.lower() == "to":
+            await ctx.reply("Format: `!convert 100 USD KES`")
+            return
+        if to_curr.lower() == "to" and len(ctx.message.content.split()) > 4:
+            to_curr = ctx.message.content.split()[-1]
+
+        result, error = convert_currency(amt, from_curr, to_curr)
+        if result:
+            await ctx.send(format_currency_result(result))
+        else:
+            await ctx.reply(f"Couldn't convert: {error}")
+    except ValueError:
+        await ctx.reply("Format: `!convert 100 USD KES`")
+
+
+@bot.command(name="loan")
+async def cmd_loan(ctx, principal: str, rate: str, months: str, loan_type: str = "reducing"):
+    """Calculate loan repayment. Usage: !loan 500000 14 12 [reducing/flat]"""
+    try:
+        result, error = calculate_loan(
+            float(principal.replace(",", "")),
+            float(rate),
+            int(months),
+            loan_type.lower()
+        )
+        if result:
+            await ctx.send(format_loan_result(result))
+        else:
+            await ctx.reply(f"Couldn't calculate: {error}")
+    except ValueError:
+        await ctx.reply("Format: `!loan 500000 14 12` (principal, rate%, months)\nAdd `flat` for flat rate: `!loan 500000 14 12 flat`")
+
+
+@bot.command(name="mshwari")
+async def cmd_mshwari(ctx, amount: str, days: str = "30"):
+    """Calculate M-Shwari loan cost. Usage: !mshwari 5000 [days]"""
+    try:
+        result, error = calculate_mshwari(float(amount.replace(",", "")), int(days))
+        if result:
+            await ctx.send(format_mshwari_result(result))
+        else:
+            await ctx.reply(f"Couldn't calculate: {error}")
+    except ValueError:
+        await ctx.reply("Format: `!mshwari 5000` or `!mshwari 5000 60` (for 60 days)")
+
+
+@bot.command(name="report")
+async def cmd_report(ctx):
+    """Generate PDF expense report for this month."""
+    async with ctx.typing():
+        try:
+            user_id = str(ctx.author.id)
+            monthly = get_monthly_spending(user_id)
+            limit = get_budget_limit(user_id)
+
+            if not monthly or not monthly.get("entries"):
+                await ctx.reply("No expenses this month to report! Start logging with `!spent`")
+                return
+
+            user_name = ctx.author.display_name
+            pdf_bytes = generate_expense_pdf(user_name, monthly, limit)
+
+            if pdf_bytes:
+                now = datetime.now(pytz.timezone('Africa/Nairobi'))
+                filename = f"expense_report_{now.strftime('%B_%Y')}.pdf"
+                file = discord.File(io.BytesIO(pdf_bytes), filename=filename)
+                await ctx.reply(f"📄 Here's your expense report, {user_name}!", file=file)
+            else:
+                await ctx.reply("Couldn't generate the PDF. Try again?")
+        except Exception as e:
+            logger.error(f"Report error: {e}")
+            await ctx.reply(f"Report generation failed: {e}")
+
+
+@bot.command(name="quote")
+async def cmd_quote(ctx):
+    """Get a random Kenyan proverb or motivational quote."""
+    quote = get_daily_quote()
+    await ctx.send(quote)
+
+
+@bot.command(name="music")
+async def cmd_music(ctx, *, mood: str = "chill"):
+    """Get music recommendations. Usage: !music chill | !music workout | !music kenyan"""
+    async with ctx.typing():
+        try:
+            # Use Claude for music recommendations
+            eat_zone = pytz.timezone('Africa/Nairobi')
+            prompt = (
+                f"You are Emily, a Kenyan music lover. Recommend 5 songs/artists for the mood: '{mood}'. "
+                f"Include a mix of Kenyan/African and international music. "
+                f"For each song, give: Artist - Song Title and a one-line reason why. "
+                f"Keep it fun and opinionated. Use Kenyan slang. "
+                f"End with a YouTube search suggestion."
+            )
+            response = await asyncio.wait_for(
+                claude_client.messages.create(
+                    model=MODEL_CLAUDE,
+                    max_tokens=1024,
+                    messages=[{"role": "user", "content": prompt}],
+                ),
+                timeout=API_TIMEOUT_SECONDS,
+            )
+            text = ""
+            for block in response.content:
+                if block.type == "text":
+                    text += block.text
+            if text:
+                await send_chunked_reply(ctx.message, f"🎵 **Music for: {mood}**\n\n{text}")
+            else:
+                await ctx.reply("Couldn't think of recommendations right now. Try again?")
+        except Exception as e:
+            logger.error(f"Music recommendation error: {e}")
+            # Fallback to basic recommendations
+            await ctx.reply(
+                f"🎵 **Quick picks for '{mood}':**\n"
+                f"• Sauti Sol - Suzanna (always a vibe)\n"
+                f"• Burna Boy - Last Last (Afrobeats mood)\n"
+                f"• Tems - Free Mind (smooth & easy)\n"
+                f"• Bien - Basi (Kenyan classic)\n"
+                f"• Nyashinski - Malaika (feel-good)\n\n"
+                f"Search YouTube for more '{mood}' playlists, manze!"
+            )
 
 
 # ══════════════════════════════════════════════

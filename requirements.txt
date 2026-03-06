@@ -21,6 +21,7 @@ elevenlabs
 # === Document Processing ===
 pypdf
 python-docx
+fpdf2
 
 # === Video ===
 youtube-transcript-api
