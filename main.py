@@ -440,22 +440,36 @@ async def send_chunked_reply(message, response):
     if not response:
         await message.reply("Manze, I got nothing. Try again?")
         return
-    chunks = []
-    while len(response) > 2000:
-        split_at = response.rfind('\n', 0, 2000)
-        if split_at == -1:
-            split_at = response.rfind(' ', 0, 2000)
-        if split_at == -1:
-            split_at = 2000
-        chunks.append(response[:split_at])
-        response = response[split_at:].lstrip()
-    if response:
-        chunks.append(response)
-    for i, chunk in enumerate(chunks):
-        if i == 0:
-            await message.reply(chunk)
-        else:
-            await message.channel.send(chunk)
+
+    # Separate media URLs (GIFs/images) from text so Discord embeds them
+    media_pattern = re.compile(r'\n*\s*(https?://\S+\.(?:gif|png|jpg|jpeg|webp)(?:\?\S*)?)\s*\n*', re.IGNORECASE)
+    media_urls = media_pattern.findall(response)
+    # Remove media URLs from the main text
+    clean_response = media_pattern.sub('\n', response).strip()
+
+    # Send main text
+    if clean_response:
+        chunks = []
+        while len(clean_response) > 2000:
+            split_at = clean_response.rfind('\n', 0, 2000)
+            if split_at == -1:
+                split_at = clean_response.rfind(' ', 0, 2000)
+            if split_at == -1:
+                split_at = 2000
+            chunks.append(clean_response[:split_at])
+            clean_response = clean_response[split_at:].lstrip()
+        if clean_response:
+            chunks.append(clean_response)
+
+        for i, chunk in enumerate(chunks):
+            if i == 0:
+                await message.reply(chunk)
+            else:
+                await message.channel.send(chunk)
+
+    # Send media URLs as separate messages so Discord auto-embeds them
+    for url in media_urls[:3]:  # Limit to 3 media embeds
+        await message.channel.send(url)
 
 def _extract_sources(response):
     try:
