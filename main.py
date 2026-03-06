@@ -1351,13 +1351,18 @@ async def cmd_news(ctx):
 @bot.command(name="setnews")
 async def cmd_setnews(ctx):
     """Set current channel for daily morning news briefing."""
-    if not ctx.guild:
-        await ctx.reply("This only works in a server, not DMs!")
-        return
-    if set_news_channel(str(ctx.guild.id), str(ctx.channel.id)):
-        await ctx.reply(f"✅ Daily news will be posted here every morning at 7:00 AM EAT!\nTopics: Kenya, business, technology")
-    else:
-        await ctx.reply("Couldn't set up news. Try again?")
+    try:
+        if not ctx.guild:
+            await ctx.reply("This only works in a server, not DMs!")
+            return
+        logger.info(f"Setting news channel: guild={ctx.guild.id}, channel={ctx.channel.id}")
+        if set_news_channel(str(ctx.guild.id), str(ctx.channel.id)):
+            await ctx.reply(f"✅ Daily news will be posted here every morning at 7:00 AM EAT!\nTopics: Kenya, business, technology")
+        else:
+            await ctx.reply("Couldn't set up news. Try again?")
+    except Exception as e:
+        logger.error(f"Setnews error: {e}")
+        await ctx.reply(f"Error setting up news: {e}")
 
 
 @bot.command(name="reset")
@@ -1402,6 +1407,23 @@ def _detect_expense_category(description):
         if any(k in desc for k in keywords):
             return cat
     return "general"
+
+
+# ══════════════════════════════════════════════
+# COMMAND ERROR HANDLER (catches all command errors)
+# ══════════════════════════════════════════════
+@bot.event
+async def on_command_error(ctx, error):
+    if isinstance(error, commands.CommandNotFound):
+        return  # Ignore unknown commands silently
+    elif isinstance(error, commands.MissingRequiredArgument):
+        await ctx.reply(f"Missing argument: `{error.param.name}`. Use `!help` to see usage.")
+    elif isinstance(error, commands.BadArgument):
+        await ctx.reply("Invalid argument. Check `!help` for the correct format.")
+    else:
+        logger.error(f"Command error in {ctx.command}: {error}")
+        await ctx.reply(f"Something went wrong: {error}")
+
 
 @bot.event
 async def on_message(message):
