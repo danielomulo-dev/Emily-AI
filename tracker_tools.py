@@ -53,7 +53,7 @@ def _now():
 # ══════════════════════════════════════════════
 def log_expense(user_id, amount, description, category="general"):
     """Log a spending entry."""
-    if not budgets_col:
+    if budgets_col is None:
         return False
     try:
         now = _now()
@@ -75,7 +75,7 @@ def log_expense(user_id, amount, description, category="general"):
 
 def get_daily_spending(user_id, date_str=None):
     """Get total spending for a specific day (default: today)."""
-    if not budgets_col:
+    if budgets_col is None:
         return None
     try:
         if not date_str:
@@ -94,7 +94,7 @@ def get_daily_spending(user_id, date_str=None):
 
 def get_monthly_spending(user_id, month_str=None):
     """Get total spending for a month (default: current month)."""
-    if not budgets_col:
+    if budgets_col is None:
         return None
     try:
         if not month_str:
@@ -133,7 +133,7 @@ def get_monthly_spending(user_id, month_str=None):
 
 def set_budget_limit(user_id, monthly_limit):
     """Set a monthly budget limit for a user."""
-    if not budgets_col:
+    if budgets_col is None:
         return False
     try:
         db["budget_limits"].update_one(
@@ -204,7 +204,7 @@ def format_budget_summary(user_id):
 # ══════════════════════════════════════════════
 def add_holding(user_id, ticker, shares, buy_price, notes=""):
     """Add a stock holding to portfolio."""
-    if not portfolio_col:
+    if portfolio_col is None:
         return False
     try:
         portfolio_col.update_one(
@@ -233,7 +233,7 @@ def add_holding(user_id, ticker, shares, buy_price, notes=""):
 
 def remove_holding(user_id, ticker):
     """Remove a stock from portfolio."""
-    if not portfolio_col:
+    if portfolio_col is None:
         return False
     try:
         result = portfolio_col.delete_one({
@@ -248,7 +248,7 @@ def remove_holding(user_id, ticker):
 
 def get_portfolio(user_id):
     """Get all holdings for a user."""
-    if not portfolio_col:
+    if portfolio_col is None:
         return []
     try:
         holdings = list(portfolio_col.find(
@@ -290,7 +290,7 @@ def format_portfolio(user_id):
 # ══════════════════════════════════════════════
 def add_reminder(user_id, channel_id, remind_at, text):
     """Schedule a reminder."""
-    if not reminders_col:
+    if reminders_col is None:
         return False
     try:
         reminders_col.insert_one({
@@ -310,7 +310,7 @@ def add_reminder(user_id, channel_id, remind_at, text):
 
 def get_due_reminders():
     """Get all pending reminders that are due."""
-    if not reminders_col:
+    if reminders_col is None:
         return []
     try:
         now = _now()
@@ -325,7 +325,7 @@ def get_due_reminders():
 
 def mark_reminder_done(reminder_id):
     """Mark a reminder as sent."""
-    if not reminders_col:
+    if reminders_col is None:
         return
     try:
         reminders_col.update_one(
@@ -338,7 +338,7 @@ def mark_reminder_done(reminder_id):
 
 def get_user_reminders(user_id):
     """Get all pending reminders for a user."""
-    if not reminders_col:
+    if reminders_col is None:
         return []
     try:
         return list(reminders_col.find({
@@ -355,7 +355,7 @@ def get_user_reminders(user_id):
 # ══════════════════════════════════════════════
 def get_server_settings(guild_id):
     """Get settings for a Discord server."""
-    if not server_settings_col:
+    if server_settings_col is None:
         return _default_settings(guild_id)
     try:
         doc = server_settings_col.find_one({"guild_id": str(guild_id)})
@@ -369,7 +369,7 @@ def get_server_settings(guild_id):
 
 def update_server_setting(guild_id, key, value):
     """Update a single setting for a server."""
-    if not server_settings_col:
+    if server_settings_col is None:
         return False
     try:
         server_settings_col.update_one(
@@ -402,7 +402,7 @@ def set_news_channel(guild_id, channel_id):
 
 def get_news_servers():
     """Get all servers with news enabled."""
-    if not server_settings_col:
+    if server_settings_col is None:
         return []
     try:
         return list(server_settings_col.find({"news_enabled": True}))
