@@ -39,6 +39,15 @@ from utility_tools import (
     calculate_loan, calculate_mshwari, format_loan_result, format_mshwari_result,
     generate_expense_pdf, get_daily_quote,
 )
+from watchparty_tools import (
+    add_to_watchlist, remove_from_watchlist, get_watchlist, vote_for_movie,
+    mark_as_watched, get_watch_history, get_random_pick, get_top_voted,
+    rate_movie, get_movie_ratings, get_group_top_rated,
+    schedule_watchparty, join_watchparty, get_next_watchparty,
+    get_due_watchparties, start_watchparty, end_watchparty,
+    format_watchlist, format_ratings, format_top_rated,
+    format_watch_history, format_watchparty,
+)
 
 load_dotenv()
 logging.basicConfig(level=logging.INFO)
@@ -1098,8 +1107,9 @@ async def on_ready():
 # ══════════════════════════════════════════════
 @tasks.loop(seconds=30)
 async def check_reminders():
-    """Check for due reminders every 30 seconds."""
+    """Check for due reminders and watch parties every 30 seconds."""
     try:
+        # Personal reminders
         due = get_due_reminders()
         for reminder in due:
             try:
@@ -1111,8 +1121,27 @@ async def check_reminders():
             except Exception as e:
                 logger.error(f"Reminder send error: {e}")
                 mark_reminder_done(reminder["_id"])
+
+        # Watch party notifications
+        due_parties = get_due_watchparties()
+        for party in due_parties:
+            try:
+                channel = bot.get_channel(int(party["channel_id"]))
+                if channel:
+                    mentions = " ".join([f"<@{uid}>" for uid in party.get("attendees", [])])
+                    await channel.send(
+                        f"🍿🎬 **WATCH PARTY TIME!**\n\n"
+                        f"**Now showing: {party['title']}**\n"
+                        f"{mentions}\n\n"
+                        f"Grab your snacks, manze! When you're done, use `!endparty` "
+                        f"and then rate it with `!rate {party['title']} <score>`!"
+                    )
+                start_watchparty(party["_id"])
+            except Exception as e:
+                logger.error(f"Watch party notify error: {e}")
+                start_watchparty(party["_id"])
     except Exception as e:
-        logger.error(f"Reminder loop error: {e}")
+        logger.error(f"Background task error: {e}")
 
 @check_reminders.before_loop
 async def before_reminders():
@@ -1182,37 +1211,51 @@ async def cmd_help(ctx):
 **Emily's Commands** 🇰🇪
 
 **💰 Budget Tracking:**
-• `!spent <amount> <description>` — Log expense (e.g. `!spent 500 lunch at Java`)
+• `!spent <amount> <description>` — Log expense
 • `!budget` — View spending summary
 • `!setbudget <amount>` — Set monthly limit
 • `!report` — Generate PDF expense report
 
 **📈 Portfolio:**
-• `!buy <ticker> <shares> <price>` — Add holding (e.g. `!buy SCOM 100 25.50`)
+• `!buy <ticker> <shares> <price>` — Add holding
 • `!sell <ticker>` — Remove holding
 • `!portfolio` — View your stocks
 
 **💱 Finance Tools:**
-• `!convert <amount> <from> <to>` — Currency converter (e.g. `!convert 100 USD KES`)
-• `!loan <amount> <rate%> <months>` — Loan calculator (e.g. `!loan 500000 14 12`)
-• `!mshwari <amount>` — M-Shwari loan cost calculator
+• `!convert <amount> <from> <to>` — Currency converter
+• `!loan <amount> <rate%> <months>` — Loan calculator
+• `!mshwari <amount>` — M-Shwari cost calculator
+
+**🎬 Watch Party:**
+• `!addmovie <title>` — Add to group watchlist
+• `!watchlist` — View all movies to watch
+• `!vote <title>` — Vote for a movie
+• `!pick` — Random movie pick
+• `!watchparty <title> <time>` — Schedule watch party
+• `!join` — Join the next watch party
+• `!endparty` — End current party
+• `!rate <score> <title>` — Rate a movie (1-10)
+• `!ratings <title>` — See ratings for a movie
+• `!toprated` — Group's best-rated movies
+• `!watched` — Watch history
+• `!filmnight` — Quick film night setup
 
 **⏰ Reminders:**
-• `!remind <time> <message>` — Set reminder (e.g. `!remind 5pm call mum`)
+• `!remind <time> <message>` — Set reminder
 • `!reminders` — View pending reminders
 
 **📰 News & Fun:**
 • `!news` — Latest Kenya news
-• `!setnews` — Daily morning briefing in this channel
-• `!quote` — Kenyan proverb or motivation
-• `!music <mood>` — Music recommendations (e.g. `!music chill`)
+• `!setnews` — Daily morning briefing
+• `!quote` — Kenyan proverb / motivation
+• `!music <mood>` — Music recommendations
 
 **⚙️ Utilities:**
 • `!reset` — Clear chat history
-• `!forget` — Clear Emily's memory about you
+• `!forget` — Clear Emily's memory
 • `!help` — This menu
 
-_Or just chat naturally — I understand spending, reminders, and more!_ 😊
+_Or just chat naturally — @ mention me anytime!_ 😊
 """
     await ctx.send(help_text)
 
@@ -1524,6 +1567,251 @@ async def cmd_music(ctx, *, mood: str = "chill"):
                 f"• Nyashinski - Malaika (feel-good)\n\n"
                 f"Search YouTube for more '{mood}' playlists, manze!"
             )
+
+
+# ══════════════════════════════════════════════
+# WATCH PARTY COMMANDS
+# ══════════════════════════════════════════════
+@bot.command(name="addmovie")
+async def cmd_addmovie(ctx, *, title: str):
+    """Add a movie to the group watchlist. Usage: !addmovie Inception"""
+    if not ctx.guild:
+        await ctx.reply("Watch parties are for servers, not DMs!")
+        return
+    result = add_to_watchlist(str(ctx.guild.id), title, str(ctx.author.id))
+    if result == "duplicate":
+        await ctx.reply(f"**{title}** is already on the watchlist!")
+    elif result:
+        count = len(get_watchlist(str(ctx.guild.id)))
+        await ctx.reply(f"🎬 Added **{title}** to the watchlist! ({count} movies total)\nVote for it: `!vote {title}`")
+    else:
+        await ctx.reply("Couldn't add that. Try again?")
+
+
+@bot.command(name="removemovie")
+async def cmd_removemovie(ctx, *, title: str):
+    """Remove a movie from the watchlist."""
+    if not ctx.guild:
+        return
+    if remove_from_watchlist(str(ctx.guild.id), title):
+        await ctx.reply(f"🗑️ Removed **{title}** from the watchlist.")
+    else:
+        await ctx.reply(f"Couldn't find **{title}** on the watchlist.")
+
+
+@bot.command(name="watchlist")
+async def cmd_watchlist(ctx):
+    """View the group watchlist."""
+    if not ctx.guild:
+        return
+    await ctx.send(format_watchlist(str(ctx.guild.id)))
+
+
+@bot.command(name="vote")
+async def cmd_vote(ctx, *, title: str):
+    """Vote for a movie on the watchlist."""
+    if not ctx.guild:
+        return
+    success, result = vote_for_movie(str(ctx.guild.id), title, str(ctx.author.id))
+    if success:
+        await ctx.reply(f"🗳️ Voted for **{title}**! ({result} total votes)")
+    else:
+        await ctx.reply(f"Couldn't vote: {result}")
+
+
+@bot.command(name="pick")
+async def cmd_pick(ctx):
+    """Randomly pick a movie from the watchlist."""
+    if not ctx.guild:
+        return
+    movie = get_random_pick(str(ctx.guild.id))
+    if movie:
+        await ctx.send(
+            f"🎲 **Emily picks... {movie['title']}!**\n\n"
+            f"Manze, the universe has spoken. No arguments! 🍿"
+        )
+    else:
+        await ctx.reply("Watchlist is empty! Add movies with `!addmovie`")
+
+
+@bot.command(name="topvoted")
+async def cmd_topvoted(ctx):
+    """See the most voted movies."""
+    if not ctx.guild:
+        return
+    top = get_top_voted(str(ctx.guild.id))
+    if not top:
+        await ctx.reply("No votes yet! Vote with `!vote <title>`")
+        return
+    lines = ["🗳️ **Most Voted:**\n"]
+    for i, m in enumerate(top, 1):
+        lines.append(f"**{i}.** {m['title']} — {m['vote_count']} vote{'s' if m['vote_count'] != 1 else ''}")
+    await ctx.send("\n".join(lines))
+
+
+@bot.command(name="rate")
+async def cmd_rate(ctx, score: str, *, title: str):
+    """Rate a movie 1-10. Usage: !rate 8 Inception"""
+    if not ctx.guild:
+        return
+    try:
+        s = int(score)
+        if not (1 <= s <= 10):
+            await ctx.reply("Score must be 1-10, manze!")
+            return
+        result = rate_movie(str(ctx.guild.id), title, str(ctx.author.id), s)
+        if result == "updated":
+            await ctx.reply(f"⭐ Updated your rating for **{title}** to **{s}/10**")
+        elif result:
+            await ctx.reply(f"⭐ Rated **{title}**: **{s}/10**! See all ratings: `!ratings {title}`")
+        else:
+            await ctx.reply("Couldn't save that rating.")
+    except ValueError:
+        await ctx.reply("Format: `!rate 8 Inception`")
+
+
+@bot.command(name="ratings")
+async def cmd_ratings(ctx, *, title: str):
+    """View all ratings for a movie."""
+    if not ctx.guild:
+        return
+    await ctx.send(format_ratings(str(ctx.guild.id), title))
+
+
+@bot.command(name="toprated")
+async def cmd_toprated(ctx):
+    """See the group's highest-rated movies."""
+    if not ctx.guild:
+        return
+    await ctx.send(format_top_rated(str(ctx.guild.id)))
+
+
+@bot.command(name="watched")
+async def cmd_watched(ctx, *, title: str = None):
+    """Mark a movie as watched, or view watch history."""
+    if not ctx.guild:
+        return
+    if title:
+        if mark_as_watched(str(ctx.guild.id), title):
+            await ctx.reply(f"✅ **{title}** marked as watched! Rate it: `!rate 8 {title}`")
+        else:
+            await ctx.reply(f"Couldn't find **{title}** on the watchlist.")
+    else:
+        await ctx.send(format_watch_history(str(ctx.guild.id)))
+
+
+@bot.command(name="watchparty")
+async def cmd_watchparty(ctx, *, args: str = None):
+    """Schedule a watch party. Usage: !watchparty Inception tonight 8pm"""
+    if not ctx.guild:
+        return
+
+    if not args:
+        # Show next scheduled party
+        party = get_next_watchparty(str(ctx.guild.id))
+        await ctx.send(format_watchparty(party))
+        return
+
+    try:
+        # Parse: title + time
+        # Try to extract time from the end of the string
+        eat_zone = pytz.timezone('Africa/Nairobi')
+        parsed_time = dateparser.parse(
+            args,
+            settings={
+                'PREFER_DATES_FROM': 'future',
+                'TIMEZONE': 'Africa/Nairobi',
+                'RETURN_AS_TIMEZONE_AWARE': True,
+            }
+        )
+
+        if not parsed_time:
+            await ctx.reply("Couldn't figure out the time. Try: `!watchparty Inception tonight 8pm`")
+            return
+
+        # Extract title (remove time-related words)
+        title = args
+        time_words = ["tonight", "tomorrow", "today", "at", "on", "pm", "am",
+                     "saturday", "sunday", "monday", "tuesday", "wednesday", "thursday", "friday"]
+        for w in time_words:
+            title = re.sub(rf'\b{w}\b', '', title, flags=re.IGNORECASE)
+        title = re.sub(r'\b\d{1,2}:\d{2}\b', '', title)
+        title = re.sub(r'\b\d{1,2}\s*(?:am|pm)\b', '', title, flags=re.IGNORECASE)
+        title = title.strip(' ,.-')
+
+        if not title:
+            await ctx.reply("What movie? Try: `!watchparty Inception tonight 8pm`")
+            return
+
+        if schedule_watchparty(str(ctx.guild.id), str(ctx.channel.id), title, parsed_time, str(ctx.author.id)):
+            time_str = parsed_time.strftime("%A, %b %d at %I:%M %p EAT")
+            await ctx.send(
+                f"🍿 **Watch Party Scheduled!**\n\n"
+                f"**Movie:** {title}\n"
+                f"**When:** {time_str}\n"
+                f"**Host:** {ctx.author.display_name}\n\n"
+                f"Join with `!join` — Emily will ping everyone when it's time!"
+            )
+        else:
+            await ctx.reply("Couldn't schedule that. Try again?")
+    except Exception as e:
+        logger.error(f"Watch party error: {e}")
+        await ctx.reply(f"Something went wrong: {e}")
+
+
+@bot.command(name="join")
+async def cmd_join(ctx):
+    """Join the next scheduled watch party."""
+    if not ctx.guild:
+        return
+    success, result = join_watchparty(str(ctx.guild.id), str(ctx.author.id))
+    if success:
+        await ctx.reply(f"🍿 You're in for **{result}**! See you there, manze!")
+    else:
+        await ctx.reply(result)
+
+
+@bot.command(name="endparty")
+async def cmd_endparty(ctx):
+    """End the current watch party and prompt for ratings."""
+    if not ctx.guild:
+        return
+    party = end_watchparty(str(ctx.guild.id))
+    if party:
+        await ctx.send(
+            f"🎬 **Watch party ended: {party['title']}**\n\n"
+            f"Hope you enjoyed it, manze! Now rate it:\n"
+            f"`!rate <score> {party['title']}`\n\n"
+            f"Example: `!rate 8 {party['title']}`"
+        )
+    else:
+        await ctx.reply("No active watch party to end.")
+
+
+@bot.command(name="filmnight")
+async def cmd_filmnight(ctx):
+    """Quick film night setup — shows watchlist, top voted, and asks Emily for a recommendation."""
+    if not ctx.guild:
+        return
+    async with ctx.typing():
+        watchlist_text = format_watchlist(str(ctx.guild.id))
+        top = get_top_voted(str(ctx.guild.id))
+
+        response = f"🎬🍿 **Film Night Setup!**\n\n{watchlist_text}\n\n"
+
+        if top:
+            response += "**Most voted:**\n"
+            for m in top[:3]:
+                response += f"🗳️ **{m['title']}** ({m['vote_count']} votes)\n"
+            response += "\n"
+
+        response += "**Quick actions:**\n"
+        response += "• `!pick` — Let fate decide\n"
+        response += "• `!watchparty <title> <time>` — Schedule it\n"
+        response += "• `!addmovie <title>` — Add more options\n"
+        response += "• `!vote <title>` — Cast your vote\n"
+
+        await send_chunked_reply(ctx.message, response)
 
 
 # ══════════════════════════════════════════════
