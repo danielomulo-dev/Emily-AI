@@ -4,6 +4,7 @@ import asyncio
 import logging
 import threading
 import io
+import random
 from collections import defaultdict
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from datetime import datetime, timedelta
@@ -47,6 +48,8 @@ from watchparty_tools import (
     get_due_watchparties, start_watchparty, end_watchparty,
     format_watchlist, format_ratings, format_top_rated,
     format_watch_history, format_watchparty,
+    set_movie_channel, get_movie_suggestion_servers, log_movie_suggestion,
+    get_past_suggestions, MOVIE_LANGUAGES, MOVIE_GENRES,
 )
 
 load_dotenv()
@@ -1100,6 +1103,8 @@ async def on_ready():
         check_reminders.start()
     if not daily_news_briefing.is_running():
         daily_news_briefing.start()
+    if not weekend_movie_suggestion.is_running():
+        weekend_movie_suggestion.start()
 
 
 # ══════════════════════════════════════════════
@@ -1201,6 +1206,164 @@ async def before_news():
     await bot.wait_until_ready()
 
 
+@tasks.loop(minutes=1)
+async def weekend_movie_suggestion():
+    """Suggest a movie every Friday, Saturday, and Sunday evening."""
+    try:
+        now = datetime.now(pytz.timezone('Africa/Nairobi'))
+        current_time = now.strftime("%H:%M")
+        day_of_week = now.weekday()  # 0=Monday, 4=Friday, 5=Saturday, 6=Sunday
+
+        # Only run on Friday (4), Saturday (5), Sunday (6)
+        if day_of_week not in (4, 5, 6):
+            return
+
+        servers = get_movie_suggestion_servers()
+        for server in servers:
+            suggest_time = server.get("suggest_time", "19:00")
+            if current_time != suggest_time:
+                continue
+
+            # Check if already suggested today
+            last_date = server.get("last_suggestion_date", "")
+            today = now.strftime("%Y-%m-%d")
+            if last_date == today:
+                continue
+
+            channel_id = server.get("channel_id")
+            if not channel_id:
+                continue
+
+            channel = bot.get_channel(int(channel_id))
+            if not channel:
+                continue
+
+            # Generate suggestion
+            suggestion = await _generate_movie_suggestion(str(server["guild_id"]))
+            if suggestion:
+                await channel.send(suggestion)
+                # Mark as suggested today
+                from watchparty_tools import movie_settings_col
+                if movie_settings_col is not None:
+                    movie_settings_col.update_one(
+                        {"guild_id": str(server["guild_id"])},
+                        {"$set": {"last_suggestion_date": today}}
+                    )
+                logger.info(f"Movie suggested to server {server['guild_id']}")
+
+    except Exception as e:
+        logger.error(f"Movie suggestion error: {e}")
+
+@weekend_movie_suggestion.before_loop
+async def before_movie_suggest():
+    await bot.wait_until_ready()
+
+
+async def _generate_movie_suggestion(guild_id):
+    """Use Gemini with search to find a real movie with ratings."""
+    try:
+        # Pick random language and genre for variety
+        language = random.choice(MOVIE_LANGUAGES)
+        genre = random.choice(MOVIE_GENRES)
+
+        # Get past suggestions to avoid repeats
+        past = get_past_suggestions(guild_id)
+        avoid_text = ""
+        if past:
+            avoid_text = f"Do NOT suggest any of these (already suggested): {', '.join(past[:20])}"
+
+        prompt = (
+            f"Suggest ONE specific {genre} movie/film in {language} language that would be great for a group watch party. "
+            f"The movie should be highly rated and well-known enough to have IMDB and Rotten Tomatoes scores. "
+            f"It can be from any decade. {avoid_text}\n\n"
+            f"You MUST search to find accurate ratings. Return EXACTLY this format:\n"
+            f"TITLE: [exact movie title]\n"
+            f"YEAR: [year]\n"
+            f"LANGUAGE: [language]\n"
+            f"GENRE: [genres]\n"
+            f"IMDB: [X.X/10]\n"
+            f"ROTTEN_TOMATOES: [XX%]\n"
+            f"DIRECTOR: [director name]\n"
+            f"PLOT: [2-3 sentence plot summary without spoilers]\n"
+            f"WHY_WATCH: [1-2 sentences on why this is perfect for a group watch, written as Emily — "
+            f"a fun Kenyan cinephile who uses slang like manze, aki, wueh]"
+        )
+
+        search_tool = types.Tool(google_search=types.GoogleSearch())
+        response = await _call_gemini_with_retry(
+            gemini_client.aio.models.generate_content,
+            model=MODEL_GEMINI,
+            contents=[types.Content(role="user", parts=[types.Part.from_text(text=prompt)])],
+            config=types.GenerateContentConfig(
+                tools=[search_tool],
+                system_instruction="You are a movie recommendation engine. Always use Google Search to find accurate IMDB and Rotten Tomatoes ratings. Never make up ratings.",
+                response_modalities=["TEXT"],
+            ),
+            timeout=20,
+        )
+
+        text = response.text.strip()
+
+        # Parse the structured response
+        title = _extract_field(text, "TITLE")
+        year = _extract_field(text, "YEAR")
+        language_found = _extract_field(text, "LANGUAGE")
+        genre_found = _extract_field(text, "GENRE")
+        imdb = _extract_field(text, "IMDB")
+        rt = _extract_field(text, "ROTTEN_TOMATOES") or _extract_field(text, "ROTTEN TOMATOES")
+        director = _extract_field(text, "DIRECTOR")
+        plot = _extract_field(text, "PLOT")
+        why = _extract_field(text, "WHY_WATCH") or _extract_field(text, "WHY WATCH")
+
+        if not title:
+            logger.warning(f"Movie suggestion parse failed: {text[:200]}")
+            return None
+
+        # Log to avoid repeats
+        log_movie_suggestion(guild_id, title, language_found, year, imdb, rt, genre_found, plot)
+
+        # Build the beautiful message
+        day_name = datetime.now(pytz.timezone('Africa/Nairobi')).strftime("%A")
+        message = (
+            f"🎬🍿 **Emily's {day_name} Movie Pick!**\n\n"
+            f"**{title}** ({year})\n"
+            f"🎭 {genre_found}\n"
+            f"🌍 {language_found}\n"
+            f"🎬 Directed by: {director}\n\n"
+        )
+
+        if imdb:
+            message += f"⭐ **IMDB:** {imdb}\n"
+        if rt:
+            message += f"🍅 **Rotten Tomatoes:** {rt}\n"
+
+        message += f"\n📖 **Plot:** {plot}\n"
+
+        if why:
+            message += f"\n💬 **Emily's take:** *{why}*\n"
+
+        message += (
+            f"\n────────────────────\n"
+            f"Watched it? Log it: `!watched {title}`\n"
+            f"Rate it: `!rate <score> {title}`"
+        )
+
+        return message
+
+    except Exception as e:
+        logger.error(f"Movie suggestion generation error: {e}")
+        return None
+
+
+def _extract_field(text, field_name):
+    """Extract a field value from structured text like 'TITLE: Inception'."""
+    pattern = rf'{field_name}:\s*(.+?)(?:\n|$)'
+    match = re.search(pattern, text, re.IGNORECASE)
+    if match:
+        return match.group(1).strip().strip('[]')
+    return None
+
+
 # ══════════════════════════════════════════════
 # BOT COMMANDS (!help, !budget, !portfolio, !remind, !news, !reset, !forget)
 # ══════════════════════════════════════════════
@@ -1227,18 +1390,19 @@ async def cmd_help(ctx):
 • `!mshwari <amount>` — M-Shwari cost calculator
 
 **🎬 Watch Party:**
-• `!addmovie <title>` — Add to group watchlist
-• `!watchlist` — View all movies to watch
-• `!vote <title>` — Vote for a movie
-• `!pick` — Random movie pick
-• `!watchparty <title> <time>` — Schedule watch party
-• `!join` — Join the next watch party
-• `!endparty` — End current party
+• `!watched <title>` — Log a movie you watched
 • `!rate <score> <title>` — Rate a movie (1-10)
-• `!ratings <title>` — See ratings for a movie
+• `!ratings <title>` — See group ratings
 • `!toprated` — Group's best-rated movies
-• `!watched` — Watch history
-• `!filmnight` — Quick film night setup
+• `!filmnight` — Full overview + stats
+• `!suggest` — Get a movie suggestion now
+• `!setmovienight [time]` — Auto-suggest Fri/Sat/Sun (e.g. `!setmovienight 19:00`)
+• `!addmovie <title>` — Add to group watchlist
+• `!watchlist` — View pending movies
+• `!vote <title>` — Vote for a movie
+• `!watchparty <title> <time>` — Schedule watch party
+• `!join` — Join next watch party
+• `!endparty` — End current party
 
 **⏰ Reminders:**
 • `!remind <time> <message>` — Set reminder
@@ -1619,21 +1783,6 @@ async def cmd_vote(ctx, *, title: str):
         await ctx.reply(f"Couldn't vote: {result}")
 
 
-@bot.command(name="pick")
-async def cmd_pick(ctx):
-    """Randomly pick a movie from the watchlist."""
-    if not ctx.guild:
-        return
-    movie = get_random_pick(str(ctx.guild.id))
-    if movie:
-        await ctx.send(
-            f"🎲 **Emily picks... {movie['title']}!**\n\n"
-            f"Manze, the universe has spoken. No arguments! 🍿"
-        )
-    else:
-        await ctx.reply("Watchlist is empty! Add movies with `!addmovie`")
-
-
 @bot.command(name="topvoted")
 async def cmd_topvoted(ctx):
     """See the most voted movies."""
@@ -1688,14 +1837,28 @@ async def cmd_toprated(ctx):
 
 @bot.command(name="watched")
 async def cmd_watched(ctx, *, title: str = None):
-    """Mark a movie as watched, or view watch history."""
+    """Log a movie as watched, or view watch history. Usage: !watched Inception"""
     if not ctx.guild:
         return
     if title:
-        if mark_as_watched(str(ctx.guild.id), title):
-            await ctx.reply(f"✅ **{title}** marked as watched! Rate it: `!rate 8 {title}`")
-        else:
-            await ctx.reply(f"Couldn't find **{title}** on the watchlist.")
+        guild_id = str(ctx.guild.id)
+        # First try marking existing watchlist entry
+        if not mark_as_watched(guild_id, title):
+            # Not on watchlist — add it directly as watched
+            add_to_watchlist(guild_id, title, str(ctx.author.id))
+            mark_as_watched(guild_id, title)
+        
+        # Get average rating if any exist
+        ratings = get_movie_ratings(guild_id, title)
+        rating_text = ""
+        if ratings:
+            avg = sum(r["score"] for r in ratings) / len(ratings)
+            rating_text = f" (Group average: **{avg:.1f}/10**)"
+        
+        await ctx.reply(
+            f"✅ **{title}** logged as watched!{rating_text}\n"
+            f"Rate it: `!rate <score> {title}` (e.g. `!rate 8 {title}`)"
+        )
     else:
         await ctx.send(format_watch_history(str(ctx.guild.id)))
 
@@ -1790,28 +1953,84 @@ async def cmd_endparty(ctx):
 
 @bot.command(name="filmnight")
 async def cmd_filmnight(ctx):
-    """Quick film night setup — shows watchlist, top voted, and asks Emily for a recommendation."""
+    """Film night overview — watch history, top rated, and group stats."""
     if not ctx.guild:
         return
     async with ctx.typing():
-        watchlist_text = format_watchlist(str(ctx.guild.id))
-        top = get_top_voted(str(ctx.guild.id))
+        guild_id = str(ctx.guild.id)
+        history = get_watch_history(guild_id, limit=10)
+        top = get_group_top_rated(guild_id, limit=5)
 
-        response = f"🎬🍿 **Film Night Setup!**\n\n{watchlist_text}\n\n"
+        response = "🎬🍿 **Film Night Overview!**\n\n"
 
+        # Top rated
         if top:
-            response += "**Most voted:**\n"
-            for m in top[:3]:
-                response += f"🗳️ **{m['title']}** ({m['vote_count']} votes)\n"
+            response += "🏆 **Group's Top Rated:**\n"
+            for i, m in enumerate(top, 1):
+                medal = ["🥇", "🥈", "🥉"][i-1] if i <= 3 else f"**{i}.**"
+                response += f"{medal} **{m['title']}** — {m['avg_score']:.1f}/10 ({m['num_ratings']} ratings)\n"
             response += "\n"
 
+        # Recent history
+        if history:
+            response += "📼 **Recently Watched:**\n"
+            for m in history[:5]:
+                date = m.get("watched_at", m.get("added_at", datetime.now(pytz.timezone('Africa/Nairobi')))).strftime("%b %d")
+                response += f"• **{m['title']}** — {date}\n"
+            response += "\n"
+
+        # Stats
+        all_history = get_watch_history(guild_id, limit=100)
+        response += f"📊 **Stats:** {len(all_history)} movies watched together\n\n"
+
         response += "**Quick actions:**\n"
-        response += "• `!pick` — Let fate decide\n"
-        response += "• `!watchparty <title> <time>` — Schedule it\n"
-        response += "• `!addmovie <title>` — Add more options\n"
-        response += "• `!vote <title>` — Cast your vote\n"
+        response += "• `!watched <title>` — Log a movie you just watched\n"
+        response += "• `!rate <score> <title>` — Rate it (1-10)\n"
+        response += "• `!toprated` — Full rankings\n"
+        response += "• `!ratings <title>` — See everyone's ratings\n"
 
         await send_chunked_reply(ctx.message, response)
+
+
+@bot.command(name="setmovienight")
+async def cmd_setmovienight(ctx, time: str = "19:00"):
+    """Set this channel for weekend movie suggestions. Usage: !setmovienight 19:00"""
+    if not ctx.guild:
+        await ctx.reply("This only works in a server!")
+        return
+    try:
+        # Validate time format
+        if not re.match(r'^\d{1,2}:\d{2}$', time):
+            await ctx.reply("Time format should be HH:MM (24hr), e.g. `!setmovienight 19:00`")
+            return
+
+        if set_movie_channel(str(ctx.guild.id), str(ctx.channel.id), time):
+            await ctx.reply(
+                f"✅ **Movie night configured!**\n\n"
+                f"Every **Friday, Saturday & Sunday** at **{time} EAT**, "
+                f"I'll suggest a movie with IMDB & Rotten Tomatoes ratings right here!\n\n"
+                f"Languages: English, French, German, Spanish, Korean\n"
+                f"Want one now? Try `!suggest`"
+            )
+        else:
+            await ctx.reply("Couldn't set that up. Try again?")
+    except Exception as e:
+        logger.error(f"Set movie night error: {e}")
+        await ctx.reply(f"Error: {e}")
+
+
+@bot.command(name="suggest")
+async def cmd_suggest(ctx):
+    """Get a movie suggestion right now (doesn't wait for the weekend)."""
+    if not ctx.guild:
+        await ctx.reply("This only works in a server!")
+        return
+    async with ctx.typing():
+        suggestion = await _generate_movie_suggestion(str(ctx.guild.id))
+        if suggestion:
+            await send_chunked_reply(ctx.message, suggestion)
+        else:
+            await ctx.reply("Couldn't come up with a suggestion right now. Try again, manze!")
 
 
 # ══════════════════════════════════════════════

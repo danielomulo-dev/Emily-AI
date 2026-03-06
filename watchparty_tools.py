@@ -459,3 +459,104 @@ def format_watchparty(party):
         f"**Attending ({attendees}):** {mentions}\n\n"
         f"Join with `!join` | Emily will ping everyone when it's time!"
     )
+
+
+# ══════════════════════════════════════════════
+# MOVIE SUGGESTION TRACKING
+# ══════════════════════════════════════════════
+suggestions_col = None
+movie_settings_col = None
+
+try:
+    if db is not None:
+        suggestions_col = db["movie_suggestions"]
+        movie_settings_col = db["movie_settings"]
+        suggestions_col.create_index([("guild_id", ASCENDING), ("suggested_at", DESCENDING)])
+        movie_settings_col.create_index([("guild_id", ASCENDING)])
+except Exception as e:
+    logger.error(f"Movie suggestion DB error: {e}")
+
+
+def set_movie_channel(guild_id, channel_id, suggest_time="19:00"):
+    """Set the channel and time for movie suggestions."""
+    if movie_settings_col is None:
+        return False
+    try:
+        movie_settings_col.update_one(
+            {"guild_id": str(guild_id)},
+            {"$set": {
+                "channel_id": str(channel_id),
+                "suggest_time": suggest_time,
+                "enabled": True,
+                "updated_at": _now(),
+            }},
+            upsert=True,
+        )
+        return True
+    except PyMongoError as e:
+        logger.error(f"Set movie channel error: {e}")
+        return False
+
+
+def get_movie_suggestion_servers():
+    """Get all servers with movie suggestions enabled."""
+    if movie_settings_col is None:
+        return []
+    try:
+        return list(movie_settings_col.find({"enabled": True}))
+    except PyMongoError as e:
+        logger.error(f"Movie servers error: {e}")
+        return []
+
+
+def log_movie_suggestion(guild_id, title, language, year, imdb_rating, rt_rating, genre, plot):
+    """Log a movie suggestion to avoid repeats."""
+    if suggestions_col is None:
+        return
+    try:
+        suggestions_col.insert_one({
+            "guild_id": str(guild_id),
+            "title": title,
+            "title_lower": title.lower().strip(),
+            "language": language,
+            "year": year,
+            "imdb_rating": imdb_rating,
+            "rt_rating": rt_rating,
+            "genre": genre,
+            "plot": plot,
+            "suggested_at": _now(),
+        })
+    except PyMongoError as e:
+        logger.error(f"Log suggestion error: {e}")
+
+
+def get_past_suggestions(guild_id, limit=50):
+    """Get previously suggested titles to avoid repeats."""
+    if suggestions_col is None:
+        return []
+    try:
+        docs = suggestions_col.find(
+            {"guild_id": str(guild_id)},
+            {"title_lower": 1}
+        ).sort("suggested_at", DESCENDING).limit(limit)
+        return [d["title_lower"] for d in docs]
+    except PyMongoError as e:
+        logger.error(f"Past suggestions error: {e}")
+        return []
+
+
+# Language/genre pools for variety
+MOVIE_LANGUAGES = [
+    "English",
+    "French",
+    "German",
+    "Spanish",
+    "Korean (K-drama/Korean cinema)",
+]
+
+MOVIE_GENRES = [
+    "thriller", "drama", "comedy", "sci-fi", "horror", "romance",
+    "action", "mystery", "documentary", "animation", "crime",
+    "war", "historical", "indie", "psychological thriller",
+    "dark comedy", "heist", "survival", "coming-of-age", "fantasy",
+]
