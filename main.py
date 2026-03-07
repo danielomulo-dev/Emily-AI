@@ -51,6 +51,10 @@ from watchparty_tools import (
     set_movie_channel, get_movie_suggestion_servers, log_movie_suggestion,
     get_past_suggestions, MOVIE_LANGUAGES, MOVIE_GENRES,
 )
+from trivia_tools import (
+    get_trivia_question, format_trivia_question, start_game, get_game,
+    record_answer, end_game, format_scores, EMOJI_OPTIONS, CATEGORY_NAMES,
+)
 
 load_dotenv()
 logging.basicConfig(level=logging.INFO)
@@ -76,6 +80,33 @@ _user_locks = defaultdict(asyncio.Lock)
 # --- MESSAGE DEDUP (prevent double replies) ---
 _processed_messages = set()
 MAX_DEDUP_SIZE = 500
+
+# --- VOICE CONVERSATION MODE (per user) ---
+_voice_mode_users = set()  # Users who want voice replies automatically
+
+# --- EMILY'S STATUS ROTATION ---
+EMILY_STATUSES = {
+    "morning": [
+        "☀️ Sipping chai in Nairobi",
+        "📰 Reading the morning news",
+        "💹 Checking the NSE opening",
+    ],
+    "afternoon": [
+        "🍳 Thinking about lunch...",
+        "📊 Analyzing market trends",
+        "🎬 Planning tonight's movie",
+    ],
+    "evening": [
+        "🍿 Movie time, manze!",
+        "🌆 Nairobi sunsets hit different",
+        "🎵 Vibing to Kenyan music",
+    ],
+    "night": [
+        "🌙 Burning the midnight oil",
+        "📚 Late night research mode",
+        "😴 Even Emily needs rest... almost",
+    ],
+}
 
 # --- TICKER MAP ---
 NAME_TO_TICKER = {
@@ -1092,6 +1123,7 @@ IMPORTANT:
 # ══════════════════════════════════════════════
 intents = discord.Intents.default()
 intents.message_content = True
+intents.members = True  # Needed for welcome messages
 bot = commands.Bot(command_prefix="!", intents=intents, help_command=None)
 
 @bot.event
@@ -1105,6 +1137,10 @@ async def on_ready():
         daily_news_briefing.start()
     if not weekend_movie_suggestion.is_running():
         weekend_movie_suggestion.start()
+    if not rotate_status.is_running():
+        rotate_status.start()
+    if not weekly_digest.is_running():
+        weekly_digest.start()
 
 
 # ══════════════════════════════════════════════
@@ -1365,6 +1401,150 @@ def _extract_field(text, field_name):
 
 
 # ══════════════════════════════════════════════
+# STATUS ROTATION (Emily changes presence by time of day)
+# ══════════════════════════════════════════════
+@tasks.loop(minutes=15)
+async def rotate_status():
+    """Update Emily's Discord status based on Nairobi time."""
+    try:
+        now = datetime.now(pytz.timezone('Africa/Nairobi'))
+        hour = now.hour
+
+        if 5 <= hour < 12:
+            period = "morning"
+        elif 12 <= hour < 17:
+            period = "afternoon"
+        elif 17 <= hour < 22:
+            period = "evening"
+        else:
+            period = "night"
+
+        status_text = random.choice(EMILY_STATUSES[period])
+        await bot.change_presence(activity=discord.CustomActivity(name=status_text))
+    except Exception as e:
+        logger.error(f"Status rotation error: {e}")
+
+@rotate_status.before_loop
+async def before_status():
+    await bot.wait_until_ready()
+
+
+# ══════════════════════════════════════════════
+# WEEKLY DIGEST (Sunday evening summary)
+# ══════════════════════════════════════════════
+@tasks.loop(minutes=1)
+async def weekly_digest():
+    """Send weekly summary to users on Sunday evening."""
+    try:
+        now = datetime.now(pytz.timezone('Africa/Nairobi'))
+        # Sunday = 6, at 18:00 EAT
+        if now.weekday() != 6 or now.strftime("%H:%M") != "18:00":
+            return
+
+        from tracker_tools import get_server_settings, server_settings_col
+        if server_settings_col is None:
+            return
+
+        # Get all servers that have news enabled (we'll reuse as "active servers")
+        servers = get_news_servers()
+        for server_config in servers:
+            try:
+                channel_id = server_config.get("news_channel_id")
+                if not channel_id:
+                    continue
+
+                # Check if already posted this week
+                last_digest = server_config.get("last_digest_date", "")
+                today = now.strftime("%Y-%m-%d")
+                if last_digest == today:
+                    continue
+
+                channel = bot.get_channel(int(channel_id))
+                if not channel or not channel.guild:
+                    continue
+
+                guild_id = str(channel.guild.id)
+
+                # Build digest
+                digest = "📋 **Emily's Weekly Roundup!** 🇰🇪\n\n"
+                digest += f"_Week ending {now.strftime('%B %d, %Y')}_\n\n"
+
+                # Movies watched this week
+                from watchparty_tools import get_watch_history
+                history = get_watch_history(guild_id, limit=50)
+                week_start = now - timedelta(days=7)
+                recent_movies = [m for m in history if m.get("watched_at") and m["watched_at"] >= week_start]
+                if recent_movies:
+                    digest += f"🎬 **Movies watched this week:** {len(recent_movies)}\n"
+                    for m in recent_movies[:5]:
+                        digest += f"  • {m['title']}\n"
+                    digest += "\n"
+
+                # Top rated
+                from watchparty_tools import get_group_top_rated
+                top = get_group_top_rated(guild_id, limit=3)
+                if top:
+                    digest += "🏆 **All-time top rated:**\n"
+                    for i, m in enumerate(top):
+                        medal = ["🥇", "🥈", "🥉"][i]
+                        digest += f"  {medal} {m['title']} ({m['avg_score']:.1f}/10)\n"
+                    digest += "\n"
+
+                # Weekly quote
+                from utility_tools import get_daily_quote
+                digest += get_daily_quote() + "\n\n"
+
+                digest += "_See you next week, manze! 💪_"
+
+                await channel.send(digest)
+
+                # Mark as posted
+                update_server_setting(guild_id, "last_digest_date", today)
+                logger.info(f"Weekly digest posted for guild {guild_id}")
+
+            except Exception as e:
+                logger.error(f"Digest error for server: {e}")
+
+    except Exception as e:
+        logger.error(f"Weekly digest loop error: {e}")
+
+@weekly_digest.before_loop
+async def before_digest():
+    await bot.wait_until_ready()
+
+
+# ══════════════════════════════════════════════
+# WELCOME MESSAGES
+# ══════════════════════════════════════════════
+@bot.event
+async def on_member_join(member):
+    """Greet new server members in Emily's style."""
+    try:
+        # Find the system/welcome channel
+        channel = member.guild.system_channel
+        if not channel:
+            # Try to find a #general or #welcome channel
+            for ch in member.guild.text_channels:
+                if any(name in ch.name.lower() for name in ["general", "welcome", "lobby", "chat"]):
+                    channel = ch
+                    break
+
+        if not channel:
+            return
+
+        greetings = [
+            f"Sasa {member.mention}! 👋 Welcome to **{member.guild.name}**, manze! I'm Emily — your resident finance expert, foodie, and cinephile. Ask me anything or type `!help` to see what I can do!",
+            f"Wueh! {member.mention} just walked in! 🎉 Welcome to **{member.guild.name}**! I'm Emily — think of me as that friend who knows about stocks, can recommend the perfect movie, AND will judge your cooking. Type `!help` to get started!",
+            f"Niaje {member.mention}! 😊 Welcome to **{member.guild.name}**! I'm Emily, your AI buddy from Nairobi. I do finance, film reviews, food tips, and vibes. Hit me up anytime or check `!help`!",
+            f"Aki, look who's here! {member.mention} welcome to **{member.guild.name}**! 🙌 I'm Emily — just mention me or use `!help` to see all the cool stuff I can do. From budget tracking to movie night picks, I got you!",
+        ]
+
+        await channel.send(random.choice(greetings))
+    except Exception as e:
+        logger.error(f"Welcome message error: {e}")
+
+
+# ══════════════════════════════════════════════
 # BOT COMMANDS (!help, !budget, !portfolio, !remind, !news, !reset, !forget)
 # ══════════════════════════════════════════════
 @bot.command(name="help")
@@ -1413,8 +1593,10 @@ async def cmd_help(ctx):
 • `!setnews` — Daily morning briefing
 • `!quote` — Kenyan proverb / motivation
 • `!music <mood>` — Music recommendations
+• `!trivia [category]` — Start trivia game (movie/finance/food/mixed)
 
-**⚙️ Utilities:**
+**🎙️ Voice & Settings:**
+• `!voicemode` — Toggle auto voice replies on/off
 • `!reset` — Clear chat history
 • `!forget` — Clear Emily's memory
 • `!help` — This menu
@@ -2034,6 +2216,117 @@ async def cmd_suggest(ctx):
 
 
 # ══════════════════════════════════════════════
+# TRIVIA GAME COMMANDS
+# ══════════════════════════════════════════════
+@bot.command(name="trivia")
+async def cmd_trivia(ctx, category: str = "mixed"):
+    """Start a trivia game. Usage: !trivia [movie/finance/food/mixed]"""
+    if not ctx.guild:
+        await ctx.reply("Trivia is for servers, not DMs!")
+        return
+
+    category = category.lower()
+    if category not in ("movie", "finance", "food", "mixed"):
+        await ctx.reply("Categories: `movie`, `finance`, `food`, or `mixed`")
+        return
+
+    # Check if game already active
+    if get_game(str(ctx.guild.id)):
+        await ctx.reply("A trivia game is already running! Wait for it to finish.")
+        return
+
+    total_questions = 5
+    game = start_game(str(ctx.guild.id), category, total_questions)
+
+    cat_name = CATEGORY_NAMES.get(category, "Trivia")
+    await ctx.send(
+        f"🎮 **{cat_name} starting!**\n"
+        f"**{total_questions} questions** — React with your answer!\n"
+        f"First correct answer gets the point. Let's go, manze! 🔥\n"
+        f"─────────────────"
+    )
+
+    # Run through questions
+    for q_num in range(1, total_questions + 1):
+        game["current"] = q_num
+        game["answered"] = set()
+
+        trivia = get_trivia_question(category)
+        question_text = format_trivia_question(trivia, category, q_num, total_questions)
+
+        q_msg = await ctx.send(question_text)
+
+        # Add reaction options
+        for i in range(len(trivia["options"])):
+            await q_msg.add_reaction(EMOJI_OPTIONS[i])
+
+        # Wait for answers (15 seconds)
+        def check(reaction, user):
+            return (
+                reaction.message.id == q_msg.id
+                and user != bot.user
+                and str(reaction.emoji) in EMOJI_OPTIONS[:len(trivia["options"])]
+                and str(user.id) not in game["answered"]
+            )
+
+        answered_users = []
+        end_time = asyncio.get_event_loop().time() + 15
+
+        while asyncio.get_event_loop().time() < end_time:
+            try:
+                remaining = end_time - asyncio.get_event_loop().time()
+                if remaining <= 0:
+                    break
+                reaction, user = await bot.wait_for('reaction_add', timeout=remaining, check=check)
+                emoji_index = EMOJI_OPTIONS.index(str(reaction.emoji))
+                is_correct = emoji_index == trivia["correct_index"]
+                game["answered"].add(str(user.id))
+                record_answer(str(ctx.guild.id), str(user.id), is_correct)
+                answered_users.append((user.display_name, is_correct))
+            except asyncio.TimeoutError:
+                break
+
+        # Reveal answer
+        correct_emoji = EMOJI_OPTIONS[trivia["correct_index"]]
+        result_text = f"\n✅ **Answer: {correct_emoji} {trivia['correct_answer']}**\n"
+
+        if answered_users:
+            correct_names = [name for name, correct in answered_users if correct]
+            wrong_names = [name for name, correct in answered_users if not correct]
+            if correct_names:
+                result_text += f"🎯 Got it right: {', '.join(correct_names)}\n"
+            if wrong_names:
+                result_text += f"❌ Missed it: {', '.join(wrong_names)}\n"
+        else:
+            result_text += "_No one answered! 😅_\n"
+
+        await ctx.send(result_text)
+
+        if q_num < total_questions:
+            await asyncio.sleep(3)
+
+    # Game over — show scores
+    game = end_game(str(ctx.guild.id))
+    scores_text = format_scores(game)
+    await ctx.send(f"\n─────────────────\n🏁 **Game Over!**\n\n{scores_text}")
+
+
+# ══════════════════════════════════════════════
+# VOICE MODE TOGGLE
+# ══════════════════════════════════════════════
+@bot.command(name="voicemode")
+async def cmd_voicemode(ctx):
+    """Toggle voice mode — Emily auto-sends voice replies."""
+    user_id = str(ctx.author.id)
+    if user_id in _voice_mode_users:
+        _voice_mode_users.discard(user_id)
+        await ctx.reply("🔇 Voice mode **OFF**. I'll reply with text only now.")
+    else:
+        _voice_mode_users.add(user_id)
+        await ctx.reply("🎙️ Voice mode **ON**! I'll send voice notes with my replies. Say `!voicemode` again to turn off.")
+
+
+# ══════════════════════════════════════════════
 # EXPENSE CATEGORY DETECTOR
 # ══════════════════════════════════════════════
 def _detect_expense_category(description):
@@ -2209,7 +2502,7 @@ async def on_message(message):
                     stock_data = await asyncio.to_thread(get_stock_price, detected_ticker)
                     if stock_data and "couldn't find" not in stock_data:
                         full_response = "Sawa, let me pull that up!\n\n" + stock_data
-                        if is_voice_input or wants_voice_reply:
+                        if is_voice_input or wants_voice_reply or user_id in _voice_mode_users:
                             if not await send_voice_reply(message, full_response):
                                 await send_chunked_reply(message, full_response)
                         else:
@@ -2234,7 +2527,7 @@ async def on_message(message):
             )
             full_response = response_text + source_links
 
-            if is_voice_input or wants_voice_reply:
+            if is_voice_input or wants_voice_reply or user_id in _voice_mode_users:
                 # Send voice note + text fallback
                 voice_sent = await send_voice_reply(message, response_text)
                 if not voice_sent:
