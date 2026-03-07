@@ -74,6 +74,11 @@ from spotify_tools import (
     save_guild_playlist, get_guild_playlist, get_all_guilds_with_playlists,
     set_music_channel,
 )
+from reddit_tools import (
+    get_trending_posts, get_investment_buzz, get_stock_mentions, search_reddit,
+    format_reddit_posts, format_investment_buzz, format_stock_mentions,
+    is_configured as reddit_configured,
+)
 
 load_dotenv()
 logging.basicConfig(level=logging.INFO)
@@ -1140,17 +1145,17 @@ IMPORTANT:
         final_text += s
         final_text, g = await _process_all_tags(
             r'\[\s*GIFS?:\s*(.*?)\s*\]', final_text,
-            lambda x: get_media_link(x, is_gif=True) or "*(GIF search failed.)*"
+            lambda x: get_media_link(x, is_gif=True) or ""
         )
         final_text += g
         final_text, i = await _process_all_tags(
             r'\[\s*(?:IMAGES?|IMGS?):\s*(.*?)\s*\]', final_text,
-            lambda x: get_media_link(x, is_gif=False) or "*(Image search failed.)*"
+            lambda x: get_media_link(x, is_gif=False) or ""
         )
         final_text += i
         final_text, v = await _process_all_tags(
             r'\[\s*VIDEOS?:\s*(.*?)\s*\]', final_text,
-            lambda x: search_video_link(x) or "*(Video search failed.)*"
+            lambda x: search_video_link(x) or ""
         )
         final_text += v
 
@@ -1927,6 +1932,9 @@ async def cmd_help(ctx):
     page2 = """**Emily's Commands** 🇰🇪 **(2/2)**
 
 **📰 Fun:** `!news` · `!setnews` · `!quote` · `!trivia` · `!roast` · `!debate` · `!learn`
+
+**📱 Reddit:**
+`!reddit <subreddit>` · `!wsb` · `!investbuzz` · `!stockreddit <ticker>` · `!rsearch <topic>`
 
 **🎯 Goals:** `!goal` · `!savinggoal` · `!goals` · `!saved` · `!addsaved` · `!progress` · `!done`
 
@@ -3147,6 +3155,82 @@ async def cmd_setmusic(ctx):
             )
     else:
         await ctx.reply("Couldn't set that up. Try again?")
+
+
+# ══════════════════════════════════════════════
+# REDDIT COMMANDS
+# ══════════════════════════════════════════════
+@bot.command(name="reddit")
+async def cmd_reddit(ctx, subreddit: str = "popular", sort: str = "hot"):
+    """Fetch trending posts from a subreddit. Usage: !reddit wallstreetbets [hot/new/top/rising]"""
+    if not reddit_configured():
+        await ctx.reply("Reddit isn't set up yet. Add `REDDIT_CLIENT_ID` and `REDDIT_CLIENT_SECRET` to env.")
+        return
+    async with ctx.typing():
+        # Clean subreddit name
+        sub = subreddit.strip().lower().replace("r/", "")
+        posts, error = await asyncio.to_thread(get_trending_posts, sub, sort, 5)
+        if posts:
+            await send_chunked_reply(ctx.message, format_reddit_posts(posts, f"r/{sub} — {sort.title()}"))
+        else:
+            await ctx.reply(f"Couldn't fetch r/{sub}: {error}")
+
+
+@bot.command(name="wsb")
+async def cmd_wsb(ctx):
+    """Get hot posts from r/wallstreetbets."""
+    if not reddit_configured():
+        await ctx.reply("Reddit isn't set up yet.")
+        return
+    async with ctx.typing():
+        posts, error = await asyncio.to_thread(get_trending_posts, "wallstreetbets", "hot", 5)
+        if posts:
+            await send_chunked_reply(ctx.message, format_reddit_posts(posts, "r/wallstreetbets — Hot 🔥"))
+        else:
+            await ctx.reply(f"Couldn't fetch WSB: {error}")
+
+
+@bot.command(name="investbuzz")
+async def cmd_investbuzz(ctx):
+    """Get top investment discussions across Reddit."""
+    if not reddit_configured():
+        await ctx.reply("Reddit isn't set up yet.")
+        return
+    async with ctx.typing():
+        posts = await asyncio.to_thread(get_investment_buzz, 7)
+        if posts:
+            await send_chunked_reply(ctx.message, format_investment_buzz(posts))
+        else:
+            await ctx.reply("No investment buzz right now!")
+
+
+@bot.command(name="stockreddit")
+async def cmd_stockreddit(ctx, *, ticker: str):
+    """Search Reddit for discussions about a stock. Usage: !stockreddit TSLA"""
+    if not reddit_configured():
+        await ctx.reply("Reddit isn't set up yet.")
+        return
+    async with ctx.typing():
+        ticker_clean = ticker.strip().upper().replace("$", "")
+        posts, error = await asyncio.to_thread(get_stock_mentions, ticker_clean, 5)
+        if posts:
+            await send_chunked_reply(ctx.message, format_stock_mentions(posts, ticker_clean))
+        else:
+            await ctx.reply(f"No Reddit discussions found for **{ticker_clean}**.")
+
+
+@bot.command(name="rsearch")
+async def cmd_rsearch(ctx, *, query: str):
+    """Search all of Reddit for a topic. Usage: !rsearch best budgeting apps"""
+    if not reddit_configured():
+        await ctx.reply("Reddit isn't set up yet.")
+        return
+    async with ctx.typing():
+        posts, error = await asyncio.to_thread(search_reddit, query, None, "relevance", 5)
+        if posts:
+            await send_chunked_reply(ctx.message, format_reddit_posts(posts, f"Reddit Search: {query}"))
+        else:
+            await ctx.reply(f"No results for '{query}' on Reddit.")
 
 
 # ══════════════════════════════════════════════
