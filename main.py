@@ -70,6 +70,7 @@ from spotify_tools import (
     format_playlist_analysis, format_playlist_recommendations,
     is_configured as spotify_configured, MOOD_PROFILES,
     save_guild_playlist, get_guild_playlist, get_all_guilds_with_playlists,
+    set_music_channel,
 )
 
 load_dotenv()
@@ -1351,17 +1352,43 @@ async def monday_music_drop():
         if now.weekday() != 0 or now.strftime("%H:%M") != "09:00":
             return
 
+        today = now.strftime("%Y-%m-%d")
+
         if not spotify_configured():
             return
 
-        servers = get_news_servers()
-        for server_config in servers:
-            channel_id = server_config.get("news_channel_id")
+        # Get all guilds with saved playlists (they have music settings)
+        all_guilds = get_all_guilds_with_playlists()
+        # Also check news servers as fallback
+        news_servers = get_news_servers()
+        news_guild_ids = {s["guild_id"] for s in news_servers}
+
+        # Build list of servers to post to
+        servers_to_post = []
+        for guild_data in all_guilds:
+            guild_id = guild_data["guild_id"]
+            music_ch = guild_data.get("music_channel_id")
+            if music_ch:
+                servers_to_post.append({"guild_id": guild_id, "channel_id": music_ch, "playlist_id": guild_data.get("playlist_id")})
+
+        # Fallback: servers with news channel but no music channel
+        for ns in news_servers:
+            already = any(s["guild_id"] == ns["guild_id"] for s in servers_to_post)
+            if not already:
+                saved = get_guild_playlist(ns["guild_id"])
+                playlist_id = saved.get("playlist_id") if saved else None
+                servers_to_post.append({"guild_id": ns["guild_id"], "channel_id": ns["news_channel_id"], "playlist_id": playlist_id})
+
+        for server in servers_to_post:
+            channel_id = server.get("channel_id")
             if not channel_id:
                 continue
 
-            last_music = server_config.get("last_music_date", "")
-            today = now.strftime("%Y-%m-%d")
+            guild_id = server["guild_id"]
+
+            # Check if already posted today
+            saved_data = get_guild_playlist(guild_id)
+            last_music = saved_data.get("last_music_date", "") if saved_data else ""
             if last_music == today:
                 continue
 
@@ -1369,24 +1396,26 @@ async def monday_music_drop():
             if not channel:
                 continue
 
-            guild_id = str(server_config["guild_id"])
-
             # Check if server has a saved playlist
-            saved = get_guild_playlist(guild_id)
+            playlist_id = server.get("playlist_id")
+            saved = get_guild_playlist(guild_id) if not playlist_id else None
+            if saved:
+                playlist_id = saved.get("playlist_id")
 
-            if saved and saved.get("playlist_id"):
+            if playlist_id:
                 # PERSONALIZED: Use saved playlist taste
                 result, error = await asyncio.to_thread(
-                    get_similar_to_playlist, saved["playlist_id"], 5
+                    get_similar_to_playlist, playlist_id, 5
                 )
                 if result and result.get("recommendations"):
                     analysis = result["analysis"]
                     recs = result["recommendations"]
                     top_genres = ", ".join([g for g, _ in analysis.get("top_genres", [])[:3]])
                     top_artists = ", ".join([a for a, _ in analysis.get("top_artists", [])[:3]])
+                    playlist_name = analysis.get("name", "Your Playlist")
 
                     lines = [f"🎵 **Emily's Monday Picks — Just For You** 🎯\n"]
-                    lines.append(f"_Based on your playlist: **{saved.get('playlist_name', 'Your Playlist')}**_")
+                    lines.append(f"_Based on your playlist: **{playlist_name}**_")
                     lines.append(f"_Your vibe: {top_genres}_\n")
 
                     for i, t in enumerate(recs, 1):
@@ -1396,7 +1425,10 @@ async def monday_music_drop():
                     lines.append(f"_Update your taste: `!setplaylist <link>` · Instant picks: `!tastify`_ 🎧")
 
                     await channel.send("\n".join(lines))
-                    update_server_setting(guild_id, "last_music_date", today)
+                    # Mark as posted today
+                    from spotify_tools import saved_playlists_col as _sp_col
+                    if _sp_col is not None:
+                        _sp_col.update_one({"guild_id": guild_id}, {"$set": {"last_music_date": today}}, upsert=True)
                     logger.info(f"Personalized Monday music for guild {guild_id}")
                     continue
 
@@ -1420,7 +1452,9 @@ async def monday_music_drop():
             lines.append(f"\n💡 _Want personalized picks? Share your playlist: `!setplaylist <link>`_ 🎧")
 
             await channel.send("\n".join(lines))
-            update_server_setting(guild_id, "last_music_date", today)
+            from spotify_tools import saved_playlists_col as _sp_col2
+            if _sp_col2 is not None:
+                _sp_col2.update_one({"guild_id": guild_id}, {"$set": {"last_music_date": today}}, upsert=True)
             logger.info(f"Random Monday music for guild {guild_id}: {mood}")
 
     except Exception as e:
@@ -3043,19 +3077,42 @@ async def cmd_setplaylist(ctx, *, playlist_url: str):
         await ctx.reply("Couldn't find a playlist ID. Share a Spotify playlist link!")
         return
 
-    # Get playlist name
     from spotify_tools import get_playlist
     data, error = await asyncio.to_thread(get_playlist, playlist_id)
     name = data.get("name", "Unknown") if data else "Unknown"
 
     if save_guild_playlist(str(ctx.guild.id), playlist_id, playlist_name=name, added_by=str(ctx.author.id)):
+        # Also save this channel as the music channel
+        set_music_channel(str(ctx.guild.id), str(ctx.channel.id))
         await ctx.reply(
             f"🎵 **Playlist saved: {name}**\n\n"
-            f"Every Monday, Emily will recommend songs based on this playlist's taste!\n"
-            f"You can also run `!tastify` anytime for instant recommendations."
+            f"Every Monday at 9am, Emily will post personalized picks **in this channel** based on your taste!\n"
+            f"Run `!tastify` anytime for instant recommendations."
         )
     else:
         await ctx.reply("Couldn't save that. Try again?")
+
+
+@bot.command(name="setmusic")
+async def cmd_setmusic(ctx):
+    """Set this channel for Monday music suggestions. Usage: !setmusic"""
+    if not ctx.guild:
+        await ctx.reply("This only works in a server!")
+        return
+    if set_music_channel(str(ctx.guild.id), str(ctx.channel.id)):
+        saved = get_guild_playlist(str(ctx.guild.id))
+        if saved and saved.get("playlist_id"):
+            await ctx.reply(
+                f"✅ Monday music will be posted **here** every Monday at 9am EAT!\n"
+                f"Based on your playlist: **{saved.get('playlist_name', 'Saved playlist')}**"
+            )
+        else:
+            await ctx.reply(
+                f"✅ Monday music will be posted **here** every Monday at 9am EAT!\n"
+                f"💡 Share your playlist with `!setplaylist <link>` for personalized picks!"
+            )
+    else:
+        await ctx.reply("Couldn't set that up. Try again?")
 
 
 # ══════════════════════════════════════════════

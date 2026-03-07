@@ -505,3 +505,23 @@ def get_all_guilds_with_playlists():
     except PyMongoError as e:
         logger.error(f"All playlists error: {e}")
         return []
+
+
+def set_music_channel(guild_id, channel_id):
+    """Save the music suggestions channel for a server."""
+    if saved_playlists_col is None:
+        return False
+    try:
+        saved_playlists_col.update_one(
+            {"guild_id": str(guild_id)},
+            {"$set": {
+                "guild_id": str(guild_id),
+                "music_channel_id": str(channel_id),
+                "updated_at": datetime.utcnow(),
+            }},
+            upsert=True,
+        )
+        return True
+    except PyMongoError as e:
+        logger.error(f"Set music channel error: {e}")
+        return False
