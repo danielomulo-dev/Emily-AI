@@ -28,6 +28,12 @@ try:
     mongo_client.admin.command('ping')
     db = mongo_client["emily_brain_db"]
     saved_playlists_col = db["saved_playlists"]
+    # Drop old unique index on guild_id only (prevents multiple playlists per guild)
+    try:
+        saved_playlists_col.drop_index("guild_id_1")
+        logger.info("Dropped old guild_id unique index")
+    except Exception:
+        pass  # Index doesn't exist, that's fine
     saved_playlists_col.create_index([("guild_id", ASCENDING), ("user_id", ASCENDING), ("label", ASCENDING)])
     logger.info("Spotify playlist storage connected!")
 except Exception as e:
