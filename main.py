@@ -64,6 +64,12 @@ from social_tools import (
     get_guilds_with_events, format_anniversaries,
     LEARNING_TOPICS,
 )
+from spotify_tools import (
+    search_tracks, get_recommendations, analyze_playlist, get_similar_to_playlist,
+    extract_playlist_id, format_search_results, format_recommendations,
+    format_playlist_analysis, format_playlist_recommendations,
+    is_configured as spotify_configured, MOOD_PROFILES,
+)
 
 load_dotenv()
 logging.basicConfig(level=logging.INFO)
@@ -1812,21 +1818,26 @@ async def cmd_help(ctx):
 • `!reminders` — View pending reminders
 
 **📰 News & Fun:**
-• `!news` — Latest Kenya news
-• `!setnews` — Daily morning briefing
-• `!quote` — Kenyan proverb / motivation
-• `!music <mood>` — Music recommendations
-• `!trivia [category]` — Trivia game (movie/finance/food/mixed)
-• `!roast [@someone]` — Emily roasts you or a friend
-• `!debate <topic>` — Debate Emily on any topic
-• `!learn [category]` — Learn something (finance/cooking/film)
+• `!news` `!setnews` `!quote`
+• `!trivia [movie/finance/food]` — Quiz game
+• `!roast [@someone]` — Get roasted
+• `!debate <topic>` — Argue with Emily
+• `!learn [finance/cooking/film]` — Daily lesson
 
-**🎯 Goals & Accountability:**
-• `!goal <description>` — Set a new goal
-• `!goals` — View your goals + progress
-• `!progress <number> <percent>` — Update progress
-• `!done <number>` — Complete a goal
-• `!dropgoal <number>` — Abandon a goal
+**🎵 Spotify:**
+• `!song <query>` — Search songs with Spotify links
+• `!vibes <mood>` — Recommendations (chill/hype/workout/party/afrobeats...)
+• `!analyze <playlist link>` — Analyze your playlist taste
+• `!tastify <playlist link>` — Get recommendations from your playlist
+
+**🎯 Goals & Savings:**
+• `!goal <text>` — Set a goal (percentage tracking)
+• `!savinggoal <amount> <text>` — Savings goal (amount tracking)
+• `!goals` — View all goals
+• `!saved <#> <amount>` — Set total saved
+• `!addsaved <#> <amount>` — Add to savings
+• `!progress <#> <percent>` — Update percentage
+• `!done <#>` — Complete a goal
 
 **🎂 Birthdays & Anniversaries:**
 • `!birthday <name> <date>` — Save a birthday
@@ -2884,6 +2895,77 @@ async def cmd_learn(ctx, category: str = None):
         except Exception as e:
             logger.error(f"Learn error: {e}")
             await ctx.reply("My teaching brain jammed. Try `!learn finance` or `!learn cooking`")
+
+
+# ══════════════════════════════════════════════
+# SPOTIFY COMMANDS
+# ══════════════════════════════════════════════
+@bot.command(name="song")
+async def cmd_song(ctx, *, query: str):
+    """Search for a song on Spotify. Usage: !song Suzanna Sauti Sol"""
+    if not spotify_configured():
+        await ctx.reply("Spotify isn't set up yet. Ask the admin to add `SPOTIFY_CLIENT_ID` and `SPOTIFY_CLIENT_SECRET`.")
+        return
+    async with ctx.typing():
+        tracks, error = await asyncio.to_thread(search_tracks, query)
+        if tracks:
+            await send_chunked_reply(ctx.message, format_search_results(tracks))
+        else:
+            await ctx.reply(f"No songs found for '{query}'. {error or ''}")
+
+
+@bot.command(name="vibes")
+async def cmd_vibes(ctx, *, mood: str = "chill"):
+    """Get Spotify recommendations by mood. Usage: !vibes chill | !vibes workout | !vibes afrobeats"""
+    if not spotify_configured():
+        await ctx.reply("Spotify isn't set up yet.")
+        return
+    async with ctx.typing():
+        mood_lower = mood.lower()
+        available = ", ".join(sorted(MOOD_PROFILES.keys()))
+        tracks, error = await asyncio.to_thread(get_recommendations, mood_lower)
+        if tracks:
+            await send_chunked_reply(ctx.message, format_recommendations(tracks, mood))
+        else:
+            await ctx.reply(f"No vibes for '{mood}'. Try one of these: {available}")
+
+
+@bot.command(name="analyze")
+async def cmd_analyze_playlist(ctx, *, playlist_url: str):
+    """Analyze a Spotify playlist. Usage: !analyze https://open.spotify.com/playlist/..."""
+    if not spotify_configured():
+        await ctx.reply("Spotify isn't set up yet.")
+        return
+    async with ctx.typing():
+        playlist_id = extract_playlist_id(playlist_url)
+        if not playlist_id:
+            await ctx.reply("Couldn't find a playlist ID. Share a Spotify playlist link!")
+            return
+
+        analysis, error = await asyncio.to_thread(analyze_playlist, playlist_id)
+        if analysis:
+            await send_chunked_reply(ctx.message, format_playlist_analysis(analysis))
+        else:
+            await ctx.reply(f"Couldn't analyze that playlist: {error}")
+
+
+@bot.command(name="tastify")
+async def cmd_tastify(ctx, *, playlist_url: str):
+    """Get song recommendations based on your playlist. Usage: !tastify https://open.spotify.com/playlist/..."""
+    if not spotify_configured():
+        await ctx.reply("Spotify isn't set up yet.")
+        return
+    async with ctx.typing():
+        playlist_id = extract_playlist_id(playlist_url)
+        if not playlist_id:
+            await ctx.reply("Couldn't find a playlist ID. Share a Spotify playlist link!")
+            return
+
+        result, error = await asyncio.to_thread(get_similar_to_playlist, playlist_id)
+        if result:
+            await send_chunked_reply(ctx.message, format_playlist_recommendations(result))
+        else:
+            await ctx.reply(f"Couldn't generate recommendations: {error}")
 
 
 # ══════════════════════════════════════════════
