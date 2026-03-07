@@ -265,8 +265,16 @@ def get_playlist(playlist_id):
         return None, "Spotify not configured"
 
     try:
-        # Simple fetch without field filtering — more reliable
-        data = _spotify_get(f"/playlists/{playlist_id}")
+        # Use minimal fields to keep response size manageable for large playlists
+        data = _spotify_get(f"/playlists/{playlist_id}", {
+            "fields": "name,owner(display_name),tracks.total,tracks.items(track(name,id,artists(name,id),popularity,duration_ms,external_urls))",
+            "market": "KE",
+        })
+
+        if not data:
+            # Retry without fields filter as fallback
+            logger.warning(f"Playlist fetch with fields failed, retrying without fields...")
+            data = _spotify_get(f"/playlists/{playlist_id}", {"market": "KE"})
 
         if not data:
             return None, "Couldn't fetch that playlist. Make sure it's public!"

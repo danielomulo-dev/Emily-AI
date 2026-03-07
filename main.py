@@ -3164,31 +3164,35 @@ async def cmd_testplaylist(ctx, *, playlist_url: str):
         await ctx.reply("Spotify not configured.")
         return
     async with ctx.typing():
-        from spotify_tools import extract_playlist_id, get_playlist
+        from spotify_tools import extract_playlist_id, _get_client_token, SPOTIFY_API_URL
+        import requests as req
+
         pid = extract_playlist_id(playlist_url)
         if not pid:
             await ctx.reply(f"Couldn't extract playlist ID from: {playlist_url}")
             return
 
-        await ctx.reply(f"Extracted playlist ID: `{pid}`\nFetching...")
+        await ctx.reply(f"Playlist ID: `{pid}`\nFetching directly...")
 
-        data, error = await asyncio.to_thread(get_playlist, pid)
-        if error:
-            await ctx.reply(f"❌ Error: {error}")
+        # Direct API call to see raw response
+        token = _get_client_token()
+        if not token:
+            await ctx.reply("❌ Couldn't get Spotify token!")
             return
 
-        name = data.get("name", "?")
-        owner = data.get("owner", {}).get("display_name", "?")
-        total = data.get("tracks", {}).get("total", 0)
-        items = len(data.get("tracks", {}).get("items", []))
-
-        await ctx.reply(
-            f"✅ **Playlist fetched!**\n"
-            f"Name: {name}\n"
-            f"Owner: {owner}\n"
-            f"Total tracks: {total}\n"
-            f"Items returned: {items}"
-        )
+        try:
+            resp = req.get(
+                f"{SPOTIFY_API_URL}/playlists/{pid}",
+                headers={"Authorization": f"Bearer {token}"},
+                params={"market": "KE", "fields": "name,owner(display_name),tracks.total"},
+                timeout=30,
+            )
+            await ctx.reply(
+                f"**Status:** {resp.status_code}\n"
+                f"**Response:** {resp.text[:500]}"
+            )
+        except Exception as e:
+            await ctx.reply(f"❌ Request error: {e}")
 
 
 # ══════════════════════════════════════════════
