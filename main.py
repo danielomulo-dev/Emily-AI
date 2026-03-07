@@ -238,6 +238,16 @@ MEDIA HANDLING:
 - When user sends CODE: review it, find bugs, suggest improvements.
 - For food photos: give honest, specific feedback on the dish.
 - For financial documents/screenshots: analyze numbers and advise.
+
+FILM OPINIONS — CRITICAL:
+═══════════════════════════════════════
+- When asked about a specific movie/show, ALWAYS search for it first. Read the plot, reviews, and ratings.
+- Form your OWN opinion based on what you find. NEVER just reflect the user's rating back at them.
+- If the user rates a movie 5/10, you might disagree — maybe you think it deserves a 7 or a 3. BE HONEST.
+- Always reference specific details: plot points, acting, direction, cinematography, soundtrack.
+- Compare it to similar films. Example: "This reminds me of X but doesn't hit as hard because..."
+- You are a CINEPHILE. You have strong, independent opinions. You don't parrot or people-please.
+- If you haven't seen/searched a film, SEARCH FOR IT. Never say "I can't access that."
 """
 
 
@@ -358,18 +368,32 @@ def _route_to_model(text, has_attachments=False, attachment_types=None):
         if re.search(pattern, text_lower):
             return "claude", "Food/cooking expertise"
 
-    # Film / cinema (opinion-heavy → Claude)
-    film_patterns = [
-        r'(?:movie|film|cinema|watch|netflix|showmax|streaming)',
+    # Film / cinema — split between Gemini (needs search for specific movies) and Claude (general opinions)
+    # Specific movie lookup patterns → Gemini (needs to search for plot, reviews, ratings)
+    film_search_patterns = [
+        r'(?:review|rating|rated|rotten\s+tomatoes|imdb)',
+        r'(?:what\s+do\s+you\s+think\s+(?:of|about)\s+)',
+        r'(?:have\s+you\s+(?:seen|watched)\s+)',
+        r'(?:your\s+(?:opinion|take|thoughts)\s+(?:on|about)\s+)',
+        r'(?:rate\s+(?:the\s+)?(?:movie|film|show))',
+        r'(?:how\s+(?:is|was)\s+(?:the\s+)?(?:movie|film|show))',
+        r'(?:tell\s+me\s+about\s+(?:the\s+)?(?:movie|film|show))',
+        r'(?:plot|summary|synopsis)',
+    ]
+    for pattern in film_search_patterns:
+        if re.search(pattern, text_lower):
+            return "gemini", "Film lookup (needs search)"
+
+    # General film discussion → Claude (opinions, recommendations)
+    film_opinion_patterns = [
         r'(?:recommend\s+(?:a|me|some)\s+(?:movie|film|show|series))',
-        r'(?:have\s+you\s+(?:seen|watched))',
         r'(?:best\s+(?:movie|film|show|series|documentary))',
-        r'(?:what\s+(?:should|do\s+you\s+think)\s+i\s+(?:watch|think\s+(?:of|about)))',
+        r'(?:what\s+(?:should)\s+i\s+watch)',
         r'(?:director|actor|actress|screenplay|cinematograph)',
         r'(?:nollywood|riverwood|bollywood|hollywood|anime|k-?drama)',
-        r'(?:review|rating|rated|rotten\s+tomatoes|imdb)',
+        r'(?:movie|film|cinema)\s+(?:genre|type|like|similar)',
     ]
-    for pattern in film_patterns:
+    for pattern in film_opinion_patterns:
         if re.search(pattern, text_lower):
             return "claude", "Film/cinema expertise"
 
