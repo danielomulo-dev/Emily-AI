@@ -44,8 +44,8 @@ def _now():
 # ══════════════════════════════════════════════
 # GOAL TRACKER
 # ══════════════════════════════════════════════
-def add_goal(user_id, goal_text, category="personal", deadline=None):
-    """Add a goal for a user."""
+def add_goal(user_id, goal_text, category="personal", deadline=None, target_amount=None):
+    """Add a goal for a user. target_amount enables amount-based tracking."""
     if goals_col is None:
         return False
     try:
@@ -56,6 +56,8 @@ def add_goal(user_id, goal_text, category="personal", deadline=None):
             "deadline": deadline,
             "status": "active",
             "progress": 0,
+            "target_amount": float(target_amount) if target_amount else None,
+            "saved_amount": 0,
             "check_ins": [],
             "created_at": _now(),
         })
@@ -116,6 +118,71 @@ def update_goal_progress(user_id, goal_index, progress, note=""):
         return False
 
 
+def update_saved_amount(user_id, goal_index, amount, mode="set"):
+    """
+    Update saved amount on a goal and auto-calculate percentage.
+    mode: 'set' = set total saved, 'add' = add to current saved
+    Returns: (success, result_dict) or (False, error_msg)
+    """
+    if goals_col is None:
+        return False, "Database not connected"
+    try:
+        goals = get_active_goals(user_id)
+        if goal_index < 0 or goal_index >= len(goals):
+            return False, "Invalid goal number"
+
+        goal = goals[goal_index]
+        target = goal.get("target_amount")
+        if not target:
+            return False, "This goal doesn't have a target amount. Use `!progress` for percentage-based goals."
+
+        current_saved = goal.get("saved_amount", 0)
+        if mode == "add":
+            new_saved = current_saved + float(amount)
+        else:
+            new_saved = float(amount)
+
+        new_saved = max(0, new_saved)
+        progress = min(100, int((new_saved / target) * 100))
+
+        check_in = {
+            "progress": progress,
+            "saved_amount": new_saved,
+            "note": f"Saved KES {new_saved:,.2f} / KES {target:,.2f}",
+            "date": _now(),
+        }
+
+        update_fields = {
+            "progress": progress,
+            "saved_amount": new_saved,
+        }
+
+        # Auto-complete if target reached
+        if new_saved >= target:
+            update_fields["status"] = "completed"
+            update_fields["completed_at"] = _now()
+
+        goals_col.update_one(
+            {"_id": goal["_id"]},
+            {
+                "$set": update_fields,
+                "$push": {"check_ins": check_in},
+            }
+        )
+
+        return True, {
+            "goal": goal["goal"],
+            "saved": new_saved,
+            "target": target,
+            "progress": progress,
+            "remaining": max(0, target - new_saved),
+            "completed": new_saved >= target,
+        }
+    except PyMongoError as e:
+        logger.error(f"Saved amount update error: {e}")
+        return False, f"Error: {e}"
+
+
 def complete_goal(user_id, goal_index):
     """Mark a goal as completed."""
     return update_goal_progress(user_id, goal_index, 100, "Goal completed!")
@@ -168,7 +235,7 @@ def format_goals(user_id):
     completed = get_completed_goals(user_id, limit=5)
 
     if not active and not completed:
-        return "No goals set! Start with `!goal Save 100K by December`"
+        return "No goals set! Start with:\n`!goal Save 3500 for water dispenser` (percentage tracking)\n`!savinggoal 3500 Water dispenser` (amount tracking)"
 
     lines = ["🎯 **Your Goals:**\n"]
 
@@ -177,16 +244,30 @@ def format_goals(user_id):
         for i, g in enumerate(active):
             bar = _progress_bar(g["progress"])
             deadline = f" (due: {g['deadline'].strftime('%b %d')})" if g.get("deadline") else ""
-            lines.append(f"**{i+1}.** {g['goal']} {bar} {g['progress']}%{deadline}")
+
+            # Show amounts for financial goals
+            target = g.get("target_amount")
+            saved = g.get("saved_amount", 0)
+            if target:
+                amount_str = f" — KES {saved:,.0f} / {target:,.0f}"
+                lines.append(f"**{i+1}.** {g['goal']} {bar} {g['progress']}%{amount_str}{deadline}")
+            else:
+                lines.append(f"**{i+1}.** {g['goal']} {bar} {g['progress']}%{deadline}")
         lines.append("")
 
     if completed:
-        lines.append("**Completed:**")
+        lines.append("**Completed:** ✅")
         for g in completed:
             date = g.get("completed_at", g["created_at"]).strftime("%b %d")
-            lines.append(f"✅ ~~{g['goal']}~~ — {date}")
+            target = g.get("target_amount")
+            amount_str = f" (KES {target:,.0f})" if target else ""
+            lines.append(f"✅ ~~{g['goal']}~~{amount_str} — {date}")
 
-    lines.append(f"\nUpdate: `!progress <number> <percent>` | Complete: `!done <number>`")
+    lines.append(f"\n**Commands:**")
+    lines.append(f"`!saved <#> <amount>` — Update amount saved")
+    lines.append(f"`!addsaved <#> <amount>` — Add to current savings")
+    lines.append(f"`!progress <#> <percent>` — Update percentage")
+    lines.append(f"`!done <#>` — Complete a goal")
     return "\n".join(lines)
 
 

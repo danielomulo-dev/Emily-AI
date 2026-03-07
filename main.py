@@ -59,6 +59,7 @@ from social_tools import (
     add_goal, get_active_goals, update_goal_progress, complete_goal, remove_goal,
     get_completed_goals, get_all_users_with_goals, format_goals,
     get_stale_goals, generate_accountability_message,
+    update_saved_amount,
     add_anniversary, remove_anniversary, get_todays_events, get_upcoming_events,
     get_guilds_with_events, format_anniversaries,
     LEARNING_TOPICS,
@@ -2638,6 +2639,87 @@ async def cmd_dropgoal(ctx, goal_num: str):
             await ctx.reply("Invalid goal number. Check `!goals`.")
     except ValueError:
         await ctx.reply("Format: `!dropgoal 1`")
+
+
+@bot.command(name="savinggoal")
+async def cmd_savinggoal(ctx, amount: str, *, description: str):
+    """Set a savings goal with a target amount. Usage: !savinggoal 3500 Water dispenser"""
+    try:
+        target = float(amount.replace(",", "").replace("KES", "").replace("ksh", "").strip())
+        if target <= 0:
+            await ctx.reply("Target amount must be positive!")
+            return
+
+        if add_goal(str(ctx.author.id), description, category="savings", target_amount=target):
+            goals = get_active_goals(str(ctx.author.id))
+            await ctx.reply(
+                f"🎯 Savings goal set: **{description}**\n"
+                f"💰 Target: **KES {target:,.2f}**\n"
+                f"You have **{len(goals)}** active goal(s).\n\n"
+                f"Update with: `!saved {len(goals)} <amount>` or `!addsaved {len(goals)} <amount>`"
+            )
+        else:
+            await ctx.reply("Couldn't save that goal. Try again?")
+    except ValueError:
+        await ctx.reply("Format: `!savinggoal 3500 Water dispenser`")
+
+
+@bot.command(name="saved")
+async def cmd_saved(ctx, goal_num: str, amount: str):
+    """Set total amount saved for a goal. Usage: !saved 1 2600"""
+    try:
+        idx = int(goal_num) - 1
+        amt = float(amount.replace(",", "").replace("KES", "").replace("ksh", "").strip())
+
+        success, result = update_saved_amount(str(ctx.author.id), idx, amt, mode="set")
+        if success:
+            bar = f"[{'█' * (result['progress'] // 10)}{'░' * (10 - result['progress'] // 10)}]"
+            if result["completed"]:
+                await ctx.reply(
+                    f"🎉🏆 **GOAL COMPLETED: {result['goal']}!**\n"
+                    f"💰 Saved **KES {result['saved']:,.2f}** / KES {result['target']:,.2f}\n"
+                    f"Wueh, manze! You did it! 🔥"
+                )
+            else:
+                await ctx.reply(
+                    f"💰 **{result['goal']}**\n"
+                    f"{bar} **{result['progress']}%**\n"
+                    f"Saved: **KES {result['saved']:,.2f}** / KES {result['target']:,.2f}\n"
+                    f"Remaining: **KES {result['remaining']:,.2f}**"
+                )
+        else:
+            await ctx.reply(f"Couldn't update: {result}")
+    except ValueError:
+        await ctx.reply("Format: `!saved 1 2600` (goal number, total amount saved)")
+
+
+@bot.command(name="addsaved")
+async def cmd_addsaved(ctx, goal_num: str, amount: str):
+    """Add to current savings for a goal. Usage: !addsaved 1 500"""
+    try:
+        idx = int(goal_num) - 1
+        amt = float(amount.replace(",", "").replace("KES", "").replace("ksh", "").strip())
+
+        success, result = update_saved_amount(str(ctx.author.id), idx, amt, mode="add")
+        if success:
+            bar = f"[{'█' * (result['progress'] // 10)}{'░' * (10 - result['progress'] // 10)}]"
+            if result["completed"]:
+                await ctx.reply(
+                    f"🎉🏆 **GOAL COMPLETED: {result['goal']}!**\n"
+                    f"💰 Saved **KES {result['saved']:,.2f}** / KES {result['target']:,.2f}\n"
+                    f"You crushed it, manze! 🔥"
+                )
+            else:
+                await ctx.reply(
+                    f"💰 +KES {amt:,.2f} added!\n"
+                    f"**{result['goal']}** {bar} **{result['progress']}%**\n"
+                    f"Saved: **KES {result['saved']:,.2f}** / KES {result['target']:,.2f}\n"
+                    f"Remaining: **KES {result['remaining']:,.2f}**"
+                )
+        else:
+            await ctx.reply(f"Couldn't update: {result}")
+    except ValueError:
+        await ctx.reply("Format: `!addsaved 1 500` (goal number, amount to add)")
 
 
 # ══════════════════════════════════════════════
