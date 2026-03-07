@@ -1176,6 +1176,8 @@ async def on_ready():
         daily_news_briefing.start()
     if not weekend_movie_suggestion.is_running():
         weekend_movie_suggestion.start()
+    if not monday_music_drop.is_running():
+        monday_music_drop.start()
     if not rotate_status.is_running():
         rotate_status.start()
     if not weekly_digest.is_running():
@@ -1337,6 +1339,64 @@ async def weekend_movie_suggestion():
 
 @weekend_movie_suggestion.before_loop
 async def before_movie_suggest():
+    await bot.wait_until_ready()
+
+
+@tasks.loop(minutes=1)
+async def monday_music_drop():
+    """Post a Spotify mood playlist every Monday morning."""
+    try:
+        now = datetime.now(pytz.timezone('Africa/Nairobi'))
+        # Monday = 0, at 09:00 EAT
+        if now.weekday() != 0 or now.strftime("%H:%M") != "09:00":
+            return
+
+        if not spotify_configured():
+            return
+
+        servers = get_news_servers()  # Reuse news channel config
+        for server_config in servers:
+            channel_id = server_config.get("news_channel_id")
+            if not channel_id:
+                continue
+
+            last_music = server_config.get("last_music_date", "")
+            today = now.strftime("%Y-%m-%d")
+            if last_music == today:
+                continue
+
+            channel = bot.get_channel(int(channel_id))
+            if not channel:
+                continue
+
+            # Pick a random mood for the week
+            moods = ["chill", "hype", "happy", "workout", "party", "afrobeats", "romantic", "focus", "road trip"]
+            mood = random.choice(moods)
+            mood_emoji = {
+                "chill": "😌", "hype": "🔥", "happy": "☀️", "workout": "💪",
+                "party": "🎉", "afrobeats": "🌍", "romantic": "💕", "focus": "🧠", "road trip": "🚗",
+            }
+
+            tracks, error = await asyncio.to_thread(get_recommendations, mood, 5)
+            if not tracks:
+                continue
+
+            lines = [f"🎵 **Emily's Monday Playlist — {mood_emoji.get(mood, '🎧')} {mood.title()} Vibes**\n"]
+            lines.append(f"_Start your week right, manze!_\n")
+            for i, t in enumerate(tracks, 1):
+                lines.append(f"**{i}.** [{t['artists']} — {t['name']}]({t['url']})")
+
+            lines.append(f"\n_Want different vibes? Try `!vibes <mood>`_ 🎧")
+
+            await channel.send("\n".join(lines))
+            update_server_setting(str(server_config["guild_id"]), "last_music_date", today)
+            logger.info(f"Monday music posted for guild {server_config['guild_id']}: {mood}")
+
+    except Exception as e:
+        logger.error(f"Monday music error: {e}")
+
+@monday_music_drop.before_loop
+async def before_monday_music():
     await bot.wait_until_ready()
 
 
