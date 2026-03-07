@@ -1779,92 +1779,36 @@ Type `!help` for all my commands!"""
 @bot.command(name="help")
 async def cmd_help(ctx):
     """Show all available commands."""
-    help_text = """
-**Emily's Commands** 🇰🇪
+    page1 = """**Emily's Commands** 🇰🇪 **(1/2)**
 
-**💰 Budget Tracking:**
-• `!spent <amount> <description>` — Log expense
-• `!budget` — View spending summary
-• `!setbudget <amount>` — Set monthly limit
-• `!report` — Generate PDF expense report
-
-**📈 Portfolio:**
-• `!buy <ticker> <shares> <price>` — Add holding
-• `!sell <ticker>` — Remove holding
-• `!portfolio` — View your stocks
-
-**💱 Finance Tools:**
-• `!convert <amount> <from> <to>` — Currency converter
-• `!loan <amount> <rate%> <months>` — Loan calculator
-• `!mshwari <amount>` — M-Shwari cost calculator
+**💰 Budget:** `!spent 500 lunch` · `!budget` · `!setbudget 50000` · `!report`
+**📈 Portfolio:** `!buy SCOM 100 25` · `!sell SCOM` · `!portfolio`
+**💱 Finance:** `!convert 100 USD KES` · `!loan 500000 14 12` · `!mshwari 5000`
 
 **🎬 Watch Party:**
-• `!watched <title>` — Log a movie you watched
-• `!rate <score> <title>` — Rate a movie (1-10)
-• `!ratings <title>` — See group ratings
-• `!toprated` — Group's best-rated movies
-• `!filmnight` — Full overview + stats
-• `!suggest` — Get a movie suggestion now
-• `!setmovienight [time]` — Auto-suggest Fri/Sat/Sun (e.g. `!setmovienight 19:00`)
-• `!addmovie <title>` — Add to group watchlist
-• `!watchlist` — View pending movies
-• `!vote <title>` — Vote for a movie
-• `!watchparty <title> <time>` — Schedule watch party
-• `!join` — Join next watch party
-• `!endparty` — End current party
-
-**⏰ Reminders:**
-• `!remind <time> <message>` — Set reminder
-• `!reminders` — View pending reminders
-
-**📰 News & Fun:**
-• `!news` `!setnews` `!quote`
-• `!trivia [movie/finance/food]` — Quiz game
-• `!roast [@someone]` — Get roasted
-• `!debate <topic>` — Argue with Emily
-• `!learn [finance/cooking/film]` — Daily lesson
+`!watched` · `!rate` · `!ratings` · `!toprated` · `!filmnight`
+`!suggest` · `!setmovienight` · `!addmovie` · `!watchlist`
+`!vote` · `!watchparty` · `!join` · `!endparty`
 
 **🎵 Spotify:**
-• `!song <query>` — Search songs with Spotify links
-• `!vibes <mood>` — Recommendations (chill/hype/workout/party/afrobeats...)
-• `!analyze <playlist link>` — Analyze your playlist taste
-• `!tastify <playlist link>` — Get recommendations from your playlist
+`!song <query>` · `!vibes <mood>` · `!analyze <playlist>` · `!tastify <playlist>`
 
-**🎯 Goals & Savings:**
-• `!goal <text>` — Set a goal (percentage tracking)
-• `!savinggoal <amount> <text>` — Savings goal (amount tracking)
-• `!goals` — View all goals
-• `!saved <#> <amount>` — Set total saved
-• `!addsaved <#> <amount>` — Add to savings
-• `!progress <#> <percent>` — Update percentage
-• `!done <#>` — Complete a goal
+**⏰ Reminders:** `!remind 5pm call mum` · `!reminders`"""
 
-**🎂 Birthdays & Anniversaries:**
-• `!birthday <name> <date>` — Save a birthday
-• `!anniversary <name> <date>` — Save an anniversary
-• `!birthdays` — View all saved dates
+    page2 = """**Emily's Commands** 🇰🇪 **(2/2)**
 
-**🎙️ Voice & Settings:**
-• `!voicemode` — Toggle auto voice replies on/off
-• `!reset` — Clear chat history
-• `!forget` — Clear Emily's memory
-• `!help` — This menu
+**📰 Fun:** `!news` · `!setnews` · `!quote` · `!trivia` · `!roast` · `!debate` · `!learn`
 
-_Or just chat naturally — @ mention me anytime!_ 😊
-"""
-    # Split into chunks under 2000 chars
-    sections = help_text.split("\n\n")
-    current_chunk = ""
-    for section in sections:
-        if len(current_chunk) + len(section) + 2 > 1900:
-            if current_chunk.strip():
-                await ctx.send(current_chunk.strip())
-            current_chunk = section + "\n\n"
-        else:
-            current_chunk += section + "\n\n"
-    if current_chunk.strip():
-        await ctx.send(current_chunk.strip())
+**🎯 Goals:** `!goal` · `!savinggoal` · `!goals` · `!saved` · `!addsaved` · `!progress` · `!done`
 
+**🎂 Dates:** `!birthday <name> <date>` · `!anniversary <name> <date>` · `!birthdays`
+
+**🎙️ Settings:** `!voicemode` · `!reset` · `!forget` · `!help`
+
+_Or just @ mention me to chat!_ 😊"""
+
+    await ctx.send(page1)
+    await ctx.send(page2)
 
 @bot.command(name="spent")
 async def cmd_spent(ctx, amount: str, *, description: str = "General expense"):
