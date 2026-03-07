@@ -55,6 +55,14 @@ from trivia_tools import (
     get_trivia_question, format_trivia_question, start_game, get_game,
     record_answer, end_game, format_scores, EMOJI_OPTIONS, CATEGORY_NAMES,
 )
+from social_tools import (
+    add_goal, get_active_goals, update_goal_progress, complete_goal, remove_goal,
+    get_completed_goals, get_all_users_with_goals, format_goals,
+    get_stale_goals, generate_accountability_message,
+    add_anniversary, remove_anniversary, get_todays_events, get_upcoming_events,
+    get_guilds_with_events, format_anniversaries,
+    LEARNING_TOPICS,
+)
 
 load_dotenv()
 logging.basicConfig(level=logging.INFO)
@@ -1165,6 +1173,12 @@ async def on_ready():
         rotate_status.start()
     if not weekly_digest.is_running():
         weekly_digest.start()
+    if not daily_birthday_check.is_running():
+        daily_birthday_check.start()
+    if not accountability_check.is_running():
+        accountability_check.start()
+    if not daily_learning.is_running():
+        daily_learning.start()
 
 
 # ══════════════════════════════════════════════
@@ -1538,6 +1552,175 @@ async def before_digest():
 
 
 # ══════════════════════════════════════════════
+# DAILY BIRTHDAY / ANNIVERSARY CHECK
+# ══════════════════════════════════════════════
+@tasks.loop(minutes=1)
+async def daily_birthday_check():
+    """Check for birthdays/anniversaries every day at 8am EAT."""
+    try:
+        now = datetime.now(pytz.timezone('Africa/Nairobi'))
+        if now.strftime("%H:%M") != "08:00":
+            return
+
+        guilds = get_guilds_with_events()
+        for guild_id in guilds:
+            events = get_todays_events(guild_id)
+            if not events:
+                continue
+
+            # Find a channel to post in (news channel or general)
+            guild = bot.get_guild(int(guild_id))
+            if not guild:
+                continue
+
+            channel = guild.system_channel
+            if not channel:
+                for ch in guild.text_channels:
+                    if any(n in ch.name.lower() for n in ["general", "chat", "lobby"]):
+                        channel = ch
+                        break
+            if not channel:
+                continue
+
+            for event in events:
+                if event["event_type"] == "birthday":
+                    year = event["date"].year
+                    age = now.year - year if year < now.year else ""
+                    age_text = f" Turning **{age}**!" if age else ""
+                    await channel.send(
+                        f"🎂🎉 **Happy Birthday {event['name']}!**{age_text}\n\n"
+                        f"Wueh, it's your special day, manze! Everyone show some love! 🥳🎈"
+                    )
+                else:
+                    await channel.send(
+                        f"💍✨ **Happy Anniversary {event['name']}!**\n\n"
+                        f"Celebrating this milestone today! Congrats! 🥂"
+                    )
+    except Exception as e:
+        logger.error(f"Birthday check error: {e}")
+
+@daily_birthday_check.before_loop
+async def before_birthday():
+    await bot.wait_until_ready()
+
+
+# ══════════════════════════════════════════════
+# ACCOUNTABILITY CHECK (Wednesday evenings)
+# ══════════════════════════════════════════════
+@tasks.loop(minutes=1)
+async def accountability_check():
+    """Nudge users about stale goals every Wednesday at 6pm EAT."""
+    try:
+        now = datetime.now(pytz.timezone('Africa/Nairobi'))
+        if now.weekday() != 2 or now.strftime("%H:%M") != "18:00":
+            return
+
+        stale = get_stale_goals(days=5)
+        for goal in stale:
+            try:
+                user = bot.get_user(int(goal["user_id"]))
+                if user:
+                    msg = generate_accountability_message(goal)
+                    await user.send(f"⏰ **Accountability Check!**\n\n{msg}")
+            except Exception as e:
+                logger.error(f"Accountability DM error: {e}")
+    except Exception as e:
+        logger.error(f"Accountability check error: {e}")
+
+@accountability_check.before_loop
+async def before_accountability():
+    await bot.wait_until_ready()
+
+
+# ══════════════════════════════════════════════
+# DAILY LEARNING (posts at 12pm EAT)
+# ══════════════════════════════════════════════
+@tasks.loop(minutes=1)
+async def daily_learning():
+    """Post a daily learning nugget at noon EAT."""
+    try:
+        now = datetime.now(pytz.timezone('Africa/Nairobi'))
+        if now.strftime("%H:%M") != "12:00":
+            return
+
+        servers = get_news_servers()  # Reuse news channel config
+        for server_config in servers:
+            channel_id = server_config.get("news_channel_id")
+            if not channel_id:
+                continue
+
+            last_learn = server_config.get("last_learn_date", "")
+            today = now.strftime("%Y-%m-%d")
+            if last_learn == today:
+                continue
+
+            channel = bot.get_channel(int(channel_id))
+            if not channel:
+                continue
+
+            # Rotate category: Mon/Thu=finance, Tue/Fri=cooking, Wed/Sat=film, Sun=random
+            day = now.weekday()
+            if day in (0, 3):
+                cat = "finance"
+            elif day in (1, 4):
+                cat = "cooking"
+            elif day in (2, 5):
+                cat = "film"
+            else:
+                cat = random.choice(["finance", "cooking", "film"])
+
+            topic = random.choice(LEARNING_TOPICS[cat])
+            cat_emoji = {"finance": "💰", "cooking": "🍳", "film": "🎬"}[cat]
+
+            # Use Claude to generate the lesson
+            try:
+                lesson_response = await asyncio.wait_for(
+                    claude_client.messages.create(
+                        model=MODEL_CLAUDE,
+                        max_tokens=1024,
+                        system="You are Emily, a Kenyan woman. Write a fun, educational 3-4 paragraph lesson. Use Kenyan slang naturally. Include a practical tip at the end.",
+                        messages=[{"role": "user", "content": f"Teach me about: {topic}"}],
+                    ),
+                    timeout=API_TIMEOUT_SECONDS,
+                )
+                lesson_text = ""
+                for block in lesson_response.content:
+                    if block.type == "text":
+                        lesson_text += block.text
+
+                if lesson_text:
+                    message = (
+                        f"{cat_emoji} **Emily's Daily Lesson — {cat.title()}**\n\n"
+                        f"**Today's topic:** {topic}\n\n"
+                        f"{lesson_text}\n\n"
+                        f"_Learn something new every day with Emily!_ 📚"
+                    )
+                    await send_chunked_reply_to_channel(channel, message)
+                    update_server_setting(str(server_config["guild_id"]), "last_learn_date", today)
+            except Exception as e:
+                logger.error(f"Learning lesson generation error: {e}")
+
+    except Exception as e:
+        logger.error(f"Daily learning error: {e}")
+
+@daily_learning.before_loop
+async def before_learning():
+    await bot.wait_until_ready()
+
+
+async def send_chunked_reply_to_channel(channel, text):
+    """Send a long message to a channel (not as a reply)."""
+    while len(text) > 2000:
+        split_at = text.rfind('\n', 0, 2000)
+        if split_at == -1:
+            split_at = 2000
+        await channel.send(text[:split_at])
+        text = text[split_at:].lstrip()
+    if text:
+        await channel.send(text)
+
+
+# ══════════════════════════════════════════════
 # WELCOME MESSAGES
 # ══════════════════════════════════════════════
 @bot.event
@@ -1632,7 +1815,22 @@ async def cmd_help(ctx):
 • `!setnews` — Daily morning briefing
 • `!quote` — Kenyan proverb / motivation
 • `!music <mood>` — Music recommendations
-• `!trivia [category]` — Start trivia game (movie/finance/food/mixed)
+• `!trivia [category]` — Trivia game (movie/finance/food/mixed)
+• `!roast [@someone]` — Emily roasts you or a friend
+• `!debate <topic>` — Debate Emily on any topic
+• `!learn [category]` — Learn something (finance/cooking/film)
+
+**🎯 Goals & Accountability:**
+• `!goal <description>` — Set a new goal
+• `!goals` — View your goals + progress
+• `!progress <number> <percent>` — Update progress
+• `!done <number>` — Complete a goal
+• `!dropgoal <number>` — Abandon a goal
+
+**🎂 Birthdays & Anniversaries:**
+• `!birthday <name> <date>` — Save a birthday
+• `!anniversary <name> <date>` — Save an anniversary
+• `!birthdays` — View all saved dates
 
 **🎙️ Voice & Settings:**
 • `!voicemode` — Toggle auto voice replies on/off
@@ -2363,6 +2561,236 @@ async def cmd_voicemode(ctx):
     else:
         _voice_mode_users.add(user_id)
         await ctx.reply("🎙️ Voice mode **ON**! I'll send voice notes with my replies. Say `!voicemode` again to turn off.")
+
+
+# ══════════════════════════════════════════════
+# GOAL TRACKER COMMANDS
+# ══════════════════════════════════════════════
+@bot.command(name="goal")
+async def cmd_goal(ctx, *, goal_text: str):
+    """Set a new goal. Usage: !goal Save 100K by December"""
+    if add_goal(str(ctx.author.id), goal_text):
+        goals = get_active_goals(str(ctx.author.id))
+        await ctx.reply(f"🎯 Goal set: **{goal_text}**\nYou now have **{len(goals)}** active goal(s). Let's get it, manze! 💪")
+    else:
+        await ctx.reply("Couldn't save that goal. Try again?")
+
+
+@bot.command(name="goals")
+async def cmd_goals(ctx):
+    """View your goals."""
+    await ctx.send(format_goals(str(ctx.author.id)))
+
+
+@bot.command(name="progress")
+async def cmd_progress(ctx, goal_num: str, percent: str):
+    """Update goal progress. Usage: !progress 1 50"""
+    try:
+        idx = int(goal_num) - 1
+        pct = int(percent)
+        if update_goal_progress(str(ctx.author.id), idx, pct):
+            if pct >= 100:
+                await ctx.reply(f"🎉🎉 **GOAL COMPLETED!** Wueh, manze! You did it! 🏆")
+            elif pct >= 75:
+                await ctx.reply(f"🔥 **{pct}%** — Almost there! The finish line is in sight!")
+            elif pct >= 50:
+                await ctx.reply(f"💪 **{pct}%** — Halfway! Keep that momentum going!")
+            else:
+                await ctx.reply(f"📊 Updated to **{pct}%**. Every step counts!")
+        else:
+            await ctx.reply("Invalid goal number. Check `!goals` for your list.")
+    except ValueError:
+        await ctx.reply("Format: `!progress 1 50` (goal number, percent)")
+
+
+@bot.command(name="done")
+async def cmd_done(ctx, goal_num: str):
+    """Mark a goal as completed. Usage: !done 1"""
+    try:
+        idx = int(goal_num) - 1
+        if complete_goal(str(ctx.author.id), idx):
+            await ctx.reply("🎉🏆 **GOAL COMPLETED!** You crushed it, manze! On to the next one! 💪")
+        else:
+            await ctx.reply("Invalid goal number. Check `!goals`.")
+    except ValueError:
+        await ctx.reply("Format: `!done 1`")
+
+
+@bot.command(name="dropgoal")
+async def cmd_dropgoal(ctx, goal_num: str):
+    """Abandon a goal. Usage: !dropgoal 1"""
+    try:
+        idx = int(goal_num) - 1
+        if remove_goal(str(ctx.author.id), idx):
+            await ctx.reply("🗑️ Goal removed. Sometimes priorities change — no shame in that.")
+        else:
+            await ctx.reply("Invalid goal number. Check `!goals`.")
+    except ValueError:
+        await ctx.reply("Format: `!dropgoal 1`")
+
+
+# ══════════════════════════════════════════════
+# BIRTHDAY / ANNIVERSARY COMMANDS
+# ══════════════════════════════════════════════
+@bot.command(name="birthday")
+async def cmd_birthday(ctx, name: str, *, date_str: str):
+    """Add a birthday. Usage: !birthday Daniel 15 March 1995"""
+    if not ctx.guild:
+        return
+    try:
+        parsed = dateparser.parse(date_str, settings={'PREFER_DATES_FROM': 'past'})
+        if not parsed:
+            await ctx.reply("Couldn't parse that date. Try: `!birthday Daniel 15 March 1995`")
+            return
+
+        if add_anniversary(str(ctx.guild.id), str(ctx.author.id), name, parsed, "birthday"):
+            await ctx.reply(f"🎂 **{name}'s** birthday saved: **{parsed.strftime('%B %d')}**! I'll remind everyone when the day comes!")
+        else:
+            await ctx.reply("Couldn't save that. Try again?")
+    except Exception as e:
+        await ctx.reply(f"Error: {e}")
+
+
+@bot.command(name="anniversary")
+async def cmd_anniversary(ctx, name: str, *, date_str: str):
+    """Add an anniversary. Usage: !anniversary John&Jane 20 June 2018"""
+    if not ctx.guild:
+        return
+    try:
+        parsed = dateparser.parse(date_str, settings={'PREFER_DATES_FROM': 'past'})
+        if not parsed:
+            await ctx.reply("Couldn't parse that date. Try: `!anniversary John&Jane 20 June 2018`")
+            return
+
+        if add_anniversary(str(ctx.guild.id), str(ctx.author.id), name, parsed, "anniversary"):
+            await ctx.reply(f"💍 **{name}'s** anniversary saved: **{parsed.strftime('%B %d')}**!")
+        else:
+            await ctx.reply("Couldn't save that.")
+    except Exception as e:
+        await ctx.reply(f"Error: {e}")
+
+
+@bot.command(name="birthdays")
+async def cmd_birthdays(ctx):
+    """View all saved birthdays and anniversaries."""
+    if not ctx.guild:
+        return
+    await ctx.send(format_anniversaries(str(ctx.guild.id)))
+
+
+# ══════════════════════════════════════════════
+# ROAST BATTLE
+# ══════════════════════════════════════════════
+@bot.command(name="roast")
+async def cmd_roast(ctx, *, target: str = None):
+    """Emily roasts you or someone. Usage: !roast or !roast @friend"""
+    async with ctx.typing():
+        try:
+            if not target:
+                target = ctx.author.display_name
+                prompt = f"You are Emily, a savage but funny Kenyan roaster. Roast the user named '{target}' who just asked to be roasted. Be creative, funny, and use Kenyan slang. Keep it 2-3 lines. Don't be actually mean or hurtful — keep it playful."
+            else:
+                # Clean mention
+                clean_target = re.sub(r'<@!?\d+>', '', target).strip() or target
+                prompt = f"You are Emily, a savage but funny Kenyan roaster. Roast someone named '{clean_target}'. Their friend asked you to do it. Be creative, funny, use Kenyan slang. Keep it 2-3 lines. Playful, not hurtful."
+
+            response = await asyncio.wait_for(
+                claude_client.messages.create(
+                    model=MODEL_CLAUDE,
+                    max_tokens=300,
+                    messages=[{"role": "user", "content": prompt}],
+                ),
+                timeout=API_TIMEOUT_SECONDS,
+            )
+            roast_text = ""
+            for block in response.content:
+                if block.type == "text":
+                    roast_text += block.text
+
+            if roast_text:
+                await ctx.send(f"🔥 {roast_text}")
+            else:
+                await ctx.reply("I tried to roast but my brain went blank. Try again!")
+        except Exception as e:
+            logger.error(f"Roast error: {e}")
+            await ctx.reply("My roast oven broke. Try again, manze!")
+
+
+# ══════════════════════════════════════════════
+# AI DEBATE MODE
+# ══════════════════════════════════════════════
+@bot.command(name="debate")
+async def cmd_debate(ctx, *, topic: str):
+    """Start a debate with Emily. Usage: !debate Pineapple belongs on pizza"""
+    async with ctx.typing():
+        try:
+            prompt = (
+                f"You are Emily, a sharp debater. The user wants to debate: '{topic}'. "
+                f"Take the OPPOSITE position from what most people believe about this topic. "
+                f"Argue your case passionately in 3-4 paragraphs. Use logic, examples, and Kenyan slang. "
+                f"End with a provocative question to keep the debate going. "
+                f"Be confident and slightly cocky but not disrespectful."
+            )
+
+            response = await asyncio.wait_for(
+                claude_client.messages.create(
+                    model=MODEL_CLAUDE,
+                    max_tokens=1024,
+                    messages=[{"role": "user", "content": prompt}],
+                ),
+                timeout=API_TIMEOUT_SECONDS,
+            )
+            debate_text = ""
+            for block in response.content:
+                if block.type == "text":
+                    debate_text += block.text
+
+            if debate_text:
+                await send_chunked_reply(ctx.message, f"⚔️ **Emily's Position on: {topic}**\n\n{debate_text}")
+            else:
+                await ctx.reply("My debate brain froze. Try a different topic!")
+        except Exception as e:
+            logger.error(f"Debate error: {e}")
+            await ctx.reply("Debate engine crashed. Try again!")
+
+
+# ══════════════════════════════════════════════
+# DAILY LEARNING COMMAND
+# ══════════════════════════════════════════════
+@bot.command(name="learn")
+async def cmd_learn(ctx, category: str = None):
+    """Get a learning nugget. Usage: !learn [finance/cooking/film]"""
+    async with ctx.typing():
+        try:
+            if category and category.lower() in LEARNING_TOPICS:
+                cat = category.lower()
+            else:
+                cat = random.choice(["finance", "cooking", "film"])
+
+            topic = random.choice(LEARNING_TOPICS[cat])
+            cat_emoji = {"finance": "💰", "cooking": "🍳", "film": "🎬"}[cat]
+
+            lesson_response = await asyncio.wait_for(
+                claude_client.messages.create(
+                    model=MODEL_CLAUDE,
+                    max_tokens=1024,
+                    system="You are Emily, a Kenyan woman. Write a fun, educational 3-4 paragraph lesson. Use Kenyan slang naturally. Include a practical tip at the end.",
+                    messages=[{"role": "user", "content": f"Teach me about: {topic}"}],
+                ),
+                timeout=API_TIMEOUT_SECONDS,
+            )
+            lesson = ""
+            for block in lesson_response.content:
+                if block.type == "text":
+                    lesson += block.text
+
+            if lesson:
+                await send_chunked_reply(ctx.message, f"{cat_emoji} **Emily's Lesson — {cat.title()}**\n\n**Topic:** {topic}\n\n{lesson}")
+            else:
+                await ctx.reply("Lesson plan failed. Try again!")
+        except Exception as e:
+            logger.error(f"Learn error: {e}")
+            await ctx.reply("My teaching brain jammed. Try `!learn finance` or `!learn cooking`")
 
 
 # ══════════════════════════════════════════════
