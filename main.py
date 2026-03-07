@@ -1840,7 +1840,18 @@ async def cmd_help(ctx):
 
 _Or just chat naturally — @ mention me anytime!_ 😊
 """
-    await ctx.send(help_text)
+    # Split into chunks under 2000 chars
+    sections = help_text.split("\n\n")
+    current_chunk = ""
+    for section in sections:
+        if len(current_chunk) + len(section) + 2 > 1900:
+            if current_chunk.strip():
+                await ctx.send(current_chunk.strip())
+            current_chunk = section + "\n\n"
+        else:
+            current_chunk += section + "\n\n"
+    if current_chunk.strip():
+        await ctx.send(current_chunk.strip())
 
 
 @bot.command(name="spent")
