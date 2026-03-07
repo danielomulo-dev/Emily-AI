@@ -3157,6 +3157,40 @@ async def cmd_setmusic(ctx):
         await ctx.reply("Couldn't set that up. Try again?")
 
 
+@bot.command(name="testplaylist")
+async def cmd_testplaylist(ctx, *, playlist_url: str):
+    """Debug: test playlist fetch. Usage: !testplaylist <spotify link>"""
+    if not spotify_configured():
+        await ctx.reply("Spotify not configured.")
+        return
+    async with ctx.typing():
+        from spotify_tools import extract_playlist_id, get_playlist
+        pid = extract_playlist_id(playlist_url)
+        if not pid:
+            await ctx.reply(f"Couldn't extract playlist ID from: {playlist_url}")
+            return
+
+        await ctx.reply(f"Extracted playlist ID: `{pid}`\nFetching...")
+
+        data, error = await asyncio.to_thread(get_playlist, pid)
+        if error:
+            await ctx.reply(f"❌ Error: {error}")
+            return
+
+        name = data.get("name", "?")
+        owner = data.get("owner", {}).get("display_name", "?")
+        total = data.get("tracks", {}).get("total", 0)
+        items = len(data.get("tracks", {}).get("items", []))
+
+        await ctx.reply(
+            f"✅ **Playlist fetched!**\n"
+            f"Name: {name}\n"
+            f"Owner: {owner}\n"
+            f"Total tracks: {total}\n"
+            f"Items returned: {items}"
+        )
+
+
 # ══════════════════════════════════════════════
 # REDDIT COMMANDS
 # ══════════════════════════════════════════════

@@ -87,20 +87,29 @@ def _spotify_get(endpoint, params=None):
     """Make an authenticated GET request to Spotify API."""
     token = _get_client_token()
     if not token:
+        logger.error("Spotify: No token available")
         return None
 
     try:
+        # Longer timeout for playlists (they can be large)
+        timeout = 30 if "playlist" in endpoint else 10
+        url = f"{SPOTIFY_API_URL}{endpoint}"
+        logger.info(f"Spotify GET: {url}")
+
         response = requests.get(
-            f"{SPOTIFY_API_URL}{endpoint}",
+            url,
             headers={"Authorization": f"Bearer {token}"},
             params=params,
-            timeout=10,
+            timeout=timeout,
         )
         if response.status_code == 200:
             return response.json()
         else:
-            logger.error(f"Spotify API error: {response.status_code} — {response.text[:200]}")
+            logger.error(f"Spotify API error: {response.status_code} — {response.text[:300]}")
             return None
+    except requests.exceptions.Timeout:
+        logger.error(f"Spotify request timed out: {endpoint}")
+        return None
     except Exception as e:
         logger.error(f"Spotify request error: {e}")
         return None
