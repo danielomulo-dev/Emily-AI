@@ -3065,11 +3065,12 @@ async def cmd_tastify(ctx, *, label_or_url: str = None):
             await ctx.reply("No playlists saved! Add one:\n`!setplaylist chill <spotify link>`")
             return
 
+        logger.info(f"Tastify using playlist_id: {playlist_id}")
         result, error = await asyncio.to_thread(get_similar_to_playlist, playlist_id)
         if result:
             await send_chunked_reply(ctx.message, format_playlist_recommendations(result))
         else:
-            await ctx.reply(f"Couldn't generate recommendations: {error}")
+            await ctx.reply(f"Couldn't generate recommendations: {error}\n(Debug: playlist_id=`{playlist_id}`)")
 
 
 @bot.command(name="setplaylist")

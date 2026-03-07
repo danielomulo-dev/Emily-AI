@@ -265,22 +265,19 @@ def get_playlist(playlist_id):
         return None, "Spotify not configured"
 
     try:
-        # Use minimal fields to keep response size manageable for large playlists
-        data = _spotify_get(f"/playlists/{playlist_id}", {
-            "fields": "name,owner(display_name),tracks.total,tracks.items(track(name,id,artists(name,id),popularity,duration_ms,external_urls))",
-            "market": "KE",
-        })
-
-        if not data:
-            # Retry without fields filter as fallback
-            logger.warning(f"Playlist fetch with fields failed, retrying without fields...")
-            data = _spotify_get(f"/playlists/{playlist_id}", {"market": "KE"})
+        # No field filtering, no market restriction — most reliable
+        data = _spotify_get(f"/playlists/{playlist_id}")
 
         if not data:
             return None, "Couldn't fetch that playlist. Make sure it's public!"
 
-        logger.info(f"Playlist fetched: {data.get('name', 'Unknown')} — {data.get('tracks', {}).get('total', 0)} tracks")
+        tracks_total = data.get("tracks", {}).get("total", 0)
+        tracks_items = len(data.get("tracks", {}).get("items", []))
+        logger.info(f"Playlist fetched: {data.get('name', 'Unknown')} — total: {tracks_total}, items returned: {tracks_items}")
         return data, None
+    except Exception as e:
+        logger.error(f"Get playlist error: {e}")
+        return None, f"Error: {e}"
     except Exception as e:
         logger.error(f"Get playlist error: {e}")
         return None, f"Error: {e}"
