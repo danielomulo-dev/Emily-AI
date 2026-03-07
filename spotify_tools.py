@@ -2,6 +2,9 @@ import os
 import logging
 import base64
 import requests
+import certifi
+from pymongo import MongoClient, ASCENDING
+from pymongo.errors import PyMongoError
 from datetime import datetime, timedelta
 from dotenv import load_dotenv
 
@@ -13,6 +16,22 @@ SPOTIFY_CLIENT_ID = os.getenv("SPOTIFY_CLIENT_ID")
 SPOTIFY_CLIENT_SECRET = os.getenv("SPOTIFY_CLIENT_SECRET")
 SPOTIFY_TOKEN_URL = "https://accounts.spotify.com/api/token"
 SPOTIFY_API_URL = "https://api.spotify.com/v1"
+
+# --- MONGODB for saved playlists ---
+saved_playlists_col = None
+try:
+    mongo_client = MongoClient(
+        os.getenv("MONGO_URI"),
+        tlsCAFile=certifi.where(),
+        serverSelectionTimeoutMS=5000,
+    )
+    mongo_client.admin.command('ping')
+    db = mongo_client["emily_brain_db"]
+    saved_playlists_col = db["saved_playlists"]
+    saved_playlists_col.create_index([("guild_id", ASCENDING)], unique=True)
+    logger.info("Spotify playlist storage connected!")
+except Exception as e:
+    logger.error(f"Spotify DB error: {e}")
 
 # --- TOKEN CACHE ---
 _token_cache = {"token": None, "expires_at": None}
@@ -437,3 +456,52 @@ def format_playlist_recommendations(result):
 
     lines.append(f"\n_Based on your taste profile_ 🎧")
     return "\n".join(lines)
+
+
+# ══════════════════════════════════════════════
+# SAVED PLAYLIST MANAGEMENT
+# ══════════════════════════════════════════════
+def save_guild_playlist(guild_id, playlist_id, playlist_name="", added_by=""):
+    """Save a playlist as the server's taste profile."""
+    if saved_playlists_col is None:
+        return False
+    try:
+        saved_playlists_col.update_one(
+            {"guild_id": str(guild_id)},
+            {"$set": {
+                "guild_id": str(guild_id),
+                "playlist_id": playlist_id,
+                "playlist_name": playlist_name,
+                "added_by": str(added_by),
+                "updated_at": datetime.utcnow(),
+            }},
+            upsert=True,
+        )
+        logger.info(f"Saved playlist {playlist_id} for guild {guild_id}")
+        return True
+    except PyMongoError as e:
+        logger.error(f"Save playlist error: {e}")
+        return False
+
+
+def get_guild_playlist(guild_id):
+    """Get the saved playlist for a server."""
+    if saved_playlists_col is None:
+        return None
+    try:
+        doc = saved_playlists_col.find_one({"guild_id": str(guild_id)})
+        return doc
+    except PyMongoError as e:
+        logger.error(f"Get playlist error: {e}")
+        return None
+
+
+def get_all_guilds_with_playlists():
+    """Get all guilds that have a saved playlist."""
+    if saved_playlists_col is None:
+        return []
+    try:
+        return list(saved_playlists_col.find({}))
+    except PyMongoError as e:
+        logger.error(f"All playlists error: {e}")
+        return []

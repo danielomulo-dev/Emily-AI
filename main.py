@@ -69,6 +69,7 @@ from spotify_tools import (
     extract_playlist_id, format_search_results, format_recommendations,
     format_playlist_analysis, format_playlist_recommendations,
     is_configured as spotify_configured, MOOD_PROFILES,
+    save_guild_playlist, get_guild_playlist, get_all_guilds_with_playlists,
 )
 
 load_dotenv()
@@ -1344,17 +1345,16 @@ async def before_movie_suggest():
 
 @tasks.loop(minutes=1)
 async def monday_music_drop():
-    """Post a Spotify mood playlist every Monday morning."""
+    """Post personalized Spotify recommendations every Monday morning based on saved playlist."""
     try:
         now = datetime.now(pytz.timezone('Africa/Nairobi'))
-        # Monday = 0, at 09:00 EAT
         if now.weekday() != 0 or now.strftime("%H:%M") != "09:00":
             return
 
         if not spotify_configured():
             return
 
-        servers = get_news_servers()  # Reuse news channel config
+        servers = get_news_servers()
         for server_config in servers:
             channel_id = server_config.get("news_channel_id")
             if not channel_id:
@@ -1369,12 +1369,43 @@ async def monday_music_drop():
             if not channel:
                 continue
 
-            # Pick a random mood for the week
-            moods = ["chill", "hype", "happy", "workout", "party", "afrobeats", "romantic", "focus", "road trip"]
+            guild_id = str(server_config["guild_id"])
+
+            # Check if server has a saved playlist
+            saved = get_guild_playlist(guild_id)
+
+            if saved and saved.get("playlist_id"):
+                # PERSONALIZED: Use saved playlist taste
+                result, error = await asyncio.to_thread(
+                    get_similar_to_playlist, saved["playlist_id"], 5
+                )
+                if result and result.get("recommendations"):
+                    analysis = result["analysis"]
+                    recs = result["recommendations"]
+                    top_genres = ", ".join([g for g, _ in analysis.get("top_genres", [])[:3]])
+                    top_artists = ", ".join([a for a, _ in analysis.get("top_artists", [])[:3]])
+
+                    lines = [f"🎵 **Emily's Monday Picks — Just For You** 🎯\n"]
+                    lines.append(f"_Based on your playlist: **{saved.get('playlist_name', 'Your Playlist')}**_")
+                    lines.append(f"_Your vibe: {top_genres}_\n")
+
+                    for i, t in enumerate(recs, 1):
+                        lines.append(f"**{i}.** [{t['artists']} — {t['name']}]({t['url']})")
+
+                    lines.append(f"\n_Curated from your taste ({top_artists} + more)_")
+                    lines.append(f"_Update your taste: `!setplaylist <link>` · Instant picks: `!tastify`_ 🎧")
+
+                    await channel.send("\n".join(lines))
+                    update_server_setting(guild_id, "last_music_date", today)
+                    logger.info(f"Personalized Monday music for guild {guild_id}")
+                    continue
+
+            # FALLBACK: Random mood if no saved playlist
+            moods = ["chill", "hype", "happy", "workout", "party", "afrobeats", "romantic", "focus"]
             mood = random.choice(moods)
             mood_emoji = {
                 "chill": "😌", "hype": "🔥", "happy": "☀️", "workout": "💪",
-                "party": "🎉", "afrobeats": "🌍", "romantic": "💕", "focus": "🧠", "road trip": "🚗",
+                "party": "🎉", "afrobeats": "🌍", "romantic": "💕", "focus": "🧠",
             }
 
             tracks, error = await asyncio.to_thread(get_recommendations, mood, 5)
@@ -1386,11 +1417,11 @@ async def monday_music_drop():
             for i, t in enumerate(tracks, 1):
                 lines.append(f"**{i}.** [{t['artists']} — {t['name']}]({t['url']})")
 
-            lines.append(f"\n_Want different vibes? Try `!vibes <mood>`_ 🎧")
+            lines.append(f"\n💡 _Want personalized picks? Share your playlist: `!setplaylist <link>`_ 🎧")
 
             await channel.send("\n".join(lines))
-            update_server_setting(str(server_config["guild_id"]), "last_music_date", today)
-            logger.info(f"Monday music posted for guild {server_config['guild_id']}: {mood}")
+            update_server_setting(guild_id, "last_music_date", today)
+            logger.info(f"Random Monday music for guild {guild_id}: {mood}")
 
     except Exception as e:
         logger.error(f"Monday music error: {e}")
@@ -2936,7 +2967,7 @@ async def cmd_vibes(ctx, *, mood: str = "chill"):
 
 @bot.command(name="analyze")
 async def cmd_analyze_playlist(ctx, *, playlist_url: str):
-    """Analyze a Spotify playlist. Usage: !analyze https://open.spotify.com/playlist/..."""
+    """Analyze a Spotify playlist and save as your server's taste. Usage: !analyze https://open.spotify.com/playlist/..."""
     if not spotify_configured():
         await ctx.reply("Spotify isn't set up yet.")
         return
@@ -2948,28 +2979,83 @@ async def cmd_analyze_playlist(ctx, *, playlist_url: str):
 
         analysis, error = await asyncio.to_thread(analyze_playlist, playlist_id)
         if analysis:
-            await send_chunked_reply(ctx.message, format_playlist_analysis(analysis))
+            # Auto-save as server's taste profile
+            if ctx.guild:
+                save_guild_playlist(
+                    str(ctx.guild.id), playlist_id,
+                    playlist_name=analysis.get("name", ""),
+                    added_by=str(ctx.author.id),
+                )
+                save_note = "\n\n✅ **Saved as your server's taste profile!** Monday music picks will now be based on this playlist."
+            else:
+                save_note = ""
+            await send_chunked_reply(ctx.message, format_playlist_analysis(analysis) + save_note)
         else:
             await ctx.reply(f"Couldn't analyze that playlist: {error}")
 
 
 @bot.command(name="tastify")
-async def cmd_tastify(ctx, *, playlist_url: str):
-    """Get song recommendations based on your playlist. Usage: !tastify https://open.spotify.com/playlist/..."""
+async def cmd_tastify(ctx, *, playlist_url: str = None):
+    """Get recommendations based on your playlist. Usage: !tastify [playlist link] or just !tastify if already saved"""
     if not spotify_configured():
         await ctx.reply("Spotify isn't set up yet.")
         return
     async with ctx.typing():
-        playlist_id = extract_playlist_id(playlist_url)
+        playlist_id = None
+
+        # If URL provided, use it
+        if playlist_url:
+            playlist_id = extract_playlist_id(playlist_url)
+
+        # Otherwise, use saved playlist
+        if not playlist_id and ctx.guild:
+            saved = get_guild_playlist(str(ctx.guild.id))
+            if saved:
+                playlist_id = saved["playlist_id"]
+
         if not playlist_id:
-            await ctx.reply("Couldn't find a playlist ID. Share a Spotify playlist link!")
+            await ctx.reply("No playlist found! Either:\n• `!tastify <spotify playlist link>`\n• `!analyze <link>` first to save your taste, then just `!tastify`")
             return
+
+        # Save if from URL and in a guild
+        if playlist_url and ctx.guild:
+            save_guild_playlist(str(ctx.guild.id), playlist_id, added_by=str(ctx.author.id))
 
         result, error = await asyncio.to_thread(get_similar_to_playlist, playlist_id)
         if result:
             await send_chunked_reply(ctx.message, format_playlist_recommendations(result))
         else:
             await ctx.reply(f"Couldn't generate recommendations: {error}")
+
+
+@bot.command(name="setplaylist")
+async def cmd_setplaylist(ctx, *, playlist_url: str):
+    """Save a playlist as your server's taste profile for Monday music. Usage: !setplaylist <link>"""
+    if not ctx.guild:
+        await ctx.reply("This only works in a server!")
+        return
+    if not spotify_configured():
+        await ctx.reply("Spotify isn't set up yet.")
+        return
+
+    playlist_id = extract_playlist_id(playlist_url)
+    if not playlist_id:
+        await ctx.reply("Couldn't find a playlist ID. Share a Spotify playlist link!")
+        return
+
+    # Get playlist name
+    from spotify_tools import get_playlist
+    data, error = await asyncio.to_thread(get_playlist, playlist_id)
+    name = data.get("name", "Unknown") if data else "Unknown"
+
+    if save_guild_playlist(str(ctx.guild.id), playlist_id, playlist_name=name, added_by=str(ctx.author.id)):
+        await ctx.reply(
+            f"🎵 **Playlist saved: {name}**\n\n"
+            f"Every Monday, Emily will recommend songs based on this playlist's taste!\n"
+            f"You can also run `!tastify` anytime for instant recommendations."
+        )
+    else:
+        await ctx.reply("Couldn't save that. Try again?")
 
 
 # ══════════════════════════════════════════════
