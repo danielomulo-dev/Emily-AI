@@ -28,7 +28,7 @@ try:
     mongo_client.admin.command('ping')
     db = mongo_client["emily_brain_db"]
     saved_playlists_col = db["saved_playlists"]
-    saved_playlists_col.create_index([("guild_id", ASCENDING)], unique=True)
+    saved_playlists_col.create_index([("guild_id", ASCENDING), ("user_id", ASCENDING), ("label", ASCENDING)])
     logger.info("Spotify playlist storage connected!")
 except Exception as e:
     logger.error(f"Spotify DB error: {e}")
@@ -459,52 +459,154 @@ def format_playlist_recommendations(result):
 
 
 # ══════════════════════════════════════════════
-# SAVED PLAYLIST MANAGEMENT
+# SAVED PLAYLIST MANAGEMENT (multiple per user)
 # ══════════════════════════════════════════════
-def save_guild_playlist(guild_id, playlist_id, playlist_name="", added_by=""):
-    """Save a playlist as the server's taste profile."""
+def save_user_playlist(guild_id, user_id, playlist_id, label="default", playlist_name=""):
+    """Save a labeled playlist for a user. Each user can have multiple (chill, workout, etc)."""
     if saved_playlists_col is None:
         return False
     try:
         saved_playlists_col.update_one(
-            {"guild_id": str(guild_id)},
+            {
+                "guild_id": str(guild_id),
+                "user_id": str(user_id),
+                "label": label.lower().strip(),
+            },
             {"$set": {
                 "guild_id": str(guild_id),
+                "user_id": str(user_id),
+                "label": label.lower().strip(),
                 "playlist_id": playlist_id,
                 "playlist_name": playlist_name,
-                "added_by": str(added_by),
                 "updated_at": datetime.utcnow(),
             }},
             upsert=True,
         )
-        logger.info(f"Saved playlist {playlist_id} for guild {guild_id}")
+        logger.info(f"Saved playlist '{label}' for user {user_id} in guild {guild_id}")
         return True
     except PyMongoError as e:
         logger.error(f"Save playlist error: {e}")
         return False
 
 
-def get_guild_playlist(guild_id):
-    """Get the saved playlist for a server."""
+def get_user_playlists(guild_id, user_id):
+    """Get all playlists for a user in a server."""
+    if saved_playlists_col is None:
+        return []
+    try:
+        return list(saved_playlists_col.find({
+            "guild_id": str(guild_id),
+            "user_id": str(user_id),
+        }))
+    except PyMongoError as e:
+        logger.error(f"Get user playlists error: {e}")
+        return []
+
+
+def get_user_playlist_by_label(guild_id, user_id, label):
+    """Get a specific labeled playlist."""
     if saved_playlists_col is None:
         return None
     try:
-        doc = saved_playlists_col.find_one({"guild_id": str(guild_id)})
+        return saved_playlists_col.find_one({
+            "guild_id": str(guild_id),
+            "user_id": str(user_id),
+            "label": label.lower().strip(),
+        })
+    except PyMongoError as e:
+        logger.error(f"Get playlist by label error: {e}")
+        return None
+
+
+def remove_user_playlist(guild_id, user_id, label):
+    """Remove a saved playlist by label."""
+    if saved_playlists_col is None:
+        return False
+    try:
+        result = saved_playlists_col.delete_one({
+            "guild_id": str(guild_id),
+            "user_id": str(user_id),
+            "label": label.lower().strip(),
+        })
+        return result.deleted_count > 0
+    except PyMongoError as e:
+        logger.error(f"Remove playlist error: {e}")
+        return False
+
+
+def get_all_server_playlists(guild_id):
+    """Get ALL playlists saved by all users in a server (for Monday picks)."""
+    if saved_playlists_col is None:
+        return []
+    try:
+        return list(saved_playlists_col.find({
+            "guild_id": str(guild_id),
+            "playlist_id": {"$exists": True},
+        }))
+    except PyMongoError as e:
+        logger.error(f"All server playlists error: {e}")
+        return []
+
+
+# Keep backward compatibility
+def save_guild_playlist(guild_id, playlist_id, playlist_name="", added_by=""):
+    """Backward-compatible save (saves as 'default' label)."""
+    return save_user_playlist(guild_id, added_by or "server", playlist_id, "default", playlist_name)
+
+
+def get_guild_playlist(guild_id):
+    """Get any playlist for this guild (picks first available)."""
+    if saved_playlists_col is None:
+        return None
+    try:
+        # First try to find server-level settings
+        doc = saved_playlists_col.find_one({"guild_id": str(guild_id), "music_channel_id": {"$exists": True}})
+        if doc:
+            return doc
+        # Otherwise return any playlist for this guild
+        doc = saved_playlists_col.find_one({"guild_id": str(guild_id), "playlist_id": {"$exists": True}})
         return doc
     except PyMongoError as e:
-        logger.error(f"Get playlist error: {e}")
+        logger.error(f"Get guild playlist error: {e}")
         return None
 
 
 def get_all_guilds_with_playlists():
-    """Get all guilds that have a saved playlist."""
+    """Get unique guilds that have playlists or music settings."""
     if saved_playlists_col is None:
         return []
     try:
-        return list(saved_playlists_col.find({}))
+        pipeline = [
+            {"$group": {
+                "_id": "$guild_id",
+                "music_channel_id": {"$first": "$music_channel_id"},
+                "playlist_id": {"$first": "$playlist_id"},
+                "last_music_date": {"$first": "$last_music_date"},
+            }}
+        ]
+        results = list(saved_playlists_col.aggregate(pipeline))
+        return [{"guild_id": r["_id"], **{k: v for k, v in r.items() if k != "_id" and v}} for r in results]
     except PyMongoError as e:
-        logger.error(f"All playlists error: {e}")
+        logger.error(f"All guilds error: {e}")
         return []
+
+
+def format_user_playlists(guild_id, user_id):
+    """Format all of a user's saved playlists."""
+    playlists = get_user_playlists(guild_id, user_id)
+    if not playlists:
+        return "No playlists saved! Add one:\n`!setplaylist chill https://open.spotify.com/playlist/...`"
+
+    lines = ["🎵 **Your Saved Playlists:**\n"]
+    for p in playlists:
+        label = p.get("label", "default")
+        name = p.get("playlist_name", "Unknown")
+        lines.append(f"• **{label}** — {name}")
+
+    lines.append(f"\nAdd more: `!setplaylist <label> <link>`")
+    lines.append(f"Remove: `!removeplaylist <label>`")
+    lines.append(f"Get picks: `!tastify` or `!tastify <label>`")
+    return "\n".join(lines)
 
 
 def set_music_channel(guild_id, channel_id):
