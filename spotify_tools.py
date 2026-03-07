@@ -255,14 +255,18 @@ def get_playlist(playlist_id):
     if not is_configured():
         return None, "Spotify not configured"
 
-    data = _spotify_get(f"/playlists/{playlist_id}", {
-        "fields": "name,description,tracks.items(track(name,artists,album,popularity,duration_ms,external_urls)),tracks.total,owner.display_name",
-    })
+    try:
+        # Simple fetch without field filtering — more reliable
+        data = _spotify_get(f"/playlists/{playlist_id}")
 
-    if not data:
-        return None, "Couldn't fetch that playlist. Make sure it's public!"
+        if not data:
+            return None, "Couldn't fetch that playlist. Make sure it's public!"
 
-    return data, None
+        logger.info(f"Playlist fetched: {data.get('name', 'Unknown')} — {data.get('tracks', {}).get('total', 0)} tracks")
+        return data, None
+    except Exception as e:
+        logger.error(f"Get playlist error: {e}")
+        return None, f"Error: {e}"
 
 
 def analyze_playlist(playlist_id):
@@ -271,41 +275,57 @@ def analyze_playlist(playlist_id):
     if error:
         return None, error
 
-    tracks = data.get("tracks", {}).get("items", [])
+    tracks_data = data.get("tracks", {})
+    tracks = tracks_data.get("items", [])
     if not tracks:
         return None, "Playlist is empty"
 
     # Extract stats
     artists_count = {}
-    genres_all = []
+    artist_ids = {}  # name -> id mapping
     total_popularity = 0
     total_duration = 0
     track_list = []
+    valid_tracks = 0
 
     for item in tracks:
         track = item.get("track")
         if not track:
             continue
 
-        # Count artists
-        for artist in track.get("artists", []):
-            name = artist["name"]
-            artists_count[name] = artists_count.get(name, 0) + 1
+        valid_tracks += 1
 
-            # Try to get artist genres
-            artist_data = _spotify_get(f"/artists/{artist['id']}")
-            if artist_data:
-                genres_all.extend(artist_data.get("genres", []))
+        # Count artists and save IDs
+        for artist in track.get("artists", []):
+            name = artist.get("name", "Unknown")
+            artists_count[name] = artists_count.get(name, 0) + 1
+            if name not in artist_ids and artist.get("id"):
+                artist_ids[name] = artist["id"]
 
         total_popularity += track.get("popularity", 0)
         total_duration += track.get("duration_ms", 0)
         track_list.append({
-            "name": track["name"],
-            "artists": ", ".join([a["name"] for a in track["artists"]]),
+            "name": track.get("name", "Unknown"),
+            "artists": ", ".join([a.get("name", "") for a in track.get("artists", [])]),
         })
+
+    if valid_tracks == 0:
+        return None, "No valid tracks found in playlist"
 
     # Top artists
     top_artists = sorted(artists_count.items(), key=lambda x: -x[1])[:5]
+
+    # Only look up genres for top 5 artists (avoid rate limiting)
+    genres_all = []
+    for artist_name, _ in top_artists:
+        aid = artist_ids.get(artist_name)
+        if aid:
+            try:
+                artist_data = _spotify_get(f"/artists/{aid}")
+                if artist_data:
+                    genres_all.extend(artist_data.get("genres", []))
+            except Exception:
+                pass
 
     # Top genres
     genre_count = {}
@@ -313,14 +333,13 @@ def analyze_playlist(playlist_id):
         genre_count[g] = genre_count.get(g, 0) + 1
     top_genres = sorted(genre_count.items(), key=lambda x: -x[1])[:5]
 
-    # Average popularity
-    avg_popularity = total_popularity / len(tracks) if tracks else 0
+    avg_popularity = total_popularity / valid_tracks if valid_tracks else 0
     total_mins = total_duration // 60000
 
     analysis = {
         "name": data.get("name", "Unknown"),
         "owner": data.get("owner", {}).get("display_name", "Unknown"),
-        "track_count": len(tracks),
+        "track_count": valid_tracks,
         "total_duration_mins": total_mins,
         "avg_popularity": avg_popularity,
         "top_artists": top_artists,
