@@ -1532,14 +1532,29 @@ async def on_member_join(member):
         if not channel:
             return
 
-        greetings = [
-            f"Sasa {member.mention}! 👋 Welcome to **{member.guild.name}**, manze! I'm Emily — your resident finance expert, foodie, and cinephile. Ask me anything or type `!help` to see what I can do!",
-            f"Wueh! {member.mention} just walked in! 🎉 Welcome to **{member.guild.name}**! I'm Emily — think of me as that friend who knows about stocks, can recommend the perfect movie, AND will judge your cooking. Type `!help` to get started!",
-            f"Niaje {member.mention}! 😊 Welcome to **{member.guild.name}**! I'm Emily, your AI buddy from Nairobi. I do finance, film reviews, food tips, and vibes. Hit me up anytime or check `!help`!",
-            f"Aki, look who's here! {member.mention} welcome to **{member.guild.name}**! 🙌 I'm Emily — just mention me or use `!help` to see all the cool stuff I can do. From budget tracking to movie night picks, I got you!",
-        ]
+        welcome_text = random.choice([
+            f"Sasa {member.mention}! 👋 Welcome to **{member.guild.name}**!",
+            f"Wueh! {member.mention} just walked in! 🎉 Welcome to **{member.guild.name}**!",
+            f"Niaje {member.mention}! 😊 Welcome to **{member.guild.name}**!",
+            f"Aki, look who's here! {member.mention} welcome to **{member.guild.name}**! 🙌",
+        ])
 
-        await channel.send(random.choice(greetings))
+        welcome_text += """
+
+I'm **Emily** — your AI movie buddy, finance advisor, and foodie! 🍿
+
+**🎬 Watch Party:**
+• `!watched <title>` — Log a movie you watched
+• `!rate <score> <title>` — Rate a movie (1-10)
+• `!ratings <title>` — See group ratings
+• `!toprated` — Group's best-rated movies
+• `!filmnight` — Full overview + stats
+• `!suggest` — Get a movie suggestion now
+• `!trivia` — Start a trivia game
+
+Type `!help` for all my commands!"""
+
+        await channel.send(welcome_text)
     except Exception as e:
         logger.error(f"Welcome message error: {e}")
 
