@@ -1956,36 +1956,52 @@ async def cmd_portfolio(ctx):
 async def cmd_remind(ctx, *, reminder_text: str):
     """Set a reminder. Usage: !remind 5pm call mum | !remind in 2 hours check oven"""
     try:
-        # Try to parse time from the text
-        # Split into time part and message part
         eat_zone = pytz.timezone('Africa/Nairobi')
-        
-        # Common patterns: "5pm call mum", "in 2 hours check oven", "tomorrow 9am meeting"
-        parsed_time = dateparser.parse(
-            reminder_text,
-            settings={
-                'PREFER_DATES_FROM': 'future',
-                'TIMEZONE': 'Africa/Nairobi',
-                'RETURN_AS_TIMEZONE_AWARE': True,
-            }
-        )
+        parsed_time = None
+        message = ""
+
+        # Strategy: try parsing progressively longer prefixes to find the time part
+        words = reminder_text.split()
+        for i in range(len(words), 0, -1):
+            time_part = " ".join(words[:i])
+            parsed = dateparser.parse(
+                time_part,
+                settings={
+                    'PREFER_DATES_FROM': 'future',
+                    'TIMEZONE': 'Africa/Nairobi',
+                    'RETURN_AS_TIMEZONE_AWARE': True,
+                }
+            )
+            if parsed:
+                parsed_time = parsed
+                message = " ".join(words[i:]).strip()
+                break
+
+        # If nothing worked, try the full string as a last resort
+        if not parsed_time:
+            parsed_time = dateparser.parse(
+                reminder_text,
+                settings={
+                    'PREFER_DATES_FROM': 'future',
+                    'TIMEZONE': 'Africa/Nairobi',
+                    'RETURN_AS_TIMEZONE_AWARE': True,
+                }
+            )
+            if parsed_time:
+                # Try to extract message by removing time words
+                message = reminder_text
+                time_words = ["in", "at", "on", "tomorrow", "today", "tonight",
+                              "hour", "hours", "minute", "minutes", "min", "mins"]
+                for w in time_words:
+                    message = re.sub(rf'\b{w}\b', '', message, flags=re.IGNORECASE)
+                message = re.sub(r'\b\d{1,2}:\d{2}\b', '', message)
+                message = re.sub(r'\b\d{1,2}\s*(?:am|pm)\b', '', message, flags=re.IGNORECASE)
+                message = message.strip(' ,.-')
 
         if not parsed_time:
-            await ctx.reply("Couldn't figure out the time. Try: `!remind 5pm call mum` or `!remind in 2 hours check oven`")
+            await ctx.reply("Couldn't figure out the time. Try:\n`!remind 5pm call mum`\n`!remind in 2 hours check oven`\n`!remind tomorrow 9am fix code`")
             return
 
-        # Extract the message (remove time-related words)
-        # Simple approach: use everything that dateparser didn't consume
-        message = reminder_text
-        time_words = ["in", "at", "on", "tomorrow", "today", "tonight", "am", "pm",
-                      "hour", "hours", "minute", "minutes", "min", "mins"]
-        for w in time_words:
-            message = re.sub(rf'\b{w}\b', '', message, flags=re.IGNORECASE)
-        # Remove numbers that are likely part of the time
-        message = re.sub(r'\b\d{1,2}:\d{2}\b', '', message)
-        message = re.sub(r'\b\d{1,2}\s*(?:am|pm)\b', '', message, flags=re.IGNORECASE)
-        message = message.strip(' ,.-')
-        
         if not message:
             message = "Reminder!"
 
