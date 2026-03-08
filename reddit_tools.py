@@ -59,28 +59,44 @@ def _get_token():
 
 
 def _reddit_get(endpoint, params=None):
-    """Make authenticated GET to Reddit API."""
+    """Make authenticated GET to Reddit API with retry."""
     token = _get_token()
     if not token:
         return None
-    try:
-        response = requests.get(
-            f"{REDDIT_API_URL}{endpoint}",
-            headers={
-                "Authorization": f"Bearer {token}",
-                "User-Agent": REDDIT_USER_AGENT,
-            },
-            params=params,
-            timeout=10,
-        )
-        if response.status_code == 200:
-            return response.json()
-        else:
-            logger.error(f"Reddit API error: {response.status_code}")
+
+    for attempt in range(3):
+        try:
+            response = requests.get(
+                f"{REDDIT_API_URL}{endpoint}",
+                headers={
+                    "Authorization": f"Bearer {token}",
+                    "User-Agent": REDDIT_USER_AGENT,
+                },
+                params=params,
+                timeout=10,
+            )
+            if response.status_code == 200:
+                return response.json()
+            elif response.status_code == 429:
+                retry_after = int(response.headers.get("Retry-After", 2))
+                logger.warning(f"Reddit rate limited, waiting {retry_after}s")
+                import time
+                time.sleep(retry_after)
+                continue
+            else:
+                logger.error(f"Reddit API error: {response.status_code}")
+                return None
+        except requests.exceptions.Timeout:
+            logger.warning(f"Reddit timeout (attempt {attempt + 1})")
+            if attempt < 2:
+                import time
+                time.sleep(1)
+                continue
             return None
-    except Exception as e:
-        logger.error(f"Reddit request error: {e}")
-        return None
+        except Exception as e:
+            logger.error(f"Reddit request error: {e}")
+            return None
+    return None
 
 
 # ══════════════════════════════════════════════

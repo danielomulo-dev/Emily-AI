@@ -74,6 +74,10 @@ from reddit_tools import (
     format_reddit_posts, format_investment_buzz, format_stock_mentions,
     is_configured as reddit_configured,
 )
+from error_monitor import (
+    notify_owner, retry, async_retry, async_api_call_with_retry,
+    handle_command_error, task_error_handler,
+)
 
 load_dotenv()
 logging.basicConfig(level=logging.INFO)
@@ -463,6 +467,27 @@ async def _call_gemini_with_retry(coro_func, *args, timeout=None, **kwargs):
             last_error = TimeoutError("Gemini timed out")
         except Exception as e:
             logger.warning(f"Gemini error (attempt {attempt}/{MAX_RETRIES}): {e}")
+            last_error = e
+        if attempt < MAX_RETRIES:
+            await asyncio.sleep(1.5 * attempt)
+    raise last_error
+
+
+async def _call_claude_with_retry(create_func, *args, timeout=None, **kwargs):
+    """Call Claude API with retry logic."""
+    _timeout = timeout or API_TIMEOUT_SECONDS
+    last_error = None
+    for attempt in range(1, MAX_RETRIES + 1):
+        try:
+            return await asyncio.wait_for(
+                create_func(*args, **kwargs),
+                timeout=_timeout
+            )
+        except asyncio.TimeoutError:
+            logger.warning(f"Claude timed out (attempt {attempt}/{MAX_RETRIES})")
+            last_error = TimeoutError("Claude timed out")
+        except Exception as e:
+            logger.warning(f"Claude error (attempt {attempt}/{MAX_RETRIES}): {e}")
             last_error = e
         if attempt < MAX_RETRIES:
             await asyncio.sleep(1.5 * attempt)
@@ -1158,6 +1183,11 @@ IMPORTANT:
 
     except Exception as e:
         logger.error(f"Brain error: {e}", exc_info=True)
+        # Notify owner about brain failures
+        try:
+            await notify_owner(bot, "Brain Error", str(e))
+        except Exception:
+            pass
         return "Manze, my head is completely jammed. Try again?", ""
 
 
@@ -1234,6 +1264,10 @@ async def check_reminders():
                 start_watchparty(party["_id"])
     except Exception as e:
         logger.error(f"Background task error: {e}")
+        try:
+            await notify_owner(bot, "Background Task", str(e))
+        except Exception:
+            pass
 
 @check_reminders.before_loop
 async def before_reminders():
@@ -1340,6 +1374,10 @@ async def weekend_movie_suggestion():
 
     except Exception as e:
         logger.error(f"Movie suggestion error: {e}")
+        try:
+            await notify_owner(bot, "Movie Suggestion Task", str(e))
+        except Exception:
+            pass
 
 @weekend_movie_suggestion.before_loop
 async def before_movie_suggest():
@@ -1401,6 +1439,10 @@ async def monday_music_drop():
 
     except Exception as e:
         logger.error(f"Monday music error: {e}")
+        try:
+            await notify_owner(bot, "Monday Music Task", str(e))
+        except Exception:
+            pass
 
 @monday_music_drop.before_loop
 async def before_monday_music():
@@ -1619,6 +1661,10 @@ async def weekly_digest():
 
     except Exception as e:
         logger.error(f"Weekly digest loop error: {e}")
+        try:
+            await notify_owner(bot, "Weekly Digest Task", str(e))
+        except Exception:
+            pass
 
 @weekly_digest.before_loop
 async def before_digest():
@@ -1776,6 +1822,10 @@ async def daily_learning():
 
     except Exception as e:
         logger.error(f"Daily learning error: {e}")
+        try:
+            await notify_owner(bot, "Daily Learning Task", str(e))
+        except Exception:
+            pass
 
 @daily_learning.before_loop
 async def before_learning():
@@ -3078,15 +3128,7 @@ def _detect_expense_category(description):
 # ══════════════════════════════════════════════
 @bot.event
 async def on_command_error(ctx, error):
-    if isinstance(error, commands.CommandNotFound):
-        return  # Ignore unknown commands silently
-    elif isinstance(error, commands.MissingRequiredArgument):
-        await ctx.reply(f"Missing argument: `{error.param.name}`. Use `!help` to see usage.")
-    elif isinstance(error, commands.BadArgument):
-        await ctx.reply("Invalid argument. Check `!help` for the correct format.")
-    else:
-        logger.error(f"Command error in {ctx.command}: {error}")
-        await ctx.reply(f"Something went wrong: {error}")
+    await handle_command_error(ctx, error, bot)
 
 
 @bot.event

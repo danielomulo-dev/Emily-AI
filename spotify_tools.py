@@ -84,35 +84,51 @@ def _get_client_token():
 
 
 def _spotify_get(endpoint, params=None):
-    """Make an authenticated GET request to Spotify API."""
+    """Make an authenticated GET request to Spotify API with retry."""
     token = _get_client_token()
     if not token:
         logger.error("Spotify: No token available")
         return None
 
-    try:
-        # Longer timeout for playlists (they can be large)
-        timeout = 30 if "playlist" in endpoint else 10
-        url = f"{SPOTIFY_API_URL}{endpoint}"
-        logger.info(f"Spotify GET: {url}")
+    timeout = 30 if "playlist" in endpoint else 10
+    url = f"{SPOTIFY_API_URL}{endpoint}"
 
-        response = requests.get(
-            url,
-            headers={"Authorization": f"Bearer {token}"},
-            params=params,
-            timeout=timeout,
-        )
-        if response.status_code == 200:
-            return response.json()
-        else:
-            logger.error(f"Spotify API error: {response.status_code} — {response.text[:300]}")
+    for attempt in range(3):
+        try:
+            logger.info(f"Spotify GET: {url} (attempt {attempt + 1})")
+            response = requests.get(
+                url,
+                headers={"Authorization": f"Bearer {token}"},
+                params=params,
+                timeout=timeout,
+            )
+            if response.status_code == 200:
+                return response.json()
+            elif response.status_code == 429:
+                # Rate limited — wait and retry
+                retry_after = int(response.headers.get("Retry-After", 2))
+                logger.warning(f"Spotify rate limited, waiting {retry_after}s")
+                import time
+                time.sleep(retry_after)
+                continue
+            else:
+                logger.error(f"Spotify API error: {response.status_code} — {response.text[:300]}")
+                return None
+        except requests.exceptions.Timeout:
+            logger.warning(f"Spotify timeout (attempt {attempt + 1}): {endpoint}")
+            if attempt < 2:
+                import time
+                time.sleep(1)
+                continue
             return None
-    except requests.exceptions.Timeout:
-        logger.error(f"Spotify request timed out: {endpoint}")
-        return None
-    except Exception as e:
-        logger.error(f"Spotify request error: {e}")
-        return None
+        except Exception as e:
+            logger.error(f"Spotify request error: {e}")
+            if attempt < 2:
+                import time
+                time.sleep(1)
+                continue
+            return None
+    return None
 
 
 # ══════════════════════════════════════════════
