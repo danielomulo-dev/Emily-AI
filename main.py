@@ -39,6 +39,8 @@ from utility_tools import (
     convert_currency, format_currency_result,
     calculate_loan, calculate_mshwari, format_loan_result, format_mshwari_result,
     generate_expense_pdf, get_daily_quote,
+    calculate_kenyan_loan, format_kenyan_loan, compare_lenders, format_comparison,
+    KENYAN_LENDERS, LENDER_ALIASES,
 )
 from watchparty_tools import (
     add_to_watchlist, remove_from_watchlist, get_watchlist, vote_for_movie,
@@ -2031,7 +2033,7 @@ async def cmd_help(ctx):
 
 **💰 Budget:** `!spent 500 lunch` · `!budget` · `!setbudget 50000` · `!report` · `!financetip`
 **📈 Portfolio:** `!buy SCOM 100 25` · `!sell SCOM` · `!portfolio`
-**💱 Finance:** `!convert 100 USD KES` · `!loan 500000 14 12` · `!mshwari 5000`
+**💱 Finance:** `!convert` · `!loan` · `!mshwari` · `!bankloan <lender> <amt> <months>` · `!compareloan <amt> <months>`
 
 **🎬 Watch Party:**
 `!watched` · `!rate` · `!ratings` · `!toprated` · `!filmnight`
@@ -2304,6 +2306,60 @@ async def cmd_mshwari(ctx, amount: str, days: str = "30"):
             await ctx.reply(f"Couldn't calculate: {error}")
     except ValueError:
         await ctx.reply("Format: `!mshwari 5000` or `!mshwari 5000 60` (for 60 days)")
+
+
+@bot.command(name="bankloan")
+async def cmd_bankloan(ctx, lender: str, amount: str, months: str = "12"):
+    """Calculate loan from a Kenyan bank/SACCO. Usage: !bankloan stima 500000 24"""
+    try:
+        # Look up lender
+        lender_key = LENDER_ALIASES.get(lender.lower().strip(), lender.lower().strip())
+        if lender_key not in KENYAN_LENDERS:
+            available_banks = [v["name"] for k, v in KENYAN_LENDERS.items() if v["type"] == "bank"]
+            available_saccos = [v["name"] for k, v in KENYAN_LENDERS.items() if v["type"] == "sacco"]
+            available_mobile = [v["name"] for k, v in KENYAN_LENDERS.items() if v["type"] == "mobile"]
+            await ctx.reply(
+                f"Unknown lender: **{lender}**\n\n"
+                f"**🏦 Banks:** {', '.join(available_banks)}\n"
+                f"**🤝 SACCOs:** {', '.join(available_saccos)}\n"
+                f"**📱 Mobile:** {', '.join(available_mobile)}\n\n"
+                f"Example: `!bankloan stima 500000 24`"
+            )
+            return
+
+        amt = float(amount.replace(",", "").replace("KES", "").replace("ksh", "").strip())
+        m = int(months)
+
+        result, error = calculate_kenyan_loan(lender_key, amt, m)
+        if result:
+            await ctx.send(format_kenyan_loan(result))
+        else:
+            await ctx.reply(f"Couldn't calculate: {error}")
+    except ValueError:
+        await ctx.reply("Format: `!bankloan stima 500000 24` (lender, amount, months)")
+
+
+@bot.command(name="compareloan")
+async def cmd_compareloan(ctx, amount: str, months: str = "12"):
+    """Compare loan costs across Kenyan lenders. Usage: !compareloan 500000 24"""
+    async with ctx.typing():
+        try:
+            amt = float(amount.replace(",", "").replace("KES", "").replace("ksh", "").strip())
+            m = int(months)
+
+            # Compare banks and SACCOs for longer terms, mobile for short terms
+            if m <= 1:
+                keys = ["mshwari", "kcb-mpesa", "fuliza", "tala", "branch"]
+            else:
+                keys = ["stima", "kcb", "equity", "coop", "absa", "im"]
+
+            results = compare_lenders(amt, m, keys)
+            if results:
+                await send_chunked_reply(ctx.message, format_comparison(results, amt, m))
+            else:
+                await ctx.reply("Couldn't compare lenders. Try again?")
+        except ValueError:
+            await ctx.reply("Format: `!compareloan 500000 24` (amount, months)")
 
 
 @bot.command(name="report")

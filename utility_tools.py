@@ -183,6 +183,222 @@ def format_mshwari_result(result):
 
 
 # ══════════════════════════════════════════════
+# KENYAN BANK & SACCO LOAN CALCULATORS
+# ══════════════════════════════════════════════
+
+# Approximate rates as of 2025-2026 (rates change — these are estimates)
+KENYAN_LENDERS = {
+    # Mobile lending
+    "mshwari": {"name": "M-Shwari", "type": "mobile", "rate_type": "flat_fee", "fee_per_30d": 7.5, "max_days": 30},
+    "kcb-mpesa": {"name": "KCB M-Pesa", "type": "mobile", "rate_type": "flat_fee", "fee_per_30d": 8.64, "max_days": 30},
+    "fuliza": {"name": "Fuliza", "type": "mobile", "rate_type": "daily_fee", "daily_rate": 0.5, "max_rate_per_day": 1.0},
+    "tala": {"name": "Tala", "type": "mobile", "rate_type": "flat_fee", "fee_per_30d": 15.0, "max_days": 30},
+    "branch": {"name": "Branch", "type": "mobile", "rate_type": "flat_fee", "fee_per_30d": 15.0, "max_days": 30},
+
+    # Banks (annual reducing balance rates)
+    "kcb": {"name": "KCB Bank", "type": "bank", "rate_type": "reducing", "annual_rate": 16.0, "min_months": 6, "max_months": 72},
+    "equity": {"name": "Equity Bank", "type": "bank", "rate_type": "reducing", "annual_rate": 16.5, "min_months": 6, "max_months": 72},
+    "coop": {"name": "Co-op Bank", "type": "bank", "rate_type": "reducing", "annual_rate": 16.0, "min_months": 6, "max_months": 60},
+    "absa": {"name": "ABSA Kenya", "type": "bank", "rate_type": "reducing", "annual_rate": 15.5, "min_months": 6, "max_months": 60},
+    "stanbic": {"name": "Stanbic Bank", "type": "bank", "rate_type": "reducing", "annual_rate": 16.0, "min_months": 6, "max_months": 60},
+    "ncba": {"name": "NCBA Bank", "type": "bank", "rate_type": "reducing", "annual_rate": 16.0, "min_months": 6, "max_months": 60},
+    "dtb": {"name": "DTB Bank", "type": "bank", "rate_type": "reducing", "annual_rate": 15.0, "min_months": 6, "max_months": 60},
+    "family": {"name": "Family Bank", "type": "bank", "rate_type": "reducing", "annual_rate": 18.0, "min_months": 6, "max_months": 48},
+    "im": {"name": "I&M Bank", "type": "bank", "rate_type": "reducing", "annual_rate": 15.0, "min_months": 6, "max_months": 60},
+
+    # SACCOs (reducing balance, typically cheaper)
+    "stima": {"name": "Stima SACCO", "type": "sacco", "rate_type": "reducing", "annual_rate": 12.0, "min_months": 1, "max_months": 72},
+    "kenya-police": {"name": "Kenya Police SACCO", "type": "sacco", "rate_type": "reducing", "annual_rate": 12.0, "min_months": 1, "max_months": 60},
+    "mwalimu": {"name": "Mwalimu National SACCO", "type": "sacco", "rate_type": "reducing", "annual_rate": 12.0, "min_months": 1, "max_months": 48},
+    "harambee": {"name": "Harambee SACCO", "type": "sacco", "rate_type": "reducing", "annual_rate": 12.0, "min_months": 1, "max_months": 48},
+    "unaitas": {"name": "Unaitas SACCO", "type": "sacco", "rate_type": "reducing", "annual_rate": 14.0, "min_months": 1, "max_months": 60},
+    "ukulima": {"name": "Ukulima SACCO", "type": "sacco", "rate_type": "reducing", "annual_rate": 12.0, "min_months": 1, "max_months": 48},
+}
+
+# Aliases for easier lookup
+LENDER_ALIASES = {
+    "m-shwari": "mshwari", "mshwari": "mshwari",
+    "kcb-mpesa": "kcb-mpesa", "kcbmpesa": "kcb-mpesa", "kcb mpesa": "kcb-mpesa",
+    "fuliza": "fuliza",
+    "tala": "tala", "branch": "branch",
+    "kcb": "kcb", "kcb bank": "kcb",
+    "equity": "equity", "equity bank": "equity",
+    "coop": "coop", "co-op": "coop", "cooperative": "coop", "co-op bank": "coop",
+    "absa": "absa", "barclays": "absa",
+    "stanbic": "stanbic",
+    "ncba": "ncba",
+    "dtb": "dtb", "diamond trust": "dtb",
+    "family": "family", "family bank": "family",
+    "im": "im", "i&m": "im", "i&m bank": "im",
+    "stima": "stima", "stima sacco": "stima",
+    "kenya police": "kenya-police", "police sacco": "kenya-police",
+    "mwalimu": "mwalimu", "mwalimu sacco": "mwalimu",
+    "harambee": "harambee", "harambee sacco": "harambee",
+    "unaitas": "unaitas", "unaitas sacco": "unaitas",
+    "ukulima": "ukulima", "ukulima sacco": "ukulima",
+}
+
+
+def calculate_kenyan_loan(lender_key, principal, months=12):
+    """Calculate loan for a specific Kenyan lender."""
+    try:
+        lender = KENYAN_LENDERS.get(lender_key)
+        if not lender:
+            return None, f"Unknown lender: {lender_key}"
+
+        p = float(principal)
+        n = int(months)
+
+        if lender["rate_type"] == "flat_fee":
+            # Mobile lenders — flat fee per 30 days
+            fee_pct = lender["fee_per_30d"] / 100
+            periods = max(1, n)  # months = periods
+            total_fee = p * fee_pct * periods
+            total_repayment = p + total_fee
+            monthly_payment = total_repayment / max(periods, 1)
+            effective_annual = fee_pct * 12 * 100
+
+            return {
+                "lender": lender["name"],
+                "type": lender["type"],
+                "rate_type": "Flat Fee",
+                "principal": p,
+                "fee_rate": f"{lender['fee_per_30d']}% per 30 days",
+                "months": n,
+                "monthly_payment": monthly_payment,
+                "total_fee": total_fee,
+                "total_repayment": total_repayment,
+                "effective_annual": effective_annual,
+            }, None
+
+        elif lender["rate_type"] == "daily_fee":
+            # Fuliza-style — daily charge
+            daily_rate = lender["daily_rate"] / 100
+            days = n * 30
+            total_fee = p * daily_rate * days
+            total_repayment = p + total_fee
+            effective_annual = daily_rate * 365 * 100
+
+            return {
+                "lender": lender["name"],
+                "type": lender["type"],
+                "rate_type": "Daily Fee",
+                "principal": p,
+                "fee_rate": f"{lender['daily_rate']}% per day",
+                "months": n,
+                "days": days,
+                "total_fee": total_fee,
+                "total_repayment": total_repayment,
+                "effective_annual": effective_annual,
+            }, None
+
+        elif lender["rate_type"] == "reducing":
+            # Bank/SACCO — reducing balance
+            annual_rate = lender["annual_rate"]
+            r = annual_rate / 100 / 12
+            if r == 0:
+                monthly_payment = p / n
+            else:
+                monthly_payment = p * (r * (1 + r)**n) / ((1 + r)**n - 1)
+            total_repayment = monthly_payment * n
+            total_interest = total_repayment - p
+
+            return {
+                "lender": lender["name"],
+                "type": lender["type"],
+                "rate_type": "Reducing Balance",
+                "principal": p,
+                "annual_rate": annual_rate,
+                "months": n,
+                "monthly_payment": monthly_payment,
+                "total_interest": total_interest,
+                "total_repayment": total_repayment,
+            }, None
+
+    except Exception as e:
+        return None, f"Calculation error: {e}"
+
+
+def format_kenyan_loan(result):
+    """Format Kenyan loan calculation."""
+    if not result:
+        return "Couldn't calculate that."
+
+    type_emoji = {"mobile": "📱", "bank": "🏦", "sacco": "🤝"}.get(result["type"], "💰")
+    lines = [f"{type_emoji} **{result['lender']} Loan Calculator**\n"]
+
+    lines.append(f"**Loan Amount:** KES {result['principal']:,.2f}")
+
+    if result["rate_type"] == "Reducing Balance":
+        lines.append(f"**Interest Rate:** {result['annual_rate']}% p.a. (reducing balance)")
+        lines.append(f"**Duration:** {result['months']} months")
+        lines.append(f"**Monthly Payment:** KES {result['monthly_payment']:,.2f}")
+        lines.append(f"**Total Interest:** KES {result['total_interest']:,.2f}")
+        lines.append(f"**Total Repayment:** KES {result['total_repayment']:,.2f}")
+    else:
+        lines.append(f"**Fee:** {result['fee_rate']}")
+        if result.get("days"):
+            lines.append(f"**Duration:** {result['days']} days")
+        else:
+            lines.append(f"**Duration:** {result['months']} month(s)")
+        lines.append(f"**Total Fee:** KES {result['total_fee']:,.2f}")
+        lines.append(f"**Total Repayment:** KES {result['total_repayment']:,.2f}")
+        lines.append(f"**Effective Annual Rate:** {result['effective_annual']:.1f}% 😬")
+
+    return "\n".join(lines)
+
+
+def compare_lenders(principal, months=12, lender_keys=None):
+    """Compare multiple lenders for the same loan amount."""
+    if not lender_keys:
+        # Default: compare popular options
+        lender_keys = ["mshwari", "kcb-mpesa", "kcb", "equity", "coop", "stima"]
+
+    results = []
+    for key in lender_keys:
+        lender = KENYAN_LENDERS.get(key)
+        if not lender:
+            continue
+        result, error = calculate_kenyan_loan(key, principal, months)
+        if result:
+            results.append(result)
+
+    # Sort by total repayment (cheapest first)
+    results.sort(key=lambda x: x["total_repayment"])
+    return results
+
+
+def format_comparison(results, principal, months):
+    """Format lender comparison table."""
+    if not results:
+        return "No lenders to compare."
+
+    lines = [f"📊 **Loan Comparison: KES {principal:,.0f} for {months} months**\n"]
+
+    for i, r in enumerate(results):
+        medal = ["🥇", "🥈", "🥉"][i] if i < 3 else f"**{i+1}.**"
+        type_emoji = {"mobile": "📱", "bank": "🏦", "sacco": "🤝"}.get(r["type"], "💰")
+
+        if r["rate_type"] == "Reducing Balance":
+            rate_info = f"{r['annual_rate']}% p.a."
+            monthly = f"KES {r['monthly_payment']:,.0f}/mo"
+        else:
+            rate_info = r.get("fee_rate", "")
+            monthly = f"KES {r.get('monthly_payment', r['total_repayment']):,.0f}/mo"
+
+        lines.append(f"{medal} {type_emoji} **{r['lender']}** — {rate_info}")
+        lines.append(f"   Monthly: {monthly} | Total: KES {r['total_repayment']:,.0f}")
+
+    cheapest = results[0]
+    most_expensive = results[-1]
+    savings = most_expensive["total_repayment"] - cheapest["total_repayment"]
+    lines.append(f"\n💡 **Cheapest: {cheapest['lender']}** saves you **KES {savings:,.0f}** vs {most_expensive['lender']}")
+    lines.append(f"\n_⚠️ Rates are approximate and may vary. Always confirm with the lender._")
+
+    return "\n".join(lines)
+
+
+# ══════════════════════════════════════════════
 # EXPENSE PDF REPORT
 # ══════════════════════════════════════════════
 def generate_expense_pdf(user_name, monthly_data, budget_limit=None):
