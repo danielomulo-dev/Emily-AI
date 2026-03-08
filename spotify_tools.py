@@ -278,9 +278,6 @@ def get_playlist(playlist_id):
     except Exception as e:
         logger.error(f"Get playlist error: {e}")
         return None, f"Error: {e}"
-    except Exception as e:
-        logger.error(f"Get playlist error: {e}")
-        return None, f"Error: {e}"
 
 
 def analyze_playlist(playlist_id):
