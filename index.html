@@ -1,0 +1,381 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Emily AI — Your Kenyan AI Assistant on Discord</title>
+    <meta name="description" content="Emily is a Kenyan AI Discord bot — finance advisor, movie buff, music curator, and accountability partner. Powered by Gemini + Claude.">
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🇰🇪</text></svg>">
+    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Sora:wght@300;400;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        html { scroll-behavior: smooth; }
+        body { background: #06060a; color: #fff; font-family: 'Sora', sans-serif; overflow-x: hidden; }
+
+        /* PARTICLES */
+        #particles { position: fixed; top: 0; left: 0; width: 100%; height: 100%; z-index: 0; pointer-events: none; }
+
+        /* NAV */
+        nav {
+            position: fixed; top: 0; left: 0; right: 0; z-index: 100;
+            padding: 16px 40px; display: flex; justify-content: space-between; align-items: center;
+            transition: all 0.3s ease;
+        }
+        nav.scrolled { background: rgba(6,6,10,0.9); backdrop-filter: blur(20px); border-bottom: 1px solid #ffffff08; }
+        .nav-logo { display: flex; align-items: center; gap: 10px; }
+        .nav-logo span:last-child { font-family: 'Orbitron', sans-serif; font-weight: 900; font-size: 1.2rem; color: #00f0ff; text-shadow: 0 0 20px #00f0ff40; }
+        .nav-links { display: flex; gap: 32px; align-items: center; }
+        .nav-links a { color: #8a8a9a; text-decoration: none; font-size: 0.85rem; font-weight: 600; letter-spacing: 1px; text-transform: uppercase; transition: color 0.2s; }
+        .nav-links a:hover { color: #00f0ff; }
+        .nav-cta { padding: 8px 20px; border-radius: 8px; background: linear-gradient(135deg, #00f0ff, #0080ff); color: #000 !important; font-weight: 700; font-size: 0.8rem; letter-spacing: 1px; box-shadow: 0 0 20px #00f0ff30; }
+
+        /* HERO */
+        .hero {
+            min-height: 100vh; display: flex; flex-direction: column; justify-content: center; align-items: center;
+            text-align: center; padding: 120px 20px 60px; position: relative; z-index: 1;
+        }
+        .hero-avatar {
+            width: 120px; height: 120px; border-radius: 50%;
+            background: linear-gradient(135deg, #00f0ff20, #0080ff20); border: 2px solid #00f0ff40;
+            display: flex; align-items: center; justify-content: center; font-size: 3.5rem; margin-bottom: 32px;
+            box-shadow: 0 0 60px #00f0ff15, inset 0 0 30px #00f0ff10;
+            animation: pulse 3s ease-in-out infinite;
+        }
+        .hero h1 { font-family: 'Orbitron', sans-serif; font-size: clamp(2.5rem, 6vw, 4.5rem); font-weight: 900; margin-bottom: 16px; line-height: 1.1; }
+        .glow-cyan { color: #00f0ff; text-shadow: 0 0 20px #00f0ff50, 0 0 40px #00f0ff30; }
+        .glow-gold { color: #f0c000; text-shadow: 0 0 20px #f0c00050, 0 0 40px #f0c00030; }
+        .glow-pink { color: #ff3366; text-shadow: 0 0 20px #ff336650, 0 0 40px #ff336630; }
+        .glow-purple { color: #a855f7; text-shadow: 0 0 20px #a855f750, 0 0 40px #a855f730; }
+        .hero-sub { font-size: clamp(1rem, 2.5vw, 1.4rem); color: #8a8a9a; max-width: 600px; line-height: 1.6; margin-bottom: 12px; font-weight: 300; }
+        .hero-tech { color: #00f0ff80; font-size: 0.85rem; font-family: 'JetBrains Mono', monospace; margin-bottom: 40px; }
+
+        /* COMMAND SHOWCASE */
+        .cmd-showcase {
+            background: #0a0a12; border: 1px solid #00f0ff15; border-radius: 12px;
+            padding: 20px 32px; font-family: 'JetBrains Mono', monospace; font-size: 0.9rem;
+            min-width: 320px; text-align: left; position: relative; overflow: hidden;
+        }
+        .cmd-showcase::before { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 1px; background: linear-gradient(90deg, transparent, #00f0ff40, transparent); }
+        .cmd-cat { color: #555; margin-bottom: 8px; font-size: 0.75rem; }
+        .cmd-tag { color: #00f0ff; padding: 4px 10px; background: #00f0ff10; border-radius: 6px; font-size: 0.85rem; display: inline-block; margin: 2px 4px; animation: fadeIn 0.3s ease forwards; opacity: 0; }
+        .scroll-hint { margin-top: 60px; color: #ffffff20; font-size: 1.5rem; animation: bounce 2s ease infinite; }
+
+        /* STATS */
+        .stats { padding: 80px 20px; position: relative; z-index: 1; }
+        .stats-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 24px; max-width: 800px; margin: 0 auto; }
+        .stat-item { text-align: center; padding: 24px; }
+        .stat-value { font-family: 'Orbitron', sans-serif; font-size: 2.5rem; font-weight: 900; color: #00f0ff; text-shadow: 0 0 30px #00f0ff40; }
+        .stat-label { color: #555; font-size: 0.8rem; letter-spacing: 2px; text-transform: uppercase; margin-top: 8px; }
+
+        /* SECTION HEADERS */
+        .section-header { text-align: center; margin-bottom: 60px; }
+        .section-label { font-size: 0.85rem; font-weight: 600; letter-spacing: 2px; }
+        .section-title { font-family: 'Orbitron', sans-serif; font-size: 2.2rem; font-weight: 900; margin: 12px 0 20px; }
+        .neon-line { height: 2px; width: 120px; margin: 0 auto; }
+        .neon-line-cyan { background: linear-gradient(90deg, transparent, #00f0ff, transparent); box-shadow: 0 0 10px #00f0ff60; }
+        .neon-line-gold { background: linear-gradient(90deg, transparent, #f0c000, transparent); box-shadow: 0 0 10px #f0c00060; }
+
+        /* FEATURES */
+        .features { padding: 80px 20px; position: relative; z-index: 1; }
+        .features-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 24px; max-width: 1000px; margin: 0 auto; }
+        .feature-card {
+            background: linear-gradient(135deg, #0a0a0f, #12121a);
+            border: 1px solid transparent; border-radius: 16px; padding: 32px 24px;
+            opacity: 0; transform: translateY(30px); transition: all 0.6s ease; position: relative; overflow: hidden;
+        }
+        .feature-card.visible { opacity: 1; transform: translateY(0); }
+        .feature-card .top-line { position: absolute; top: 0; left: 0; right: 0; height: 2px; }
+        .feature-card .icon { font-size: 2.5rem; margin-bottom: 16px; }
+        .feature-card h3 { color: #fff; font-size: 1.25rem; font-weight: 700; margin-bottom: 10px; font-family: 'Orbitron', sans-serif; }
+        .feature-card p { color: #8a8a9a; font-size: 0.9rem; line-height: 1.6; }
+
+        /* SCHEDULE */
+        .schedule { padding: 80px 20px; position: relative; z-index: 1; }
+        .schedule-list { max-width: 600px; margin: 0 auto; }
+        .schedule-item {
+            display: flex; align-items: center; gap: 16px; padding: 16px 20px; margin-bottom: 8px;
+            border-radius: 10px; background: #0a0a12; border: 1px solid #ffffff06; transition: all 0.3s ease;
+        }
+        .schedule-item:hover { border-color: #f0c00030; background: #0f0f18; }
+        .schedule-item .s-icon { font-size: 1.5rem; width: 40px; text-align: center; }
+        .schedule-item .s-task { flex: 1; color: #fff; font-size: 0.9rem; font-weight: 600; }
+        .schedule-item .s-time {
+            font-family: 'JetBrains Mono', monospace; font-size: 0.75rem; color: #f0c000;
+            background: #f0c00010; padding: 4px 10px; border-radius: 6px;
+        }
+
+        /* PERSONA */
+        .persona {
+            padding: 80px 20px; position: relative; z-index: 1;
+        }
+        .persona-card {
+            max-width: 700px; margin: 0 auto; text-align: center;
+            background: linear-gradient(135deg, #0a0a12, #12121a);
+            border: 1px solid #ff336620; border-radius: 20px; padding: 48px 40px;
+            position: relative; overflow: hidden;
+        }
+        .persona-card::before { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 2px; background: linear-gradient(90deg, transparent, #ff3366, transparent); }
+        .persona-card p { color: #8a8a9a; line-height: 1.8; font-size: 1rem; max-width: 500px; margin: 0 auto; }
+        .persona-card em { color: #ff336680; }
+
+        /* TECH */
+        .tech { padding: 60px 20px 100px; position: relative; z-index: 1; text-align: center; }
+        .tech-tags { display: flex; flex-wrap: wrap; justify-content: center; gap: 12px; max-width: 700px; margin: 0 auto; }
+        .tech-tag {
+            padding: 8px 16px; border-radius: 8px; background: #a855f708;
+            border: 1px solid #a855f720; color: #a855f7; font-size: 0.8rem;
+            font-family: 'JetBrains Mono', monospace; font-weight: 500;
+        }
+        .footer { color: #333; margin-top: 60px; font-size: 0.75rem; font-family: 'JetBrains Mono', monospace; }
+
+        /* ANIMATIONS */
+        @keyframes pulse { 0%, 100% { box-shadow: 0 0 60px #00f0ff15, inset 0 0 30px #00f0ff10; } 50% { box-shadow: 0 0 80px #00f0ff25, inset 0 0 40px #00f0ff15; } }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
+        @keyframes bounce { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(8px); } }
+
+        /* RESPONSIVE */
+        @media (max-width: 768px) {
+            nav { padding: 12px 16px; }
+            .nav-links a:not(.nav-cta) { display: none; }
+            .stats-grid { grid-template-columns: repeat(2, 1fr); }
+            .features-grid { grid-template-columns: 1fr; }
+            section { padding: 60px 16px; }
+        }
+    </style>
+</head>
+<body>
+
+    <canvas id="particles"></canvas>
+
+    <!-- NAV -->
+    <nav id="navbar">
+        <div class="nav-logo">
+            <span style="font-size:1.5rem">🇰🇪</span>
+            <span>EMILY AI</span>
+        </div>
+        <div class="nav-links">
+            <a href="#features">Features</a>
+            <a href="#stats-section">Stats</a>
+            <a href="#schedule-section">Schedule</a>
+            <a href="https://github.com/danielomulo-dev/Emily-AI" target="_blank" class="nav-cta">GITHUB</a>
+        </div>
+    </nav>
+
+    <!-- HERO -->
+    <section class="hero" id="hero">
+        <div class="hero-avatar">👩🏾‍💻</div>
+        <h1><span style="color:#fff">Meet </span><span class="glow-cyan">Emily</span></h1>
+        <p class="hero-sub">Your Kenyan AI assistant on Discord — finance advisor, movie buff, music curator, and accountability partner.</p>
+        <p class="hero-tech">Powered by Gemini + Claude · Built in Nairobi 🇰🇪</p>
+
+        <div class="cmd-showcase" id="cmdShowcase">
+            <div class="cmd-cat" id="cmdCat">Budget</div>
+            <div id="cmdTags"></div>
+        </div>
+
+        <div class="scroll-hint">↓</div>
+    </section>
+
+    <!-- STATS -->
+    <section class="stats" id="stats-section">
+        <div class="stats-grid">
+            <div class="stat-item"><div class="stat-value">50+</div><div class="stat-label">Commands</div></div>
+            <div class="stat-item"><div class="stat-value">8</div><div class="stat-label">Auto Tasks</div></div>
+            <div class="stat-item"><div class="stat-value">13</div><div class="stat-label">Modules</div></div>
+            <div class="stat-item"><div class="stat-value">7K+</div><div class="stat-label">Lines of Code</div></div>
+        </div>
+    </section>
+
+    <!-- FEATURES -->
+    <section class="features" id="features">
+        <div class="section-header">
+            <p class="section-label glow-cyan">CAPABILITIES</p>
+            <h2 class="section-title">What Emily Can Do</h2>
+            <div class="neon-line neon-line-cyan"></div>
+        </div>
+        <div class="features-grid" id="featuresGrid"></div>
+    </section>
+
+    <!-- SCHEDULE -->
+    <section class="schedule" id="schedule-section">
+        <div class="section-header">
+            <p class="section-label glow-gold">AUTOMATION</p>
+            <h2 class="section-title">Emily Never Sleeps</h2>
+            <div class="neon-line neon-line-gold"></div>
+        </div>
+        <div class="schedule-list" id="scheduleList"></div>
+    </section>
+
+    <!-- PERSONA -->
+    <section class="persona">
+        <div class="persona-card">
+            <div style="font-size:3rem; margin-bottom:20px">👩🏾‍💼</div>
+            <h2 style="font-family:'Orbitron',sans-serif; font-size:1.8rem; font-weight:900; margin-bottom:16px">
+                <span class="glow-pink">The Persona</span>
+            </h2>
+            <p>Emily is a Kenyan woman in her 30s based in Nairobi. She's a financial analyst by day, cinephile by night, and a passionate home cook. She speaks with Kenyan slang — <em>sawa, manze, wueh, aki</em> — and always keeps it real. She's not just an AI, she's that smart friend everyone needs.</p>
+        </div>
+    </section>
+
+    <!-- TECH -->
+    <section class="tech">
+        <p class="section-label glow-purple">ARCHITECTURE</p>
+        <h2 style="font-family:'Orbitron',sans-serif; font-size:1.5rem; font-weight:700; margin:12px 0 30px">Built With</h2>
+        <div class="tech-tags">
+            <span class="tech-tag">Python</span>
+            <span class="tech-tag">Discord.py</span>
+            <span class="tech-tag">Google Gemini</span>
+            <span class="tech-tag">Claude Sonnet</span>
+            <span class="tech-tag">MongoDB</span>
+            <span class="tech-tag">ElevenLabs TTS</span>
+            <span class="tech-tag">Spotify API</span>
+            <span class="tech-tag">Koyeb</span>
+            <span class="tech-tag">GitHub</span>
+        </div>
+        <p class="footer">Crafted by Empower Africa · Nairobi, Kenya 🇰🇪</p>
+    </section>
+
+    <script>
+        // === PARTICLES ===
+        const canvas = document.getElementById('particles');
+        const ctx = canvas.getContext('2d');
+        let w, h;
+        const particles = [];
+
+        function resize() {
+            w = canvas.width = window.innerWidth;
+            h = canvas.height = window.innerHeight;
+        }
+        resize();
+        window.addEventListener('resize', resize);
+
+        for (let i = 0; i < 60; i++) {
+            particles.push({
+                x: Math.random() * w, y: Math.random() * h,
+                vx: (Math.random() - 0.5) * 0.3, vy: (Math.random() - 0.5) * 0.3,
+                r: Math.random() * 1.5 + 0.5, o: Math.random() * 0.5 + 0.1
+            });
+        }
+
+        function drawParticles() {
+            ctx.clearRect(0, 0, w, h);
+            particles.forEach(p => {
+                p.x += p.vx; p.y += p.vy;
+                if (p.x < 0) p.x = w; if (p.x > w) p.x = 0;
+                if (p.y < 0) p.y = h; if (p.y > h) p.y = 0;
+                ctx.beginPath();
+                ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
+                ctx.fillStyle = `rgba(0, 240, 255, ${p.o})`;
+                ctx.fill();
+            });
+            particles.forEach((a, i) => {
+                particles.slice(i + 1).forEach(b => {
+                    const dx = a.x - b.x, dy = a.y - b.y;
+                    const dist = Math.sqrt(dx * dx + dy * dy);
+                    if (dist < 120) {
+                        ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y);
+                        ctx.strokeStyle = `rgba(0, 240, 255, ${0.08 * (1 - dist / 120)})`;
+                        ctx.stroke();
+                    }
+                });
+            });
+            requestAnimationFrame(drawParticles);
+        }
+        drawParticles();
+
+        // === NAV SCROLL ===
+        window.addEventListener('scroll', () => {
+            const nav = document.getElementById('navbar');
+            nav.classList.toggle('scrolled', window.scrollY > 50);
+
+            const hero = document.getElementById('hero');
+            const opacity = Math.max(0, 1 - window.scrollY / 500);
+            hero.style.opacity = opacity;
+            hero.style.transform = `translateY(${window.scrollY * 0.15}px)`;
+        });
+
+        // === COMMAND SHOWCASE ===
+        const commands = [
+            { cat: "Budget", cmds: ["!spent", "!budget", "!report", "!financetip"] },
+            { cat: "Film", cmds: ["!watched", "!rate", "!suggest", "!filmnight"] },
+            { cat: "Spotify", cmds: ["!song", "!vibes"] },
+            { cat: "Fun", cmds: ["!trivia", "!roast", "!debate", "!learn"] },
+            { cat: "Goals", cmds: ["!goal", "!savinggoal", "!saved", "!progress"] },
+            { cat: "Finance", cmds: ["!convert", "!bankloan", "!compareloan", "!mshwari"] },
+        ];
+        let cmdIndex = 0;
+
+        function updateCommands() {
+            const cmd = commands[cmdIndex];
+            document.getElementById('cmdCat').textContent = cmd.cat;
+            const container = document.getElementById('cmdTags');
+            container.innerHTML = '';
+            cmd.cmds.forEach((c, i) => {
+                const span = document.createElement('span');
+                span.className = 'cmd-tag';
+                span.textContent = c;
+                span.style.animationDelay = `${i * 0.1}s`;
+                container.appendChild(span);
+            });
+            cmdIndex = (cmdIndex + 1) % commands.length;
+        }
+        updateCommands();
+        setInterval(updateCommands, 2500);
+
+        // === FEATURES ===
+        const features = [
+            { icon: "🧠", title: "Hive Mind AI", desc: "Dual-brain architecture — Gemini for real-time search, Claude for deep analysis. Emily picks the right brain for every question.", color: "#00f0ff" },
+            { icon: "💰", title: "Finance Suite", desc: "Budget tracking, portfolio manager, Kenyan bank loan comparisons, M-Shwari calculator, currency converter, and weekly coaching.", color: "#f0c000" },
+            { icon: "🎬", title: "Watch Party", desc: "Log movies, rate them with friends, get AI suggestions with real IMDB & Rotten Tomatoes ratings every weekend.", color: "#ff3366" },
+            { icon: "🎵", title: "Spotify Integration", desc: "Search songs, get mood-based playlists, and automatic Monday music drops to start your week right.", color: "#1db954" },
+            { icon: "🎯", title: "Goals & Accountability", desc: "Track savings goals with progress bars, get Wednesday nudges when you slack, and celebrate wins together.", color: "#a855f7" },
+            { icon: "📱", title: "Reddit & News", desc: "Investment buzz from r/wallstreetbets, Kenya news briefings, and Reddit discussions on any stock.", color: "#ff4500" },
+        ];
+
+        const grid = document.getElementById('featuresGrid');
+        features.forEach((f, i) => {
+            const card = document.createElement('div');
+            card.className = 'feature-card';
+            card.style.transitionDelay = `${i * 0.1}s`;
+            card.style.borderColor = `${f.color}20`;
+            card.innerHTML = `
+                <div class="top-line" style="background: linear-gradient(90deg, transparent, ${f.color}, transparent)"></div>
+                <div class="icon">${f.icon}</div>
+                <h3>${f.title}</h3>
+                <p>${f.desc}</p>
+            `;
+            grid.appendChild(card);
+        });
+
+        // Scroll reveal for features
+        const observer = new IntersectionObserver(entries => {
+            entries.forEach(e => { if (e.isIntersecting) e.target.classList.add('visible'); });
+        }, { threshold: 0.2 });
+        document.querySelectorAll('.feature-card').forEach(c => observer.observe(c));
+
+        // === SCHEDULE ===
+        const tasks = [
+            { time: "7:00 AM", task: "Daily news briefing", icon: "📰" },
+            { time: "9:00 AM", task: "Monday Spotify playlist", icon: "🎵" },
+            { time: "12:00 PM", task: "Daily learning lesson", icon: "📚" },
+            { time: "6:00 PM", task: "Weekend movie suggestion", icon: "🎬" },
+            { time: "6:00 PM", task: "Saturday finance coaching", icon: "💰" },
+            { time: "6:00 PM", task: "Wednesday goal nudge", icon: "🎯" },
+            { time: "6:00 PM", task: "Sunday weekly digest", icon: "📋" },
+            { time: "8:00 AM", task: "Birthday celebrations", icon: "🎂" },
+        ];
+
+        const list = document.getElementById('scheduleList');
+        tasks.forEach(t => {
+            const item = document.createElement('div');
+            item.className = 'schedule-item';
+            item.innerHTML = `
+                <span class="s-icon">${t.icon}</span>
+                <div class="s-task">${t.task}</div>
+                <span class="s-time">${t.time}</span>
+            `;
+            list.appendChild(item);
+        });
+    </script>
+</body>
+</html>
