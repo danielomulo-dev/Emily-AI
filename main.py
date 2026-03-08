@@ -65,14 +65,9 @@ from social_tools import (
     LEARNING_TOPICS,
 )
 from spotify_tools import (
-    search_tracks, get_recommendations, analyze_playlist, get_similar_to_playlist,
-    extract_playlist_id, format_search_results, format_recommendations,
-    format_playlist_analysis, format_playlist_recommendations,
+    search_tracks, get_recommendations,
+    format_search_results, format_recommendations,
     is_configured as spotify_configured, MOOD_PROFILES,
-    save_user_playlist, get_user_playlists, get_user_playlist_by_label,
-    remove_user_playlist, get_all_server_playlists, format_user_playlists,
-    save_guild_playlist, get_guild_playlist, get_all_guilds_with_playlists,
-    set_music_channel,
 )
 from reddit_tools import (
     get_trending_posts, get_investment_buzz, get_stock_mentions, search_reddit,
@@ -1353,49 +1348,28 @@ async def before_movie_suggest():
 
 @tasks.loop(minutes=1)
 async def monday_music_drop():
-    """Post personalized Spotify recommendations every Monday morning based on saved playlist."""
+    """Post Spotify mood playlist every Monday morning."""
     try:
         now = datetime.now(pytz.timezone('Africa/Nairobi'))
         if now.weekday() != 0 or now.strftime("%H:%M") != "09:00":
             return
 
-        today = now.strftime("%Y-%m-%d")
-
         if not spotify_configured():
             return
 
-        # Get all guilds with saved playlists (they have music settings)
-        all_guilds = get_all_guilds_with_playlists()
-        # Also check news servers as fallback
-        news_servers = get_news_servers()
-        news_guild_ids = {s["guild_id"] for s in news_servers}
+        today = now.strftime("%Y-%m-%d")
+        servers = get_news_servers()
 
-        # Build list of servers to post to
-        servers_to_post = []
-        for guild_data in all_guilds:
-            guild_id = guild_data["guild_id"]
-            music_ch = guild_data.get("music_channel_id")
-            if music_ch:
-                servers_to_post.append({"guild_id": guild_id, "channel_id": music_ch, "playlist_id": guild_data.get("playlist_id")})
+        for server_config in servers:
+            guild_id = str(server_config["guild_id"])
 
-        # Fallback: servers with news channel but no music channel
-        for ns in news_servers:
-            already = any(s["guild_id"] == ns["guild_id"] for s in servers_to_post)
-            if not already:
-                saved = get_guild_playlist(ns["guild_id"])
-                playlist_id = saved.get("playlist_id") if saved else None
-                servers_to_post.append({"guild_id": ns["guild_id"], "channel_id": ns["news_channel_id"], "playlist_id": playlist_id})
-
-        for server in servers_to_post:
-            channel_id = server.get("channel_id")
+            # Use dedicated music channel if set, otherwise fall back to news channel
+            settings = get_server_settings(guild_id)
+            channel_id = settings.get("music_channel_id") or server_config.get("news_channel_id")
             if not channel_id:
                 continue
 
-            guild_id = server["guild_id"]
-
-            # Check if already posted today
-            saved_data = get_guild_playlist(guild_id)
-            last_music = saved_data.get("last_music_date", "") if saved_data else ""
+            last_music = server_config.get("last_music_date", "")
             if last_music == today:
                 continue
 
@@ -1403,45 +1377,6 @@ async def monday_music_drop():
             if not channel:
                 continue
 
-            # Get ALL playlists saved by all users in this server
-            all_playlists = get_all_server_playlists(guild_id)
-
-            if all_playlists:
-                # PERSONALIZED: Pick a random playlist from the server's collection
-                picked = random.choice(all_playlists)
-                playlist_id = picked.get("playlist_id")
-                label = picked.get("label", "default")
-
-                if playlist_id:
-                    result, error = await asyncio.to_thread(
-                        get_similar_to_playlist, playlist_id, 5
-                    )
-                    if result and result.get("recommendations"):
-                        analysis = result["analysis"]
-                        recs = result["recommendations"]
-                        top_genres = ", ".join([g for g, _ in analysis.get("top_genres", [])[:3]])
-                        top_artists = ", ".join([a for a, _ in analysis.get("top_artists", [])[:3]])
-                        playlist_name = analysis.get("name", "Your Playlist")
-
-                        lines = [f"🎵 **Emily's Monday Picks — Just For You** 🎯\n"]
-                        lines.append(f"_Based on: **{playlist_name}** ({label})_")
-                        lines.append(f"_Your vibe: {top_genres}_\n")
-
-                        for i, t in enumerate(recs, 1):
-                            lines.append(f"**{i}.** [{t['artists']} — {t['name']}]({t['url']})")
-
-                        total = len(all_playlists)
-                        lines.append(f"\n_Picked from {total} saved playlist{'s' if total > 1 else ''} in this server_")
-                        lines.append(f"_Add yours: `!setplaylist <label> <link>` · Instant picks: `!tastify`_ 🎧")
-
-                        await channel.send("\n".join(lines))
-                        from spotify_tools import saved_playlists_col as _sp_col
-                        if _sp_col is not None:
-                            _sp_col.update_one({"guild_id": guild_id, "label": "__settings__"}, {"$set": {"guild_id": guild_id, "last_music_date": today}}, upsert=True)
-                        logger.info(f"Personalized Monday music for guild {guild_id} from '{label}'")
-                        continue
-
-            # FALLBACK: Random mood if no saved playlists
             moods = ["chill", "hype", "happy", "workout", "party", "afrobeats", "romantic", "focus"]
             mood = random.choice(moods)
             mood_emoji = {
@@ -1458,13 +1393,11 @@ async def monday_music_drop():
             for i, t in enumerate(tracks, 1):
                 lines.append(f"**{i}.** [{t['artists']} — {t['name']}]({t['url']})")
 
-            lines.append(f"\n💡 _Want personalized picks? Save your playlist: `!setplaylist chill <link>`_ 🎧")
+            lines.append(f"\n_Want different vibes? Try `!vibes <mood>`_ 🎧")
 
             await channel.send("\n".join(lines))
-            from spotify_tools import saved_playlists_col as _sp_col2
-            if _sp_col2 is not None:
-                _sp_col2.update_one({"guild_id": guild_id, "label": "__settings__"}, {"$set": {"guild_id": guild_id, "last_music_date": today}}, upsert=True)
-            logger.info(f"Random Monday music for guild {guild_id}: {mood}")
+            update_server_setting(guild_id, "last_music_date", today)
+            logger.info(f"Monday music for guild {guild_id}: {mood}")
 
     except Exception as e:
         logger.error(f"Monday music error: {e}")
@@ -1924,8 +1857,7 @@ async def cmd_help(ctx):
 `!suggest` · `!setmovienight` · `!addmovie` · `!watchlist`
 `!vote` · `!watchparty` · `!join` · `!endparty`
 
-**🎵 Spotify:**
-`!song <query>` · `!vibes <mood>` · `!analyze <playlist>` · `!tastify <playlist>`
+**🎵 Spotify:** `!song <query>` · `!vibes <mood>`
 
 **⏰ Reminders:** `!remind 5pm call mum` · `!reminders`"""
 
@@ -3011,219 +2943,14 @@ async def cmd_vibes(ctx, *, mood: str = "chill"):
             await ctx.reply(f"No vibes for '{mood}'. Try one of these: {available}")
 
 
-@bot.command(name="analyze")
-async def cmd_analyze_playlist(ctx, *, playlist_url: str):
-    """Analyze a Spotify playlist. Usage: !analyze https://open.spotify.com/playlist/..."""
-    if not spotify_configured():
-        await ctx.reply("Spotify isn't set up yet.")
-        return
-    async with ctx.typing():
-        playlist_id = extract_playlist_id(playlist_url)
-        if not playlist_id:
-            await ctx.reply("Couldn't find a playlist ID. Share a Spotify playlist link!")
-            return
-
-        analysis, error = await asyncio.to_thread(analyze_playlist, playlist_id)
-        if analysis:
-            await send_chunked_reply(ctx.message, format_playlist_analysis(analysis))
-        else:
-            await ctx.reply(f"Couldn't analyze that playlist: {error}")
-
-
-@bot.command(name="tastify")
-async def cmd_tastify(ctx, *, label_or_url: str = None):
-    """Get recommendations from your saved playlist. Usage: !tastify | !tastify chill | !tastify <link>"""
-    if not spotify_configured():
-        await ctx.reply("Spotify isn't set up yet.")
-        return
-    async with ctx.typing():
-        playlist_id = None
-
-        if label_or_url:
-            # Check if it's a URL
-            pid = extract_playlist_id(label_or_url)
-            if pid:
-                playlist_id = pid
-            elif ctx.guild:
-                # It's a label — find that playlist
-                saved = get_user_playlist_by_label(str(ctx.guild.id), str(ctx.author.id), label_or_url)
-                if saved:
-                    playlist_id = saved["playlist_id"]
-                else:
-                    await ctx.reply(f"No playlist saved as '{label_or_url}'. Check `!myplaylists`")
-                    return
-
-        # No argument — pick a random saved playlist
-        if not playlist_id and ctx.guild:
-            user_pls = get_user_playlists(str(ctx.guild.id), str(ctx.author.id))
-            if user_pls:
-                import random as _r
-                picked = _r.choice(user_pls)
-                playlist_id = picked.get("playlist_id")
-
-        if not playlist_id:
-            await ctx.reply("No playlists saved! Add one:\n`!setplaylist chill <spotify link>`")
-            return
-
-        logger.info(f"Tastify using playlist_id: {playlist_id}")
-        result, error = await asyncio.to_thread(get_similar_to_playlist, playlist_id)
-        if result:
-            await send_chunked_reply(ctx.message, format_playlist_recommendations(result))
-        else:
-            await ctx.reply(f"Couldn't generate recommendations: {error}\n(Debug: playlist_id=`{playlist_id}`)")
-
-
-@bot.command(name="setplaylist")
-async def cmd_setplaylist(ctx, label: str = None, *, playlist_url: str = None):
-    """Save a labeled playlist. Usage: !setplaylist chill https://open.spotify.com/playlist/..."""
-    if not ctx.guild:
-        await ctx.reply("This only works in a server!")
-        return
-    if not spotify_configured():
-        await ctx.reply("Spotify isn't set up yet.")
-        return
-
-    # Handle case where user passes just a URL without label
-    if label and not playlist_url:
-        pid = extract_playlist_id(label)
-        if pid:
-            playlist_url = label
-            label = "default"
-
-    if not playlist_url:
-        await ctx.reply("Format: `!setplaylist chill <spotify playlist link>`\nLabels: chill, workout, party, study, vibes, or any name you want!")
-        return
-
-    playlist_id = extract_playlist_id(playlist_url)
-    if not playlist_id:
-        await ctx.reply("Couldn't find a playlist ID. Share a Spotify playlist link!")
-        return
-
-    label = label or "default"
-
-    from spotify_tools import get_playlist
-    data, error = await asyncio.to_thread(get_playlist, playlist_id)
-    name = data.get("name", "Unknown") if data else "Unknown"
-
-    if save_user_playlist(str(ctx.guild.id), str(ctx.author.id), playlist_id, label, name):
-        set_music_channel(str(ctx.guild.id), str(ctx.channel.id))
-        playlists = get_user_playlists(str(ctx.guild.id), str(ctx.author.id))
-        await ctx.reply(
-            f"🎵 **Playlist saved as '{label}': {name}**\n"
-            f"You now have **{len(playlists)}** saved playlist(s).\n\n"
-            f"Get picks: `!tastify {label}` | View all: `!myplaylists`"
-        )
-    else:
-        await ctx.reply("Couldn't save that. Try again?")
-
-
-@bot.command(name="myplaylists")
-async def cmd_myplaylists(ctx):
-    """View your saved playlists."""
-    if not ctx.guild:
-        return
-    await ctx.send(format_user_playlists(str(ctx.guild.id), str(ctx.author.id)))
-
-
-@bot.command(name="removeplaylist")
-async def cmd_removeplaylist(ctx, *, label: str):
-    """Remove a saved playlist. Usage: !removeplaylist chill"""
-    if not ctx.guild:
-        return
-    if remove_user_playlist(str(ctx.guild.id), str(ctx.author.id), label):
-        await ctx.reply(f"🗑️ Removed playlist '{label}'.")
-    else:
-        await ctx.reply(f"No playlist found with label '{label}'. Check `!myplaylists`")
-
-
 @bot.command(name="setmusic")
 async def cmd_setmusic(ctx):
     """Set this channel for Monday music suggestions."""
     if not ctx.guild:
         await ctx.reply("This only works in a server!")
         return
-    if set_music_channel(str(ctx.guild.id), str(ctx.channel.id)):
-        playlists = get_all_server_playlists(str(ctx.guild.id))
-        if playlists:
-            await ctx.reply(
-                f"✅ Monday music will be posted **here** every Monday at 9am EAT!\n"
-                f"Drawing from **{len(playlists)}** saved playlist(s) in this server."
-            )
-        else:
-            await ctx.reply(
-                f"✅ Monday music will be posted **here** every Monday at 9am EAT!\n"
-                f"💡 Save playlists with `!setplaylist chill <link>` for personalized picks!"
-            )
-    else:
-        await ctx.reply("Couldn't set that up. Try again?")
-
-
-@bot.command(name="testplaylist")
-async def cmd_testplaylist(ctx, *, playlist_url: str):
-    """Debug: test full playlist pipeline."""
-    if not spotify_configured():
-        await ctx.reply("Spotify not configured.")
-        return
-    async with ctx.typing():
-        pid = extract_playlist_id(playlist_url)
-        if not pid:
-            await ctx.reply(f"Couldn't extract playlist ID from: {playlist_url}")
-            return
-
-        await ctx.reply(f"Playlist ID: `{pid}`\nFetching...")
-
-        from spotify_tools import get_playlist, analyze_playlist, _get_client_token, SPOTIFY_API_URL
-        import requests as req
-        import json
-
-        # Raw API call first to see exactly what Spotify returns
-        token = _get_client_token()
-        resp = req.get(
-            f"{SPOTIFY_API_URL}/playlists/{pid}",
-            headers={"Authorization": f"Bearer {token}"},
-            params={"market": "US"},
-            timeout=30,
-        )
-        raw = resp.json()
-        raw_size = len(resp.text)
-        top_keys = list(raw.keys())
-        tracks_keys = list(raw.get("tracks", {}).keys()) if "tracks" in raw else "NO TRACKS KEY"
-        tracks_total = raw.get("tracks", {}).get("total", "MISSING")
-        tracks_items_count = len(raw.get("tracks", {}).get("items", []))
-
-        # Check first track
-        first_track = "None"
-        items = raw.get("tracks", {}).get("items", [])
-        if items and items[0].get("track"):
-            t = items[0]["track"]
-            first_track = f"{t.get('name')} - {t.get('artists', [{}])[0].get('name', '?')}"
-
-        await ctx.reply(
-            f"**Raw response:** {raw_size} bytes\n"
-            f"**Top keys:** {top_keys}\n"
-            f"**tracks keys:** {tracks_keys}\n"
-            f"**tracks.total:** {tracks_total}\n"
-            f"**tracks.items count:** {tracks_items_count}\n"
-            f"**First track:** {first_track}"
-        )
-
-        # Also try /tracks endpoint directly
-        resp2 = req.get(
-            f"{SPOTIFY_API_URL}/playlists/{pid}/tracks",
-            headers={"Authorization": f"Bearer {token}"},
-            params={"market": "US", "limit": 5},
-            timeout=30,
-        )
-        raw2 = resp2.json()
-        t2_total = raw2.get("total", "MISSING")
-        t2_items = len(raw2.get("items", []))
-
-        await ctx.reply(
-            f"**/tracks endpoint:**\n"
-            f"Status: {resp2.status_code}\n"
-            f"Total: {t2_total}\n"
-            f"Items: {t2_items}"
-        )
+    update_server_setting(str(ctx.guild.id), "music_channel_id", str(ctx.channel.id))
+    await ctx.reply("✅ Monday music will be posted **here** every Monday at 9am EAT! 🎵")
 
 
 # ══════════════════════════════════════════════
