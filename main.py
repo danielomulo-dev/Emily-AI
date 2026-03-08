@@ -1222,6 +1222,8 @@ async def on_ready():
         accountability_check.start()
     if not daily_learning.is_running():
         daily_learning.start()
+    if not weekly_finance_coaching.is_running():
+        weekly_finance_coaching.start()
 
 
 # ══════════════════════════════════════════════
@@ -1832,6 +1834,135 @@ async def before_learning():
     await bot.wait_until_ready()
 
 
+# ══════════════════════════════════════════════
+# WEEKLY FINANCE COACHING (Saturday 6pm EAT)
+# ══════════════════════════════════════════════
+@tasks.loop(minutes=1)
+async def weekly_finance_coaching():
+    """Analyze spending and share personalized finance tips every Saturday."""
+    try:
+        now = datetime.now(pytz.timezone('Africa/Nairobi'))
+        # Saturday = 5, at 18:00 EAT
+        if now.weekday() != 5 or now.strftime("%H:%M") != "18:00":
+            return
+
+        today = now.strftime("%Y-%m-%d")
+        servers = get_news_servers()
+
+        for server_config in servers:
+            guild_id = str(server_config["guild_id"])
+            settings = get_server_settings(guild_id)
+
+            # Use dedicated finance channel if set, otherwise news channel
+            channel_id = settings.get("finance_channel_id") or server_config.get("news_channel_id")
+            if not channel_id:
+                continue
+
+            last_coach = settings.get("last_finance_coaching", "")
+            if last_coach == today:
+                continue
+
+            channel = bot.get_channel(int(channel_id))
+            if not channel:
+                continue
+
+            guild = bot.get_guild(int(guild_id))
+            if not guild:
+                continue
+
+            # Find all users who have logged expenses this month
+            from tracker_tools import budgets_col
+            if budgets_col is None:
+                continue
+
+            month_str = now.strftime("%Y-%m")
+            user_ids = budgets_col.distinct("user_id", {"month_str": month_str})
+
+            if not user_ids:
+                continue
+
+            # Build spending summaries for all active users
+            user_summaries = []
+            for uid in user_ids:
+                member = guild.get_member(int(uid))
+                if not member:
+                    continue
+
+                monthly = get_monthly_spending(uid, month_str)
+                if not monthly or monthly["total"] == 0:
+                    continue
+
+                limit = get_budget_limit(uid)
+                name = member.display_name
+
+                # Build summary text
+                cats = monthly.get("by_category", {})
+                sorted_cats = sorted(cats.items(), key=lambda x: -x[1])
+                cat_text = ", ".join([f"{c}: KES {a:,.0f}" for c, a in sorted_cats[:5]])
+
+                summary = f"**{name}:** KES {monthly['total']:,.0f} total ({monthly['count']} transactions). Top: {cat_text}."
+                if limit:
+                    remaining = limit - monthly['total']
+                    pct = (monthly['total'] / limit) * 100
+                    summary += f" Budget: {pct:.0f}% used (KES {remaining:,.0f} left)."
+
+                user_summaries.append(summary)
+
+            if not user_summaries:
+                continue
+
+            # Use Claude to generate personalized tips
+            spending_data = "\n".join(user_summaries)
+            day_of_month = now.day
+            days_left = 30 - day_of_month
+
+            prompt = (
+                f"You are Emily, a Kenyan financial advisor. It's Saturday evening and you're reviewing "
+                f"your community's spending for {now.strftime('%B %Y')}. We're {day_of_month} days in with ~{days_left} days left.\n\n"
+                f"Spending data:\n{spending_data}\n\n"
+                f"Write a 3-4 paragraph weekly finance coaching message. Include:\n"
+                f"1. Overall observation — who's doing well, who might need to watch out\n"
+                f"2. Specific tips based on their top spending categories (if someone spends a lot on food, suggest meal prepping; on transport, suggest alternatives)\n"
+                f"3. A practical Kenyan-specific money saving tip (M-Shwari, SACCOs, Naivas vs Carrefour deals, etc.)\n"
+                f"4. A motivational closing with a Kenyan proverb about money\n\n"
+                f"Keep it warm, practical, and fun. Use Kenyan slang. Don't be preachy — be like a friend who's good with money."
+            )
+
+            try:
+                response = await asyncio.wait_for(
+                    claude_client.messages.create(
+                        model=MODEL_CLAUDE,
+                        max_tokens=1500,
+                        messages=[{"role": "user", "content": prompt}],
+                    ),
+                    timeout=API_TIMEOUT_SECONDS,
+                )
+                tips_text = ""
+                for block in response.content:
+                    if block.type == "text":
+                        tips_text += block.text
+
+                if tips_text:
+                    message = f"💰 **Emily's Weekly Finance Check-In** 📊\n\n{tips_text}"
+                    await send_chunked_reply_to_channel(channel, message)
+                    update_server_setting(guild_id, "last_finance_coaching", today)
+                    logger.info(f"Finance coaching posted for guild {guild_id}")
+
+            except Exception as e:
+                logger.error(f"Finance coaching generation error: {e}")
+
+    except Exception as e:
+        logger.error(f"Finance coaching task error: {e}")
+        try:
+            await notify_owner(bot, "Finance Coaching Task", str(e))
+        except Exception:
+            pass
+
+@weekly_finance_coaching.before_loop
+async def before_finance_coaching():
+    await bot.wait_until_ready()
+
+
 async def send_chunked_reply_to_channel(channel, text):
     """Send a long message to a channel (not as a reply)."""
     while len(text) > 2000:
@@ -1898,7 +2029,7 @@ async def cmd_help(ctx):
     """Show all available commands."""
     page1 = """**Emily's Commands** 🇰🇪 **(1/2)**
 
-**💰 Budget:** `!spent 500 lunch` · `!budget` · `!setbudget 50000` · `!report`
+**💰 Budget:** `!spent 500 lunch` · `!budget` · `!setbudget 50000` · `!report` · `!financetip`
 **📈 Portfolio:** `!buy SCOM 100 25` · `!sell SCOM` · `!portfolio`
 **💱 Finance:** `!convert 100 USD KES` · `!loan 500000 14 12` · `!mshwari 5000`
 
@@ -1922,7 +2053,7 @@ async def cmd_help(ctx):
 
 **🎂 Dates:** `!birthday <name> <date>` · `!anniversary <name> <date>` · `!birthdays`
 
-**🎙️ Settings:** `!voicemode` · `!reset` · `!forget` · `!help`
+**🎙️ Settings:** `!voicemode` · `!reset` · `!forget` · `!setfinance` · `!setmusic` · `!help`
 
 _Or just @ mention me to chat!_ 😊"""
 
@@ -2201,6 +2332,88 @@ async def cmd_report(ctx):
         except Exception as e:
             logger.error(f"Report error: {e}")
             await ctx.reply(f"Report generation failed: {e}")
+
+
+@bot.command(name="setfinance")
+async def cmd_setfinance(ctx):
+    """Set this channel for weekly finance coaching tips."""
+    if not ctx.guild:
+        await ctx.reply("This only works in a server!")
+        return
+    update_server_setting(str(ctx.guild.id), "finance_channel_id", str(ctx.channel.id))
+    await ctx.reply("✅ Weekly finance coaching will be posted **here** every Saturday at 6pm EAT!\nEmily will analyze your spending and give personalized tips. 💰")
+
+
+@bot.command(name="financetip")
+async def cmd_financetip(ctx):
+    """Get personalized finance tips based on your spending right now."""
+    async with ctx.typing():
+        try:
+            user_id = str(ctx.author.id)
+            monthly = get_monthly_spending(user_id)
+
+            if not monthly or monthly["total"] == 0:
+                await ctx.reply("No spending data yet! Log expenses with `!spent` first, then I can give you tips.")
+                return
+
+            limit = get_budget_limit(user_id)
+            now = datetime.now(pytz.timezone('Africa/Nairobi'))
+
+            # Build spending summary
+            cats = monthly.get("by_category", {})
+            sorted_cats = sorted(cats.items(), key=lambda x: -x[1])
+            cat_text = "\n".join([f"- {c}: KES {a:,.0f}" for c, a in sorted_cats])
+
+            day_of_month = now.day
+            days_left = 30 - day_of_month
+            daily_avg = monthly["total"] / max(day_of_month, 1)
+
+            budget_info = ""
+            if limit:
+                remaining = limit - monthly['total']
+                pct = (monthly['total'] / limit) * 100
+                daily_allowance = remaining / max(days_left, 1)
+                budget_info = (
+                    f"\nBudget: KES {limit:,.0f} | Used: {pct:.0f}% | "
+                    f"Remaining: KES {remaining:,.0f} | Daily allowance: KES {daily_allowance:,.0f}"
+                )
+
+            prompt = (
+                f"You are Emily, a Kenyan financial advisor and friend. "
+                f"Review this person's spending for {now.strftime('%B %Y')} ({day_of_month} days in, {days_left} days left):\n\n"
+                f"Total spent: KES {monthly['total']:,.0f} ({monthly['count']} transactions)\n"
+                f"Daily average: KES {daily_avg:,.0f}\n"
+                f"Breakdown:\n{cat_text}\n"
+                f"{budget_info}\n\n"
+                f"Give personalized, practical financial advice in 3-4 paragraphs:\n"
+                f"1. How they're doing overall — be honest but kind\n"
+                f"2. Specific tips for their top spending categories (suggest Kenyan alternatives like "
+                f"cooking at home vs Java, matatu vs uber, Naivas deals, etc.)\n"
+                f"3. A practical saving strategy they can start TODAY\n"
+                f"4. End with encouragement and a money-related Kenyan proverb\n\n"
+                f"Use Kenyan slang naturally. Be like a smart friend, not a bank manager."
+            )
+
+            response = await asyncio.wait_for(
+                claude_client.messages.create(
+                    model=MODEL_CLAUDE,
+                    max_tokens=1200,
+                    messages=[{"role": "user", "content": prompt}],
+                ),
+                timeout=API_TIMEOUT_SECONDS,
+            )
+            tips = ""
+            for block in response.content:
+                if block.type == "text":
+                    tips += block.text
+
+            if tips:
+                await send_chunked_reply(ctx.message, f"💰 **Emily's Finance Tips for {ctx.author.display_name}:**\n\n{tips}")
+            else:
+                await ctx.reply("Couldn't generate tips right now. Try again!")
+        except Exception as e:
+            logger.error(f"Finance tip error: {e}")
+            await ctx.reply("Finance tip engine jammed. Try again!")
 
 
 @bot.command(name="quote")
