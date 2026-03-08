@@ -265,8 +265,8 @@ def get_playlist(playlist_id):
         return None, "Spotify not configured"
 
     try:
-        # No field filtering, no market restriction — most reliable
-        data = _spotify_get(f"/playlists/{playlist_id}")
+        # Fetch playlist with market=US
+        data = _spotify_get(f"/playlists/{playlist_id}", {"market": "US"})
 
         if not data:
             return None, "Couldn't fetch that playlist. Make sure it's public!"
@@ -274,6 +274,18 @@ def get_playlist(playlist_id):
         tracks_total = data.get("tracks", {}).get("total", 0)
         tracks_items = len(data.get("tracks", {}).get("items", []))
         logger.info(f"Playlist fetched: {data.get('name', 'Unknown')} — total: {tracks_total}, items returned: {tracks_items}")
+
+        # If tracks are empty, try fetching tracks separately
+        if tracks_items == 0:
+            logger.warning("Main endpoint returned 0 items, trying /tracks endpoint directly...")
+            tracks_data = _spotify_get(f"/playlists/{playlist_id}/tracks", {
+                "market": "US",
+                "limit": 100,
+            })
+            if tracks_data and tracks_data.get("items"):
+                data["tracks"] = tracks_data
+                logger.info(f"Got {len(tracks_data['items'])} tracks from /tracks endpoint")
+
         return data, None
     except Exception as e:
         logger.error(f"Get playlist error: {e}")

@@ -3160,7 +3160,7 @@ async def cmd_setmusic(ctx):
 
 @bot.command(name="testplaylist")
 async def cmd_testplaylist(ctx, *, playlist_url: str):
-    """Debug: test full playlist pipeline. Usage: !testplaylist <spotify link>"""
+    """Debug: test full playlist pipeline."""
     if not spotify_configured():
         await ctx.reply("Spotify not configured.")
         return
@@ -3170,49 +3170,59 @@ async def cmd_testplaylist(ctx, *, playlist_url: str):
             await ctx.reply(f"Couldn't extract playlist ID from: {playlist_url}")
             return
 
-        await ctx.reply(f"Playlist ID: `{pid}`\nStep 1: Fetching playlist...")
+        await ctx.reply(f"Playlist ID: `{pid}`\nFetching...")
 
-        # Step 1: Test get_playlist
-        from spotify_tools import get_playlist, analyze_playlist
-        data, error = await asyncio.to_thread(get_playlist, pid)
-        if error:
-            await ctx.reply(f"❌ get_playlist failed: {error}")
-            return
+        from spotify_tools import get_playlist, analyze_playlist, _get_client_token, SPOTIFY_API_URL
+        import requests as req
+        import json
 
-        name = data.get("name", "?")
-        tracks_obj = data.get("tracks", {})
-        total = tracks_obj.get("total", 0)
-        items = tracks_obj.get("items", [])
-        items_count = len(items)
+        # Raw API call first to see exactly what Spotify returns
+        token = _get_client_token()
+        resp = req.get(
+            f"{SPOTIFY_API_URL}/playlists/{pid}",
+            headers={"Authorization": f"Bearer {token}"},
+            params={"market": "US"},
+            timeout=30,
+        )
+        raw = resp.json()
+        raw_size = len(resp.text)
+        top_keys = list(raw.keys())
+        tracks_keys = list(raw.get("tracks", {}).keys()) if "tracks" in raw else "NO TRACKS KEY"
+        tracks_total = raw.get("tracks", {}).get("total", "MISSING")
+        tracks_items_count = len(raw.get("tracks", {}).get("items", []))
 
-        # Check first item structure
-        first_track_info = "None"
-        if items:
-            first_item = items[0]
-            track = first_item.get("track")
-            if track:
-                first_track_info = f"{track.get('name', '?')} by {', '.join(a.get('name','?') for a in track.get('artists', []))}"
-            else:
-                first_track_info = f"track is None, keys: {list(first_item.keys())}"
+        # Check first track
+        first_track = "None"
+        items = raw.get("tracks", {}).get("items", [])
+        if items and items[0].get("track"):
+            t = items[0]["track"]
+            first_track = f"{t.get('name')} - {t.get('artists', [{}])[0].get('name', '?')}"
 
         await ctx.reply(
-            f"✅ **Playlist: {name}**\n"
-            f"Total: {total} | Items returned: {items_count}\n"
-            f"First track: {first_track_info}\n\n"
-            f"Step 2: Running analyze_playlist..."
+            f"**Raw response:** {raw_size} bytes\n"
+            f"**Top keys:** {top_keys}\n"
+            f"**tracks keys:** {tracks_keys}\n"
+            f"**tracks.total:** {tracks_total}\n"
+            f"**tracks.items count:** {tracks_items_count}\n"
+            f"**First track:** {first_track}"
         )
 
-        # Step 2: Test analyze_playlist
-        analysis, a_error = await asyncio.to_thread(analyze_playlist, pid)
-        if a_error:
-            await ctx.reply(f"❌ analyze_playlist failed: {a_error}")
-            return
+        # Also try /tracks endpoint directly
+        resp2 = req.get(
+            f"{SPOTIFY_API_URL}/playlists/{pid}/tracks",
+            headers={"Authorization": f"Bearer {token}"},
+            params={"market": "US", "limit": 5},
+            timeout=30,
+        )
+        raw2 = resp2.json()
+        t2_total = raw2.get("total", "MISSING")
+        t2_items = len(raw2.get("items", []))
 
         await ctx.reply(
-            f"✅ **Analysis done!**\n"
-            f"Tracks analyzed: {analysis['track_count']}\n"
-            f"Top artists: {', '.join(a for a, _ in analysis['top_artists'][:3])}\n"
-            f"Top genres: {', '.join(g for g, _ in analysis['top_genres'][:3])}"
+            f"**/tracks endpoint:**\n"
+            f"Status: {resp2.status_code}\n"
+            f"Total: {t2_total}\n"
+            f"Items: {t2_items}"
         )
 
 
