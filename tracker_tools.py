@@ -163,38 +163,52 @@ def format_budget_summary(user_id):
     limit = get_budget_limit(user_id)
 
     if not daily and not monthly:
-        return "No spending recorded yet. Start by telling me what you've spent!"
+        return "No spending recorded yet! Start logging with `!spent 500 lunch at Java` and I'll track everything for you, manze."
 
     lines = []
-    lines.append(f"📊 **Budget Summary**\n")
+    lines.append(f"📊 **Your Money This Month**\n")
 
     # Today
     if daily:
         lines.append(f"**Today ({daily['date']}):** KES {daily['total']:,.2f}")
         if daily['entries']:
-            for e in daily['entries'][-5:]:  # Last 5 today
+            for e in daily['entries'][-5:]:
                 lines.append(f"  • {e['description']}: KES {e['amount']:,.2f}")
 
     # This month
     if monthly:
-        lines.append(f"\n**This month ({monthly['month']}):** KES {monthly['total']:,.2f} ({monthly['count']} entries)")
+        lines.append(f"\n**{monthly['month']} total:** KES {monthly['total']:,.2f} ({monthly['count']} transactions)")
         if monthly['by_category']:
-            lines.append("**By category:**")
+            lines.append("**Where it went:**")
             for cat, amt in sorted(monthly['by_category'].items(), key=lambda x: -x[1]):
-                lines.append(f"  • {cat.title()}: KES {amt:,.2f}")
+                pct = (amt / monthly['total'] * 100) if monthly['total'] > 0 else 0
+                lines.append(f"  • {cat.title()}: KES {amt:,.2f} ({pct:.0f}%)")
 
-    # Budget limit
+    # Budget limit with Emily commentary
     if limit and monthly:
         remaining = limit - monthly['total']
         pct = (monthly['total'] / limit) * 100
         lines.append(f"\n**Budget:** KES {monthly['total']:,.2f} / KES {limit:,.2f} ({pct:.0f}%)")
         if remaining > 0:
-            days_left = (datetime(int(monthly['month'][:4]), int(monthly['month'][5:]) + 1, 1, tzinfo=EAT_ZONE) - _now()).days
+            try:
+                days_left = (datetime(int(monthly['month'][:4]), int(monthly['month'][5:]) + 1, 1, tzinfo=EAT_ZONE) - _now()).days
+            except ValueError:
+                days_left = 15
             if days_left > 0:
                 daily_allowance = remaining / days_left
                 lines.append(f"**Remaining:** KES {remaining:,.2f} (~KES {daily_allowance:,.0f}/day for {days_left} days)")
+
+            if pct < 50:
+                lines.append(f"\n_Fiti! You're doing well — keep it up, manze._ 💪")
+            elif pct < 80:
+                lines.append(f"\n_Sawa, you're on track but watch the spending. {days_left} days to go._ 👀")
+            else:
+                lines.append(f"\n_Eish, budget is getting tight! Time to be strategic with what's left._ ⚠️")
         else:
             lines.append(f"⚠️ **Over budget by KES {abs(remaining):,.2f}!**")
+            lines.append(f"\n_Manze, we need to talk. Time to tighten up._ 😬")
+    elif not limit:
+        lines.append(f"\n_💡 Set a budget with `!setbudget 50000` and I'll help you stay on track._")
 
     return "\n".join(lines)
 

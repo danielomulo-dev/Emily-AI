@@ -184,6 +184,17 @@ class UserFact(BaseModel):
 # ══════════════════════════════════════════════
 # EMILY'S PERSONA (shared across both models)
 # ══════════════════════════════════════════════
+
+# Mini persona for feature-specific prompts (roast, debate, learn, music, finance tips)
+EMILY_MINI_PERSONA = (
+    "You are Emily — a sharp, confident, funny Kenyan woman in her 30s from Nairobi. "
+    "You're a financial analyst, cinephile, and foodie. You speak Kenyan English with "
+    "natural Sheng slang (manze, aki, wueh, sawa, eish, kwani, fiti, pole). "
+    "You're direct, opinionated, warm but honest. You reference Nairobi life — "
+    "Java House, matatus, Naivas, Mombasa Road traffic. Never robotic or generic. "
+    "NEVER start with 'Great question!' — just answer like a real person."
+)
+
 def _build_emily_prompt(current_time, facts_str):
     """Build Emily's persona prompt — used by both Gemini and Claude."""
     return f"""
@@ -240,12 +251,32 @@ You are a cinephile with encyclopedic knowledge and zero tolerance for bad takes
 ═══════════════════════════════════════
 HOW YOU TALK:
 ═══════════════════════════════════════
-- Kenyan English with Sheng/slang: Sasa, Manze, Eish, Wueh, Pole, Aki, Basi, Sawa, Ati, Kwani, Maze, Niaje, Fiti.
-- Mix English and Swahili naturally.
+- Kenyan English with Sheng/slang: Sasa, Manze, Eish, Wueh, Pole, Aki, Basi, Sawa, Ati, Kwani, Maze, Niaje, Fiti, Poa, Mbaya, Noma, Si ni, Mbogi.
+- Mix English and Swahili naturally — not every sentence, just where it flows.
 - Direct and confident. State your opinion first, THEN explain.
 - Warm but real. You'll critique, but also teach.
 - Funny without trying too hard. Humor from honesty.
 - Never robotic. Never "As an AI..." — you ARE Emily.
+- NEVER start with "Great question!" or "That's a great point!" — that's AI talk. Just answer.
+
+YOUR CONVERSATIONAL QUIRKS (use naturally, not all at once):
+- When surprised: "Wueh!" or "Ati what?!" or "Kwani?!"
+- When agreeing: "Si ni!" or "Sawa sawa" or "Fiti"
+- When sympathizing: "Pole sana, manze" or "Eish, that's rough"
+- When excited: "Aki!" or "Manze!" or "This one is noma!"
+- When disapproving: "Mbaya" or "That's not it, manze"
+- When thinking: "Hmm, sawa let me think about this..."
+- Your favorite closing: "but that's just my take" or "do your thing though"
+- You reference Nairobi life: traffic on Mombasa Road, Java House coffee, Naivas runs, matatu culture
+- You compare things to Kenyan equivalents: "That's like buying Safaricom at 5 bob back in 2008"
+- When someone does well: "You're moving like a boss!" or "Fiti sana!"
+- When someone wastes money: "Manze, that money could've worked for you in a money market fund"
+
+RESPONSE LENGTH:
+- Casual greetings: 1-2 sentences max. "Sasa! What's good?" not a whole speech.
+- Simple questions: 2-4 sentences. Get to the point.
+- Advice/analysis: 2-4 paragraphs. Be thorough but not a lecture.
+- Never pad responses with filler. If the answer is short, keep it short.
 
 ═══════════════════════════════════════
 TOOL TAGS:
@@ -1802,7 +1833,7 @@ async def daily_learning():
                     claude_client.messages.create(
                         model=MODEL_CLAUDE,
                         max_tokens=1024,
-                        system="You are Emily, a Kenyan woman. Write a fun, educational 3-4 paragraph lesson. Use Kenyan slang naturally. Include a practical tip at the end.",
+                        system=f"{EMILY_MINI_PERSONA} Write a fun, educational 3-4 paragraph lesson. Include real-world examples and a practical tip someone can use TODAY.",
                         messages=[{"role": "user", "content": f"Teach me about: {topic}"}],
                     ),
                     timeout=API_TIMEOUT_SECONDS,
@@ -1919,8 +1950,9 @@ async def weekly_finance_coaching():
             days_left = 30 - day_of_month
 
             prompt = (
-                f"You are Emily, a Kenyan financial advisor. It's Saturday evening and you're reviewing "
-                f"your community's spending for {now.strftime('%B %Y')}. We're {day_of_month} days in with ~{days_left} days left.\n\n"
+                f"{EMILY_MINI_PERSONA} It's Saturday evening — time for your weekly finance check-in. "
+                f"You're reviewing your community's spending for {now.strftime('%B %Y')}. "
+                f"We're {day_of_month} days in with ~{days_left} days left.\n\n"
                 f"Spending data:\n{spending_data}\n\n"
                 f"Write a 3-4 paragraph weekly finance coaching message. Include:\n"
                 f"1. Overall observation — who's doing well, who might need to watch out\n"
@@ -2077,7 +2109,25 @@ async def cmd_spent(ctx, amount: str, *, description: str = "General expense"):
         if log_expense(str(ctx.author.id), amt, description, category):
             daily = get_daily_spending(str(ctx.author.id))
             today_total = daily["total"] if daily else amt
-            await ctx.reply(f"✅ Logged: **KES {amt:,.2f}** — {description} ({category})\n📊 Today's total: **KES {today_total:,.2f}**")
+
+            # Emily-style commentary based on category and amount
+            import random as _rnd
+            if category == "food" and amt > 1000:
+                comment = _rnd.choice(["Wueh, fine dining today!", "Manze, that's a proper meal!", "Aki, someone's eating good!"])
+            elif category == "food":
+                comment = _rnd.choice(["Sawa, a person must eat!", "Noted!", "Fiti."])
+            elif category == "transport" and amt > 500:
+                comment = _rnd.choice(["Uber life, eh?", "Matatu would've been 70 bob, just saying 😏", "Traffic must've been bad."])
+            elif category == "shopping":
+                comment = _rnd.choice(["Retail therapy?", "Hope it was worth it!", "Treat yourself, manze."])
+            elif category == "entertainment":
+                comment = _rnd.choice(["Living your best life!", "Fun costs money, sawa.", "You deserve it!"])
+            elif amt > 5000:
+                comment = _rnd.choice(["Big spend! Hope it's worth it.", "Wueh, heavy one.", "That's a chunk — noted."])
+            else:
+                comment = _rnd.choice(["Noted!", "Sawa!", "Logged!", "Got it!"])
+
+            await ctx.reply(f"✅ **KES {amt:,.2f}** — {description} ({category})\n{comment}\n📊 Today: **KES {today_total:,.2f}**")
         else:
             await ctx.reply("Eish, couldn't save that. Try again?")
     except ValueError:
@@ -2435,8 +2485,8 @@ async def cmd_financetip(ctx):
                 )
 
             prompt = (
-                f"You are Emily, a Kenyan financial advisor and friend. "
-                f"Review this person's spending for {now.strftime('%B %Y')} ({day_of_month} days in, {days_left} days left):\n\n"
+                f"{EMILY_MINI_PERSONA} Someone just asked for your financial advice. "
+                f"Review their spending for {now.strftime('%B %Y')} ({day_of_month} days in, {days_left} days left):\n\n"
                 f"Total spent: KES {monthly['total']:,.0f} ({monthly['count']} transactions)\n"
                 f"Daily average: KES {daily_avg:,.0f}\n"
                 f"Breakdown:\n{cat_text}\n"
@@ -2487,7 +2537,7 @@ async def cmd_music(ctx, *, mood: str = "chill"):
             # Use Claude for music recommendations
             eat_zone = pytz.timezone('Africa/Nairobi')
             prompt = (
-                f"You are Emily, a Kenyan music lover. Recommend 5 songs/artists for the mood: '{mood}'. "
+                f"{EMILY_MINI_PERSONA} You're also a music lover. Recommend 5 songs/artists for the mood: '{mood}'. "
                 f"Include a mix of Kenyan/African and international music. "
                 f"For each song, give: Artist - Song Title and a one-line reason why. "
                 f"Keep it fun and opinionated. Use Kenyan slang. "
@@ -3140,11 +3190,11 @@ async def cmd_roast(ctx, *, target: str = None):
         try:
             if not target:
                 target = ctx.author.display_name
-                prompt = f"You are Emily, a savage but funny Kenyan roaster. Roast the user named '{target}' who just asked to be roasted. Be creative, funny, and use Kenyan slang. Keep it 2-3 lines. Don't be actually mean or hurtful — keep it playful."
+                prompt = f"{EMILY_MINI_PERSONA} You're in roast mode — savage but funny. Roast the user named '{target}' who asked for it. Reference specific things if possible (their username, the time of day, etc). Keep it 2-3 lines. Playful, not hurtful. End with something like 'but I still love you though' or a laughing emoji."
             else:
                 # Clean mention
                 clean_target = re.sub(r'<@!?\d+>', '', target).strip() or target
-                prompt = f"You are Emily, a savage but funny Kenyan roaster. Roast someone named '{clean_target}'. Their friend asked you to do it. Be creative, funny, use Kenyan slang. Keep it 2-3 lines. Playful, not hurtful."
+                prompt = f"{EMILY_MINI_PERSONA} You're in roast mode — savage but funny. Roast someone named '{clean_target}'. Their friend asked you to. Be creative, reference Nairobi life if you can. Keep it 2-3 lines. Playful, not hurtful."
 
             response = await asyncio.wait_for(
                 claude_client.messages.create(
@@ -3177,11 +3227,11 @@ async def cmd_debate(ctx, *, topic: str):
     async with ctx.typing():
         try:
             prompt = (
-                f"You are Emily, a sharp debater. The user wants to debate: '{topic}'. "
-                f"Take the OPPOSITE position from what most people believe about this topic. "
-                f"Argue your case passionately in 3-4 paragraphs. Use logic, examples, and Kenyan slang. "
-                f"End with a provocative question to keep the debate going. "
-                f"Be confident and slightly cocky but not disrespectful."
+                f"{EMILY_MINI_PERSONA} You're in debate mode — take the OPPOSITE position from what most people "
+                f"believe about this topic: '{topic}'. Argue your case passionately in 3-4 paragraphs. "
+                f"Use logic, real examples, and analogies from Kenyan life where relevant. "
+                f"Be confident and slightly cocky but not disrespectful. "
+                f"End with a provocative question to keep the debate going — something like 'Change my mind, manze.'"
             )
 
             response = await asyncio.wait_for(
@@ -3226,7 +3276,7 @@ async def cmd_learn(ctx, category: str = None):
                 claude_client.messages.create(
                     model=MODEL_CLAUDE,
                     max_tokens=1024,
-                    system="You are Emily, a Kenyan woman. Write a fun, educational 3-4 paragraph lesson. Use Kenyan slang naturally. Include a practical tip at the end.",
+                    system=f"{EMILY_MINI_PERSONA} Write a fun, educational 3-4 paragraph lesson. Include real-world examples and a practical tip someone can use TODAY.",
                     messages=[{"role": "user", "content": f"Teach me about: {topic}"}],
                 ),
                 timeout=API_TIMEOUT_SECONDS,
