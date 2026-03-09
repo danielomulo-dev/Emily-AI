@@ -29,8 +29,16 @@ def _get_client():
     if _client:
         return _client
 
+    # ── DEBUG: Verify env vars are loading correctly ──
+    logger.info("=== TWITTER AUTH DEBUG ===")
+    logger.info(f"  API Key:        {'✅ loaded (' + TWITTER_API_KEY[:6] + '...)' if TWITTER_API_KEY else '❌ MISSING'}")
+    logger.info(f"  API Secret:     {'✅ loaded (' + TWITTER_API_SECRET[:6] + '...)' if TWITTER_API_SECRET else '❌ MISSING'}")
+    logger.info(f"  Access Token:   {'✅ loaded (' + TWITTER_ACCESS_TOKEN[:6] + '...)' if TWITTER_ACCESS_TOKEN else '❌ MISSING'}")
+    logger.info(f"  Access Secret:  {'✅ loaded (' + TWITTER_ACCESS_SECRET[:6] + '...)' if TWITTER_ACCESS_SECRET else '❌ MISSING'}")
+    logger.info("=========================")
+
     if not is_configured():
-        logger.warning("Twitter not configured")
+        logger.warning("Twitter not configured — one or more env vars missing")
         return None
 
     try:
@@ -41,7 +49,7 @@ def _get_client():
             access_token=TWITTER_ACCESS_TOKEN,
             access_token_secret=TWITTER_ACCESS_SECRET,
         )
-        logger.info("Twitter client initialized")
+        logger.info("Twitter client initialized successfully")
         return _client
     except Exception as e:
         logger.error(f"Twitter client error: {e}")
@@ -68,8 +76,22 @@ def send_tweet(text):
         return True, tweet_id
 
     except Exception as e:
-        logger.error(f"Tweet error: {e}")
-        return False, str(e)
+        # ── DEBUG: Detailed error info for auth issues ──
+        error_msg = str(e)
+        if hasattr(e, 'response') and e.response is not None:
+            status = e.response.status_code
+            error_msg = f"{status} {e.response.reason}\n{e.response.text}"
+            logger.error(f"Tweet error [{status}]: {e.response.text}")
+            if status == 401:
+                logger.error(">>> 401 = Auth rejected. Check: (1) env vars match X console keys, "
+                             "(2) keys were regenerated after enabling Read+Write, "
+                             "(3) X account has $0 credits — may need to purchase credits")
+            elif status == 403:
+                logger.error(">>> 403 = Forbidden. Check: (1) app permissions set to Read+Write, "
+                             "(2) billing/credits issue on X developer account")
+        else:
+            logger.error(f"Tweet error: {e}")
+        return False, error_msg
 
 
 def send_thread(tweets):

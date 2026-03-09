@@ -3434,7 +3434,12 @@ async def cmd_tweet(ctx, *, text: str):
         if success:
             await ctx.reply(f"🐦 **Tweeted!** https://x.com/i/status/{result}")
         else:
-            await ctx.reply(f"Tweet failed: {result}")
+            hint = ""
+            if "401" in str(result):
+                hint = "\n💡 **Hint:** Check that `.env` keys match the X Developer Console, and that you have credits purchased."
+            elif "403" in str(result):
+                hint = "\n💡 **Hint:** Check app permissions are set to Read+Write in the X Developer Console."
+            await ctx.reply(f"Tweet failed: {result}{hint}")
 
 
 @bot.command(name="emilytweet")
@@ -3490,7 +3495,12 @@ async def cmd_emilytweet(ctx, *, topic: str = "random"):
                     if success:
                         await ctx.reply(f"🐦 **Tweeted!** https://x.com/i/status/{result}")
                     else:
-                        await ctx.reply(f"Tweet failed: {result}")
+                        hint = ""
+                        if "401" in str(result):
+                            hint = "\n💡 **Hint:** Check that `.env` keys match the X Developer Console, and that you have credits purchased."
+                        elif "403" in str(result):
+                            hint = "\n💡 **Hint:** Check app permissions are set to Read+Write in the X Developer Console."
+                        await ctx.reply(f"Tweet failed: {result}{hint}")
                 else:
                     await ctx.reply("Tweet cancelled.")
             except asyncio.TimeoutError:
