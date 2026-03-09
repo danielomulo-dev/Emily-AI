@@ -15,6 +15,7 @@ EAT_ZONE = pytz.timezone('Africa/Nairobi')
 # --- CONNECT TO MONGODB ---
 db = None
 budgets_col = None
+income_col = None
 portfolio_col = None
 reminders_col = None
 server_settings_col = None
@@ -29,12 +30,14 @@ try:
     mongo_client.admin.command('ping')
     db = mongo_client["emily_brain_db"]
     budgets_col = db["budgets"]
+    income_col = db["income"]
     portfolio_col = db["portfolios"]
     reminders_col = db["reminders"]
     server_settings_col = db["server_settings"]
 
     # Indexes
     budgets_col.create_index([("user_id", ASCENDING), ("date", ASCENDING)])
+    income_col.create_index([("user_id", ASCENDING), ("date", ASCENDING)])
     portfolio_col.create_index([("user_id", ASCENDING)])
     reminders_col.create_index([("remind_at", ASCENDING), ("status", ASCENDING)])
     server_settings_col.create_index([("guild_id", ASCENDING)])
@@ -209,6 +212,186 @@ def format_budget_summary(user_id):
             lines.append(f"\n_Manze, we need to talk. Time to tighten up._ 😬")
     elif not limit:
         lines.append(f"\n_💡 Set a budget with `!setbudget 50000` and I'll help you stay on track._")
+
+    return "\n".join(lines)
+
+
+# ══════════════════════════════════════════════
+# INCOME TRACKER
+# ══════════════════════════════════════════════
+INCOME_CATEGORIES = {
+    "freelance": "💻 Freelance",
+    "salary": "💼 Salary",
+    "mpesa": "📱 M-Pesa",
+    "gift": "🎁 Gift",
+    "refund": "🔄 Refund",
+    "side_hustle": "🛠️ Side Hustle",
+    "investment": "📈 Investment",
+    "other": "💰 Other",
+}
+
+
+def log_income(user_id, amount, source="freelance", description=""):
+    """Log an income entry."""
+    if income_col is None:
+        return False
+    try:
+        now = _now()
+        income_col.insert_one({
+            "user_id": str(user_id),
+            "amount": float(amount),
+            "source": source.lower(),
+            "description": description,
+            "date": now,
+            "date_str": now.strftime("%Y-%m-%d"),
+            "month_str": now.strftime("%Y-%m"),
+        })
+        logger.info(f"Income logged for {user_id}: KES {amount} - {source} ({description})")
+        return True
+    except PyMongoError as e:
+        logger.error(f"Income log error: {e}")
+        return False
+
+
+def get_monthly_income(user_id, month_str=None):
+    """Get total income for a month (default: current month)."""
+    if income_col is None:
+        return None
+    try:
+        if not month_str:
+            month_str = _now().strftime("%Y-%m")
+        entries = list(income_col.find({
+            "user_id": str(user_id),
+            "month_str": month_str,
+        }).sort("date", 1))
+
+        total = sum(e["amount"] for e in entries)
+
+        by_source = {}
+        for e in entries:
+            src = e.get("source", "other")
+            by_source[src] = by_source.get(src, 0) + e["amount"]
+
+        return {
+            "entries": entries,
+            "total": total,
+            "by_source": by_source,
+            "month": month_str,
+            "count": len(entries),
+        }
+    except PyMongoError as e:
+        logger.error(f"Monthly income error: {e}")
+        return None
+
+
+def get_effective_budget(user_id):
+    """
+    Calculate the effective monthly budget.
+    If user has a fixed budget limit AND income, use the higher of the two.
+    If only income, use income as the budget.
+    If only fixed limit, use that.
+    """
+    limit = get_budget_limit(user_id)
+    monthly_income = get_monthly_income(user_id)
+    income_total = monthly_income["total"] if monthly_income else 0
+
+    if income_total > 0 and limit:
+        return max(limit, income_total)
+    elif income_total > 0:
+        return income_total
+    elif limit:
+        return limit
+    return None
+
+
+# ══════════════════════════════════════════════
+# BUDGET SUMMARY (with income)
+# ══════════════════════════════════════════════
+def format_full_budget_summary(user_id):
+    """Generate a formatted budget summary including income."""
+    daily = get_daily_spending(user_id)
+    monthly = get_monthly_spending(user_id)
+    monthly_income = get_monthly_income(user_id)
+    limit = get_budget_limit(user_id)
+
+    if not daily and not monthly and not monthly_income:
+        return ("No financial data recorded yet!\n"
+                "• Log income: `!income 50000 freelance web project`\n"
+                "• Log spending: `!spent 500 lunch at Java`\n"
+                "• Set budget: `!setbudget 50000`")
+
+    lines = [f"📊 **Your Money This Month**\n"]
+
+    # ── Income section ──
+    if monthly_income and monthly_income["total"] > 0:
+        lines.append(f"💰 **Income:** KES {monthly_income['total']:,.2f} ({monthly_income['count']} entries)")
+        if monthly_income["by_source"]:
+            for src, amt in sorted(monthly_income["by_source"].items(), key=lambda x: -x[1]):
+                label = INCOME_CATEGORIES.get(src, f"💰 {src.title()}")
+                lines.append(f"  • {label}: KES {amt:,.2f}")
+        lines.append("")
+
+    # ── Today's spending ──
+    if daily and daily["total"] > 0:
+        lines.append(f"**Today ({daily['date']}):** KES {daily['total']:,.2f}")
+        if daily["entries"]:
+            for e in daily["entries"][-5:]:
+                lines.append(f"  • {e['description']}: KES {e['amount']:,.2f}")
+        lines.append("")
+
+    # ── Monthly spending ──
+    if monthly and monthly["total"] > 0:
+        lines.append(f"📉 **Spent:** KES {monthly['total']:,.2f} ({monthly['count']} transactions)")
+        if monthly["by_category"]:
+            lines.append("**Where it went:**")
+            for cat, amt in sorted(monthly["by_category"].items(), key=lambda x: -x[1]):
+                pct = (amt / monthly["total"] * 100) if monthly["total"] > 0 else 0
+                lines.append(f"  • {cat.title()}: KES {amt:,.2f} ({pct:.0f}%)")
+        lines.append("")
+
+    # ── Balance / Budget ──
+    income_total = monthly_income["total"] if monthly_income else 0
+    spent_total = monthly["total"] if monthly else 0
+    effective_budget = get_effective_budget(user_id)
+
+    if income_total > 0:
+        balance = income_total - spent_total
+        lines.append(f"💵 **Balance:** KES {balance:,.2f} (Income - Expenses)")
+
+    if effective_budget and effective_budget > 0:
+        remaining = effective_budget - spent_total
+        pct = (spent_total / effective_budget) * 100
+
+        budget_label = "Income" if income_total > 0 and not limit else "Budget"
+        lines.append(f"📋 **{budget_label} usage:** KES {spent_total:,.2f} / KES {effective_budget:,.2f} ({pct:.0f}%)")
+
+        if remaining > 0:
+            try:
+                month_str = monthly["month"] if monthly else _now().strftime("%Y-%m")
+                year, month = int(month_str[:4]), int(month_str[5:])
+                if month == 12:
+                    next_month = datetime(year + 1, 1, 1, tzinfo=EAT_ZONE)
+                else:
+                    next_month = datetime(year, month + 1, 1, tzinfo=EAT_ZONE)
+                days_left = (next_month - _now()).days
+            except (ValueError, TypeError):
+                days_left = 15
+
+            if days_left > 0:
+                daily_allowance = remaining / days_left
+                lines.append(f"**Remaining:** KES {remaining:,.2f} (~KES {daily_allowance:,.0f}/day for {days_left} days)")
+
+            if pct < 50:
+                lines.append(f"\n_Fiti! You're doing well — keep it up, manze._ 💪")
+            elif pct < 80:
+                lines.append(f"\n_Sawa, you're on track but watch the spending. {days_left} days to go._ 👀")
+            else:
+                lines.append(f"\n_Eish, budget is getting tight! Time to be strategic with what's left._ ⚠️")
+        else:
+            lines.append(f"⚠️ **Over budget by KES {abs(remaining):,.2f}!**")
+            lines.append(f"\n_Manze, we need to talk. Time to tighten up._ 😬")
+    elif not effective_budget:
+        lines.append(f"\n_💡 Log income with `!income 50000 freelance` or set a budget with `!setbudget 50000`_")
 
     return "\n".join(lines)
 

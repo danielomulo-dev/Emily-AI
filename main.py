@@ -31,6 +31,8 @@ from voice_tools import generate_voice_note, cleanup_voice_file
 from tracker_tools import (
     log_expense, get_daily_spending, get_monthly_spending, set_budget_limit,
     get_budget_limit, format_budget_summary,
+    log_income, get_monthly_income, get_effective_budget, format_full_budget_summary,
+    INCOME_CATEGORIES,
     add_holding, remove_holding, get_portfolio, format_portfolio,
     add_reminder, get_due_reminders, mark_reminder_done, get_user_reminders,
     get_server_settings, update_server_setting, set_news_channel, get_news_servers,
@@ -2132,7 +2134,7 @@ async def cmd_help(ctx):
     """Show all available commands."""
     page1 = """**Emily's Commands** 🇰🇪 **(1/2)**
 
-**💰 Budget:** `!spent 500 lunch` · `!budget` · `!setbudget 50000` · `!report` · `!financetip`
+**💰 Budget:** `!spent 500 lunch` · `!income 50000 freelance` · `!budget` · `!setbudget 50000` · `!report` · `!financetip`
 **📈 Portfolio:** `!buy SCOM 100 25` · `!sell SCOM` · `!portfolio`
 **💱 Finance:** `!convert` · `!loan` · `!mshwari` · `!bankloan <lender> <amt> <months>` · `!compareloan <amt> <months>`
 
@@ -2207,8 +2209,8 @@ async def cmd_spent(ctx, amount: str, *, description: str = "General expense"):
 
 @bot.command(name="budget")
 async def cmd_budget(ctx):
-    """View budget summary."""
-    summary = format_budget_summary(str(ctx.author.id))
+    """View budget summary including income."""
+    summary = format_full_budget_summary(str(ctx.author.id))
     await ctx.send(summary)
 
 
@@ -2223,6 +2225,70 @@ async def cmd_setbudget(ctx, amount: str):
             await ctx.reply("Couldn't set budget. Try again?")
     except ValueError:
         await ctx.reply("Invalid amount. Try: `!setbudget 50000`")
+
+
+@bot.command(name="income")
+async def cmd_income(ctx, amount: str, source: str = "freelance", *, description: str = ""):
+    """Log income. Usage: !income 50000 freelance web design project"""
+    try:
+        amt = float(amount.replace(",", "").replace("KES", "").replace("ksh", "").strip())
+        if amt <= 0:
+            await ctx.reply("Manze, that's not a valid amount!")
+            return
+
+        # Normalize source
+        source_lower = source.lower()
+        valid_sources = list(INCOME_CATEGORIES.keys())
+        if source_lower not in valid_sources:
+            # If the source isn't a known category, treat it as part of the description
+            description = f"{source} {description}".strip()
+            source_lower = "freelance"
+
+        if log_income(str(ctx.author.id), amt, source_lower, description):
+            monthly_income = get_monthly_income(str(ctx.author.id))
+            month_total = monthly_income["total"] if monthly_income else amt
+
+            label = INCOME_CATEGORIES.get(source_lower, f"💰 {source_lower.title()}")
+            desc_text = f" — {description}" if description else ""
+
+            # Emily-style commentary
+            import random as _rnd
+            if amt >= 100000:
+                comment = _rnd.choice([
+                    "Manze, big bag alert! 💰🔥",
+                    "Wueh, someone's getting paid!",
+                    "Now THAT'S what I like to see!",
+                ])
+            elif amt >= 30000:
+                comment = _rnd.choice([
+                    "Nice one! The hustle is paying off.",
+                    "Fiti! Money moving.",
+                    "Sawa, secure the bag! 💪",
+                ])
+            else:
+                comment = _rnd.choice([
+                    "Every shilling counts!",
+                    "Noted! Keep stacking.",
+                    "Fiti, logged it!",
+                ])
+
+            effective = get_effective_budget(str(ctx.author.id))
+            budget_note = ""
+            if effective:
+                monthly_spent = get_monthly_spending(str(ctx.author.id))
+                spent = monthly_spent["total"] if monthly_spent else 0
+                remaining = effective - spent
+                budget_note = f"\n📋 Available: **KES {remaining:,.2f}** this month"
+
+            await ctx.reply(
+                f"✅ {label}: **KES {amt:,.2f}**{desc_text}\n"
+                f"{comment}\n"
+                f"💰 Month income: **KES {month_total:,.2f}**{budget_note}"
+            )
+        else:
+            await ctx.reply("Eish, couldn't save that. Try again?")
+    except ValueError:
+        await ctx.reply("Invalid amount. Try: `!income 50000 freelance web project`")
 
 
 @bot.command(name="buy")
@@ -3732,14 +3798,14 @@ async def on_message(message):
                             daily = get_daily_spending(user_id)
                             today_total = daily["total"] if daily else amount
                             budget_note = ""
-                            limit = get_budget_limit(user_id)
+                            effective = get_effective_budget(user_id)
                             monthly = get_monthly_spending(user_id)
-                            if limit and monthly:
-                                remaining = limit - monthly["total"]
+                            if effective and monthly:
+                                remaining = effective - monthly["total"]
                                 if remaining > 0:
-                                    budget_note = f"\n💰 Monthly: KES {monthly['total']:,.2f} / KES {limit:,.2f} (KES {remaining:,.2f} left)"
+                                    budget_note = f"\n💰 Monthly: KES {monthly['total']:,.2f} / KES {effective:,.2f} (KES {remaining:,.2f} left)"
                                 else:
-                                    budget_note = f"\n⚠️ Monthly: KES {monthly['total']:,.2f} / KES {limit:,.2f} — **Over budget!**"
+                                    budget_note = f"\n⚠️ Monthly: KES {monthly['total']:,.2f} / KES {effective:,.2f} — **Over budget!**"
                             log_reply = f"✅ Logged: **KES {amount:,.2f}** — {desc} ({category})\n📊 Today's total: **KES {today_total:,.2f}**{budget_note}"
                             await message.reply(log_reply)
                             add_message_to_history(user_id, "user", [{"text": clean_msg}])
@@ -3747,6 +3813,34 @@ async def on_message(message):
                             # Don't return — still let Emily respond naturally about the spending
                     except (ValueError, IndexError):
                         pass  # Not a valid spend, continue normally
+
+            # ─── NATURAL LANGUAGE INCOME DETECTION ───
+            if clean_msg:
+                income_match = re.search(
+                    r'(?:i\s+)?(?:received|got paid|earned|got)\s+(?:KES\s*|Ksh\s*)?(\d[\d,]*\.?\d*)\s+(?:from\s+|for\s+)?(.+)',
+                    clean_msg, re.IGNORECASE
+                )
+                if not income_match:
+                    income_match = re.search(
+                        r'(?:client|someone)\s+(?:paid|sent)\s+(?:me\s+)?(?:KES\s*|Ksh\s*)?(\d[\d,]*\.?\d*)\s*(?:for\s+)?(.+)?',
+                        clean_msg, re.IGNORECASE
+                    )
+                if income_match:
+                    try:
+                        amount = float(income_match.group(1).replace(",", ""))
+                        desc = (income_match.group(2) or "").strip().rstrip('.!?')
+                        if amount > 0 and log_income(user_id, amount, "freelance", desc or "Income"):
+                            monthly_inc = get_monthly_income(user_id)
+                            month_total = monthly_inc["total"] if monthly_inc else amount
+                            log_reply = f"💰 Income logged: **KES {amount:,.2f}**"
+                            if desc:
+                                log_reply += f" — {desc}"
+                            log_reply += f"\n📊 Month income: **KES {month_total:,.2f}**"
+                            await message.reply(log_reply)
+                            add_message_to_history(user_id, "user", [{"text": clean_msg}])
+                            add_message_to_history(user_id, "model", [{"text": log_reply}])
+                    except (ValueError, IndexError):
+                        pass
 
             # ─── STOCK AUTO-DETECT ───
             if clean_msg:
