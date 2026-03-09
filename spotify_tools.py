@@ -1,6 +1,7 @@
 import os
 import logging
 import base64
+import random
 import requests
 import certifi
 from pymongo import MongoClient, ASCENDING
@@ -234,28 +235,52 @@ MOOD_GENRES = {
 
 
 def get_recommendations(mood="chill", limit=5):
-    """Get song recommendations based on mood using Spotify's recommendation engine."""
+    """
+    Get song recommendations based on mood using Spotify Search.
+    (Spotify deprecated /recommendations in Nov 2024, so we use /search instead)
+    """
     if not is_configured():
         return None, "Spotify not configured"
 
     mood_lower = mood.lower()
-    profile = MOOD_PROFILES.get(mood_lower, MOOD_PROFILES["chill"])
-    genres = MOOD_GENRES.get(mood_lower, ["pop"])
+    if mood_lower not in MOOD_GENRES:
+        return None, f"Unknown mood: {mood}"
 
+    # Build search queries based on mood
+    search_queries = {
+        "chill": ["chill vibes", "lo-fi chill", "chill acoustic"],
+        "hype": ["hype rap", "trap bangers", "hype workout"],
+        "sad": ["sad songs", "heartbreak acoustic", "melancholy piano"],
+        "happy": ["feel good pop", "happy vibes", "upbeat dance"],
+        "workout": ["workout motivation", "gym hip hop", "high energy EDM"],
+        "study": ["study music", "ambient focus", "lo-fi study beats"],
+        "party": ["party hits", "dance party", "club bangers"],
+        "romantic": ["romantic R&B", "love songs", "slow jams"],
+        "focus": ["deep focus", "ambient concentration", "instrumental focus"],
+        "road trip": ["road trip rock", "driving playlist", "road trip hits"],
+        "sleep": ["sleep ambient", "calm piano sleep", "peaceful night"],
+        "afrobeats": ["afrobeats hits", "amapiano", "afro pop"],
+        "kenyan": ["kenyan music", "gengetone", "kenyan afrobeat"],
+    }
+
+    queries = search_queries.get(mood_lower, [f"{mood_lower} music"])
+    query = random.choice(queries)
+
+    # Use search endpoint
     params = {
-        "seed_genres": ",".join(genres[:2]),
-        "limit": limit,
+        "q": query,
+        "type": "track",
+        "limit": min(limit, 10),
         "market": "KE",
     }
-    params.update(profile)
 
-    data = _spotify_get("/recommendations", params)
+    data = _spotify_get("/search", params)
 
-    if not data or "tracks" not in data:
+    if not data or "tracks" not in data or not data["tracks"].get("items"):
         return None, f"No recommendations for mood: {mood}"
 
     tracks = []
-    for item in data["tracks"]:
+    for item in data["tracks"]["items"]:
         artists = ", ".join([a["name"] for a in item["artists"]])
         duration = item["duration_ms"] // 1000
         mins = duration // 60
@@ -269,7 +294,10 @@ def get_recommendations(mood="chill", limit=5):
             "popularity": item.get("popularity", 0),
         })
 
-    return tracks, None
+    # Shuffle to add variety
+    random.shuffle(tracks)
+
+    return tracks[:limit], None
 
 
 # ══════════════════════════════════════════════
