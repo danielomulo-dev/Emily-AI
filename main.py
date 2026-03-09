@@ -3648,13 +3648,21 @@ async def cmd_myplaylist(ctx, *, url: str = ""):
 
         playlist_name = data.get("name", "Unknown")
         track_count = data.get("tracks", {}).get("total", 0)
+        items_loaded = len(data.get("tracks", {}).get("items", []))
 
         if save_user_playlist(str(ctx.author.id), playlist_id, playlist_name):
-            await ctx.reply(
-                f"✅ Saved: **{playlist_name}** ({track_count} tracks)\n\n"
-                f"Every Monday, I'll analyze this playlist and send you fresh recommendations! 🎵\n"
-                f"_Want a preview now? Try `!playlistrec`_"
-            )
+            if items_loaded > 0:
+                await ctx.reply(
+                    f"✅ Saved: **{playlist_name}** ({items_loaded} tracks loaded)\n\n"
+                    f"Every Monday, I'll analyze this playlist and send you fresh recommendations! 🎵\n"
+                    f"_Want a preview now? Try `!playlistrec`_"
+                )
+            else:
+                await ctx.reply(
+                    f"✅ Saved: **{playlist_name}** — but Spotify returned 0 tracks.\n"
+                    f"This can happen if the playlist is very new or Spotify's API is limiting access.\n"
+                    f"Make sure the playlist has tracks and is set to **Public**, then try `!playlistrec`"
+                )
         else:
             await ctx.reply("Eish, couldn't save that. Try again?")
 

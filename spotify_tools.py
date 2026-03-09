@@ -309,8 +309,8 @@ def get_playlist(playlist_id):
         return None, "Spotify not configured"
 
     try:
-        # Fetch playlist with market=US
-        data = _spotify_get(f"/playlists/{playlist_id}", {"market": "US"})
+        # Fetch playlist metadata
+        data = _spotify_get(f"/playlists/{playlist_id}", {"market": "KE"})
 
         if not data:
             return None, "Couldn't fetch that playlist. Make sure it's public!"
@@ -319,16 +319,30 @@ def get_playlist(playlist_id):
         tracks_items = len(data.get("tracks", {}).get("items", []))
         logger.info(f"Playlist fetched: {data.get('name', 'Unknown')} — total: {tracks_total}, items returned: {tracks_items}")
 
-        # If tracks are empty, try fetching tracks separately
+        # If tracks are empty, try fetching items directly
+        # Spotify Feb 2026 renamed /tracks to /items
         if tracks_items == 0:
-            logger.warning("Main endpoint returned 0 items, trying /tracks endpoint directly...")
-            tracks_data = _spotify_get(f"/playlists/{playlist_id}/tracks", {
-                "market": "US",
-                "limit": 100,
+            logger.warning("Main endpoint returned 0 items, trying /items endpoint...")
+            tracks_data = _spotify_get(f"/playlists/{playlist_id}/items", {
+                "market": "KE",
+                "limit": 50,
             })
             if tracks_data and tracks_data.get("items"):
                 data["tracks"] = tracks_data
-                logger.info(f"Got {len(tracks_data['items'])} tracks from /tracks endpoint")
+                tracks_items = len(tracks_data["items"])
+                logger.info(f"Got {tracks_items} tracks from /items endpoint")
+
+        # If still empty, try the old /tracks endpoint as last resort
+        if tracks_items == 0:
+            logger.warning("Trying legacy /tracks endpoint...")
+            tracks_data = _spotify_get(f"/playlists/{playlist_id}/tracks", {
+                "market": "KE",
+                "limit": 50,
+            })
+            if tracks_data and tracks_data.get("items"):
+                data["tracks"] = tracks_data
+                tracks_items = len(tracks_data["items"])
+                logger.info(f"Got {tracks_items} tracks from /tracks endpoint")
 
         return data, None
     except Exception as e:
@@ -342,14 +356,40 @@ def analyze_playlist(playlist_id):
     if error:
         return None, error
 
+    playlist_name = data.get("name", "Unknown")
+    playlist_owner = data.get("owner", {}).get("display_name", "Unknown")
+    playlist_desc = data.get("description", "")
+
     tracks_data = data.get("tracks", {})
     tracks = tracks_data.get("items", [])
+
+    # ── FALLBACK: If Spotify doesn't return tracks (Feb 2026 API changes),
+    # use the playlist name/description to search and build a taste profile ──
     if not tracks:
-        return None, "Playlist is empty"
+        logger.warning(f"No tracks returned for playlist '{playlist_name}', using name-based fallback")
+
+        # Search for tracks matching the playlist name
+        search_query = playlist_name
+        if playlist_desc:
+            # Use first few words of description too
+            search_query = f"{playlist_name} {playlist_desc[:50]}"
+
+        search_data = _spotify_get("/search", {
+            "q": search_query,
+            "type": "track",
+            "limit": 10,
+            "market": "KE",
+        })
+
+        if search_data and search_data.get("tracks", {}).get("items"):
+            tracks = [{"track": item} for item in search_data["tracks"]["items"]]
+            logger.info(f"Fallback search found {len(tracks)} tracks for '{playlist_name}'")
+        else:
+            return None, f"Couldn't load tracks from playlist '{playlist_name}'. Try a different playlist!"
 
     # Extract stats
     artists_count = {}
-    artist_ids = {}  # name -> id mapping
+    artist_ids = {}
     total_popularity = 0
     total_duration = 0
     track_list = []
@@ -362,7 +402,6 @@ def analyze_playlist(playlist_id):
 
         valid_tracks += 1
 
-        # Count artists and save IDs
         for artist in track.get("artists", []):
             name = artist.get("name", "Unknown")
             artists_count[name] = artists_count.get(name, 0) + 1
@@ -382,7 +421,7 @@ def analyze_playlist(playlist_id):
     # Top artists
     top_artists = sorted(artists_count.items(), key=lambda x: -x[1])[:5]
 
-    # Only look up genres for top 5 artists (avoid rate limiting)
+    # Look up genres for top 5 artists
     genres_all = []
     for artist_name, _ in top_artists:
         aid = artist_ids.get(artist_name)
@@ -404,8 +443,8 @@ def analyze_playlist(playlist_id):
     total_mins = total_duration // 60000
 
     analysis = {
-        "name": data.get("name", "Unknown"),
-        "owner": data.get("owner", {}).get("display_name", "Unknown"),
+        "name": playlist_name,
+        "owner": playlist_owner,
         "track_count": valid_tracks,
         "total_duration_mins": total_mins,
         "avg_popularity": avg_popularity,
