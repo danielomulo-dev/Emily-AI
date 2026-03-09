@@ -83,8 +83,9 @@ from error_monitor import (
     handle_command_error, task_error_handler,
 )
 from twitter_tools import (
-    send_tweet, send_thread, get_daily_tweet, format_movie_tweet,
+    send_tweet, send_thread, format_movie_tweet,
     is_configured as twitter_configured,
+    is_film_tweet_day, get_film_tweet_time, get_film_tweet_prompt,
 )
 
 load_dotenv()
@@ -1263,8 +1264,8 @@ async def on_ready():
         daily_learning.start()
     if not weekly_finance_coaching.is_running():
         weekly_finance_coaching.start()
-    if not daily_tweet.is_running():
-        daily_tweet.start()
+    if not film_tweet.is_running():
+        film_tweet.start()
 
 
 # ══════════════════════════════════════════════
@@ -2033,38 +2034,79 @@ async def before_finance_coaching():
 
 
 # ══════════════════════════════════════════════
-# DAILY TWEET (morning proverbs + finance tips)
+# FILM TWEET (random thoughts on films, 2x per week)
 # ══════════════════════════════════════════════
 @tasks.loop(minutes=1)
-async def daily_tweet():
-    """Post a daily tweet — proverbs on Mon/Wed/Fri, finance tips on Tue/Thu."""
+async def film_tweet():
+    """Post a film hot take / recommendation tweet twice a week at random times."""
     try:
         now = datetime.now(pytz.timezone('Africa/Nairobi'))
-        if now.strftime("%H:%M") != "08:00":
+
+        # Check if today is one of the 2 film tweet days this week
+        if not is_film_tweet_day():
+            return
+
+        # Check if it's the posting time for this week
+        if now.strftime("%H:%M") != get_film_tweet_time():
             return
 
         if not twitter_configured():
             return
 
-        tweet_text = get_daily_tweet()
-        if not tweet_text:
-            return  # Weekend — movies handled separately
+        # Get a random film prompt and have Claude generate the tweet
+        prompt = get_film_tweet_prompt()
 
-        success, result = await asyncio.to_thread(send_tweet, tweet_text)
-        if success:
-            logger.info(f"Daily tweet posted: {result}")
-        else:
-            logger.error(f"Daily tweet failed: {result}")
+        try:
+            response = await asyncio.wait_for(
+                claude_client.messages.create(
+                    model=MODEL_CLAUDE,
+                    max_tokens=200,
+                    messages=[{"role": "user", "content": (
+                        f"{EMILY_MINI_PERSONA} You're tweeting about film. "
+                        f"{prompt} "
+                        f"Write ONLY the tweet text, max 260 characters. "
+                        f"Be punchy, opinionated, and authentic. Use 1-2 relevant hashtags. "
+                        f"Don't use quotes around it. No preamble."
+                    )}],
+                ),
+                timeout=API_TIMEOUT_SECONDS,
+            )
+
+            tweet_text = ""
+            for block in response.content:
+                if block.type == "text":
+                    tweet_text += block.text
+
+            tweet_text = tweet_text.strip().strip('"')
+
+            if len(tweet_text) > 280:
+                tweet_text = tweet_text[:277] + "..."
+
+            if not tweet_text:
+                logger.warning("Film tweet: Claude returned empty text")
+                return
+
+            success, result = await asyncio.to_thread(send_tweet, tweet_text)
+            if success:
+                logger.info(f"Film tweet posted: {result}")
+            else:
+                logger.error(f"Film tweet failed: {result}")
+
+        except asyncio.TimeoutError:
+            logger.error("Film tweet: Claude timed out")
+        except Exception as e:
+            logger.error(f"Film tweet generation error: {e}")
 
     except Exception as e:
-        logger.error(f"Daily tweet error: {e}")
+        logger.error(f"Film tweet task error: {e}")
         try:
-            await notify_owner(bot, "Daily Tweet Task", str(e))
+            await notify_owner(bot, "Film Tweet Task", str(e))
         except Exception:
             pass
 
-@daily_tweet.before_loop
-async def before_daily_tweet():
+
+@film_tweet.before_loop
+async def before_film_tweet():
     await bot.wait_until_ready()
 
 
