@@ -206,3 +206,72 @@ def format_finance_tweet_from_tip(tip_text):
         tweet = tweet[:277] + "..."
 
     return tweet
+
+
+# ══════════════════════════════════════════════
+# FILM TWEETS (random 2x per week)
+# ══════════════════════════════════════════════
+
+FILM_TWEET_PROMPTS = [
+    # Hot takes
+    "Give a spicy hot take about a classic or popular film. Be bold and opinionated. Something film lovers would debate.",
+    "Share a controversial opinion about a well-known movie or director. Back it up with a quick reason.",
+    "Name an overrated movie and explain why in a punchy way. Be fun, not mean.",
+    "Name an underrated movie that deserves more love and say why in one punchy line.",
+
+    # Recommendations
+    "Recommend a hidden gem movie that most people haven't seen. Say the genre, year, and one reason to watch it.",
+    "Recommend a perfect weekend movie. Say the title, genre, and what mood it's best for.",
+    "Recommend a great non-English film. Say the country, title, and what makes it special.",
+    "Recommend a movie for someone who needs a good cry. Title and one-line pitch.",
+    "Recommend a movie with an insane plot twist. Don't spoil it — just tease why people should watch.",
+    "Recommend a great movie from the last 2 years that flew under the radar.",
+
+    # Film thoughts / observations
+    "Share an interesting film fact or behind-the-scenes trivia that most people don't know.",
+    "Talk about a movie scene that lives rent-free in your head and why it's so powerful.",
+    "Compare two similar movies and say which one is better and why.",
+    "Talk about a director's style — what makes their films instantly recognizable.",
+    "Share a thought about how a specific genre (horror, romance, sci-fi, etc.) has evolved over the years.",
+
+    # Trending / topical
+    "Comment on a recent or upcoming big movie release. Share your excitement or skepticism.",
+    "Talk about a movie franchise and whether it should continue or end.",
+    "Share your take on remakes/reboots — pick a specific one and say if it worked or flopped.",
+]
+
+# Post times for film tweets (EAT) — afternoon/evening when people think about movies
+FILM_TWEET_TIMES = ["14:00", "15:30", "18:00", "19:30", "20:00"]
+
+
+def get_film_tweet_days():
+    """
+    Pick 2 random days for film tweets this week.
+    Uses the ISO week number as seed so it's consistent within a week
+    but different each week.
+    """
+    now = datetime.now(EAT_ZONE)
+    week_seed = now.isocalendar()[0] * 100 + now.isocalendar()[1]
+    rng = random.Random(week_seed)
+    days = rng.sample(range(7), 2)  # Pick 2 days from Mon(0) to Sun(6)
+    return sorted(days)
+
+
+def get_film_tweet_time():
+    """Get the posting time for this week's film tweets (consistent per week)."""
+    now = datetime.now(EAT_ZONE)
+    week_seed = now.isocalendar()[0] * 100 + now.isocalendar()[1]
+    rng = random.Random(week_seed + 1)  # Different seed from days
+    return rng.choice(FILM_TWEET_TIMES)
+
+
+def is_film_tweet_day():
+    """Check if today is a film tweet day."""
+    now = datetime.now(EAT_ZONE)
+    today = now.weekday()
+    return today in get_film_tweet_days()
+
+
+def get_film_tweet_prompt():
+    """Get a random film tweet prompt for Claude."""
+    return random.choice(FILM_TWEET_PROMPTS)
