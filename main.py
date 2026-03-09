@@ -32,7 +32,7 @@ from tracker_tools import (
     log_expense, get_daily_spending, get_monthly_spending, set_budget_limit,
     get_budget_limit, format_budget_summary,
     log_income, get_monthly_income, get_effective_budget, format_full_budget_summary,
-    INCOME_CATEGORIES,
+    delete_last_income, INCOME_CATEGORIES,
     add_holding, remove_holding, get_portfolio, format_portfolio,
     add_reminder, get_due_reminders, mark_reminder_done, get_user_reminders,
     get_server_settings, update_server_setting, set_news_channel, get_news_servers,
@@ -2134,7 +2134,7 @@ async def cmd_help(ctx):
     """Show all available commands."""
     page1 = """**Emily's Commands** 🇰🇪 **(1/2)**
 
-**💰 Budget:** `!spent 500 lunch` · `!income 50000 freelance` · `!budget` · `!setbudget 50000` · `!report` · `!financetip`
+**💰 Budget:** `!spent 500 lunch` · `!income 50000 freelance` · `!delincome` · `!budget` · `!setbudget 50000` · `!report` · `!financetip`
 **📈 Portfolio:** `!buy SCOM 100 25` · `!sell SCOM` · `!portfolio`
 **💱 Finance:** `!convert` · `!loan` · `!mshwari` · `!bankloan <lender> <amt> <months>` · `!compareloan <amt> <months>`
 
@@ -2289,6 +2289,28 @@ async def cmd_income(ctx, amount: str, source: str = "freelance", *, description
             await ctx.reply("Eish, couldn't save that. Try again?")
     except ValueError:
         await ctx.reply("Invalid amount. Try: `!income 50000 freelance web project`")
+
+
+@bot.command(name="delincome")
+async def cmd_delincome(ctx):
+    """Delete the most recent income entry. Usage: !delincome"""
+    deleted = delete_last_income(str(ctx.author.id))
+    if deleted:
+        amt = deleted["amount"]
+        src = deleted.get("source", "")
+        desc = deleted.get("description", "")
+        label = INCOME_CATEGORIES.get(src, f"💰 {src.title()}")
+        desc_text = f" — {desc}" if desc else ""
+
+        monthly_inc = get_monthly_income(str(ctx.author.id))
+        month_total = monthly_inc["total"] if monthly_inc else 0
+
+        await ctx.reply(
+            f"🗑️ Deleted: {label} **KES {amt:,.2f}**{desc_text}\n"
+            f"💰 Month income now: **KES {month_total:,.2f}**"
+        )
+    else:
+        await ctx.reply("No income entries to delete!")
 
 
 @bot.command(name="buy")

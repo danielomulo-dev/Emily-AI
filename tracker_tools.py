@@ -284,6 +284,26 @@ def get_monthly_income(user_id, month_str=None):
         return None
 
 
+def delete_last_income(user_id):
+    """Delete the most recent income entry for a user."""
+    if income_col is None:
+        return None
+    try:
+        last_entry = income_col.find_one(
+            {"user_id": str(user_id)},
+            sort=[("date", -1)]
+        )
+        if not last_entry:
+            return None
+
+        income_col.delete_one({"_id": last_entry["_id"]})
+        logger.info(f"Deleted income for {user_id}: KES {last_entry['amount']}")
+        return last_entry
+    except PyMongoError as e:
+        logger.error(f"Income delete error: {e}")
+        return None
+
+
 def get_effective_budget(user_id):
     """
     Calculate the effective monthly budget.
