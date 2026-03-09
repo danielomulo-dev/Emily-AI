@@ -215,19 +215,19 @@ MOOD_PROFILES = {
     "kenyan": {"target_energy": 0.6, "target_valence": 0.7, "target_tempo": 105},
 }
 
-# Genre seeds for different moods
+# Genre seeds for different moods (using valid Spotify seed genres only)
 MOOD_GENRES = {
     "chill": ["chill", "indie-pop", "ambient"],
-    "hype": ["hip-hop", "trap", "edm"],
-    "sad": ["sad", "acoustic", "piano"],
+    "hype": ["hip-hop", "edm", "electronic"],
+    "sad": ["acoustic", "piano", "indie"],
     "happy": ["pop", "dance", "funk"],
-    "workout": ["work-out", "edm", "hip-hop"],
-    "study": ["study", "ambient", "classical"],
-    "party": ["party", "dance", "edm"],
-    "romantic": ["romance", "r-n-b", "soul"],
-    "focus": ["focus", "ambient", "electronic"],
-    "road trip": ["road-trip", "rock", "pop"],
-    "sleep": ["sleep", "ambient", "piano"],
+    "workout": ["edm", "hip-hop", "electronic"],
+    "study": ["ambient", "classical", "piano"],
+    "party": ["dance", "edm", "pop"],
+    "romantic": ["r-n-b", "soul", "jazz"],
+    "focus": ["ambient", "electronic", "classical"],
+    "road trip": ["rock", "pop", "indie"],
+    "sleep": ["ambient", "piano", "classical"],
     "afrobeats": ["afrobeat"],
     "kenyan": ["afrobeat"],
 }
