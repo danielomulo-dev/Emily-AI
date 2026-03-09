@@ -28,3 +28,6 @@ youtube-transcript-api
 
 # === Utilities ===
 dateparser
+
+# === Social Media ===
+tweepy

@@ -80,6 +80,10 @@ from error_monitor import (
     notify_owner, retry, async_retry, async_api_call_with_retry,
     handle_command_error, task_error_handler,
 )
+from twitter_tools import (
+    send_tweet, send_thread, get_daily_tweet, format_movie_tweet,
+    is_configured as twitter_configured,
+)
 
 load_dotenv()
 logging.basicConfig(level=logging.INFO)
@@ -1257,6 +1261,8 @@ async def on_ready():
         daily_learning.start()
     if not weekly_finance_coaching.is_running():
         weekly_finance_coaching.start()
+    if not daily_tweet.is_running():
+        daily_tweet.start()
 
 
 # ══════════════════════════════════════════════
@@ -1375,6 +1381,7 @@ async def weekend_movie_suggestion():
             return
 
         servers = get_movie_suggestion_servers()
+        tweeted_movie = False
         for server in servers:
             suggest_time = server.get("suggest_time", "19:00")
             if current_time != suggest_time:
@@ -1406,6 +1413,32 @@ async def weekend_movie_suggestion():
                         {"$set": {"last_suggestion_date": today}}
                     )
                 logger.info(f"Movie suggested to server {server['guild_id']}")
+
+                # Also tweet the movie pick (only once, from first server)
+                if twitter_configured() and not tweeted_movie:
+                    try:
+                        # Extract a short tweet from the suggestion
+                        import re as _re
+                        title_match = _re.search(r'\*\*(.+?)\*\*\s*\((\d{4})\)', suggestion)
+                        imdb_match = _re.search(r'IMDB:\*?\*?\s*([\d.]+)', suggestion)
+                        rt_match = _re.search(r'Rotten Tomatoes:\*?\*?\s*(\d+%)', suggestion)
+                        genre_match = _re.search(r'🎭\s*(.+?)(?:\n|$)', suggestion)
+                        director_match = _re.search(r'Directed by:\s*(.+?)(?:\n|$)', suggestion)
+
+                        if title_match:
+                            t_title = title_match.group(1)
+                            t_year = title_match.group(2)
+                            t_imdb = imdb_match.group(1) if imdb_match else None
+                            t_rt = rt_match.group(1) if rt_match else None
+                            t_genre = genre_match.group(1).strip() if genre_match else None
+                            t_director = director_match.group(1).strip() if director_match else None
+
+                            movie_tweet = format_movie_tweet(t_title, t_year, t_genre, t_imdb, t_rt, t_director)
+                            await asyncio.to_thread(send_tweet, movie_tweet)
+                            tweeted_movie = True
+                            logger.info(f"Movie tweeted: {t_title}")
+                    except Exception as te:
+                        logger.error(f"Movie tweet error: {te}")
 
     except Exception as e:
         logger.error(f"Movie suggestion error: {e}")
@@ -1997,6 +2030,42 @@ async def before_finance_coaching():
     await bot.wait_until_ready()
 
 
+# ══════════════════════════════════════════════
+# DAILY TWEET (morning proverbs + finance tips)
+# ══════════════════════════════════════════════
+@tasks.loop(minutes=1)
+async def daily_tweet():
+    """Post a daily tweet — proverbs on Mon/Wed/Fri, finance tips on Tue/Thu."""
+    try:
+        now = datetime.now(pytz.timezone('Africa/Nairobi'))
+        if now.strftime("%H:%M") != "08:00":
+            return
+
+        if not twitter_configured():
+            return
+
+        tweet_text = get_daily_tweet()
+        if not tweet_text:
+            return  # Weekend — movies handled separately
+
+        success, result = await asyncio.to_thread(send_tweet, tweet_text)
+        if success:
+            logger.info(f"Daily tweet posted: {result}")
+        else:
+            logger.error(f"Daily tweet failed: {result}")
+
+    except Exception as e:
+        logger.error(f"Daily tweet error: {e}")
+        try:
+            await notify_owner(bot, "Daily Tweet Task", str(e))
+        except Exception:
+            pass
+
+@daily_tweet.before_loop
+async def before_daily_tweet():
+    await bot.wait_until_ready()
+
+
 async def send_chunked_reply_to_channel(channel, text):
     """Send a long message to a channel (not as a reply)."""
     while len(text) > 2000:
@@ -2088,6 +2157,8 @@ async def cmd_help(ctx):
 **🎂 Dates:** `!birthday <name> <date>` · `!anniversary <name> <date>` · `!birthdays`
 
 **🎙️ Settings:** `!voicemode` · `!reset` · `!forget` · `!setfinance` · `!setmusic` · `!help`
+
+**🐦 Twitter:** `!tweet <text>` · `!emilytweet <topic>`
 
 _Or just @ mention me to chat!_ 😊"""
 
@@ -3336,6 +3407,103 @@ async def cmd_setmusic(ctx):
         return
     update_server_setting(str(ctx.guild.id), "music_channel_id", str(ctx.channel.id))
     await ctx.reply("✅ Monday music will be posted **here** every Monday at 9am EAT! 🎵")
+
+
+# ══════════════════════════════════════════════
+# TWITTER COMMANDS
+# ══════════════════════════════════════════════
+@bot.command(name="tweet")
+async def cmd_tweet(ctx, *, text: str):
+    """Tweet from Emily's account. Usage: !tweet Hello world!"""
+    if not twitter_configured():
+        await ctx.reply("Twitter isn't set up yet. Add `TWITTER_API_KEY`, `TWITTER_API_SECRET`, `TWITTER_ACCESS_TOKEN`, `TWITTER_ACCESS_SECRET` to env.")
+        return
+
+    # Only allow bot owner to tweet
+    bot_owner = os.getenv("BOT_OWNER_ID")
+    if bot_owner and str(ctx.author.id) != bot_owner:
+        await ctx.reply("Only the bot owner can tweet as Emily!")
+        return
+
+    async with ctx.typing():
+        if len(text) > 280:
+            await ctx.reply(f"Tweet is too long ({len(text)} chars). Max 280.")
+            return
+
+        success, result = await asyncio.to_thread(send_tweet, text)
+        if success:
+            await ctx.reply(f"🐦 **Tweeted!** https://x.com/i/status/{result}")
+        else:
+            await ctx.reply(f"Tweet failed: {result}")
+
+
+@bot.command(name="emilytweet")
+async def cmd_emilytweet(ctx, *, topic: str = "random"):
+    """Have Emily generate and post a tweet. Usage: !emilytweet finance tip | !emilytweet movie pick"""
+    if not twitter_configured():
+        await ctx.reply("Twitter isn't set up yet.")
+        return
+
+    bot_owner = os.getenv("BOT_OWNER_ID")
+    if bot_owner and str(ctx.author.id) != bot_owner:
+        await ctx.reply("Only the bot owner can tweet as Emily!")
+        return
+
+    async with ctx.typing():
+        prompt = (
+            f"{EMILY_MINI_PERSONA} Write a single tweet (max 270 characters) about: {topic}. "
+            f"Make it punchy, insightful, and add 2-3 relevant hashtags. "
+            f"Don't use quotes around it. Just the tweet text."
+        )
+
+        try:
+            response = await asyncio.wait_for(
+                claude_client.messages.create(
+                    model=MODEL_CLAUDE,
+                    max_tokens=200,
+                    messages=[{"role": "user", "content": prompt}],
+                ),
+                timeout=API_TIMEOUT_SECONDS,
+            )
+            tweet_text = ""
+            for block in response.content:
+                if block.type == "text":
+                    tweet_text += block.text
+
+            tweet_text = tweet_text.strip().strip('"')
+
+            if len(tweet_text) > 280:
+                tweet_text = tweet_text[:277] + "..."
+
+            # Show preview first
+            await ctx.reply(f"**Preview:**\n> {tweet_text}\n\nReact ✅ to post or ❌ to cancel.")
+
+            msg = ctx.message
+            preview = await ctx.channel.history(limit=1).flatten()
+            if preview:
+                preview_msg = preview[0]
+                await preview_msg.add_reaction("✅")
+                await preview_msg.add_reaction("❌")
+
+                def check(reaction, user):
+                    return user == ctx.author and str(reaction.emoji) in ("✅", "❌") and reaction.message.id == preview_msg.id
+
+                try:
+                    reaction, user = await bot.wait_for("reaction_add", timeout=60.0, check=check)
+                    if str(reaction.emoji) == "✅":
+                        success, result = await asyncio.to_thread(send_tweet, tweet_text)
+                        if success:
+                            await ctx.reply(f"🐦 **Tweeted!** https://x.com/i/status/{result}")
+                        else:
+                            await ctx.reply(f"Tweet failed: {result}")
+                    else:
+                        await ctx.reply("Tweet cancelled.")
+                except asyncio.TimeoutError:
+                    await ctx.reply("Timed out. Tweet not posted.")
+
+        except Exception as e:
+            logger.error(f"Emily tweet error: {e}")
+            await ctx.reply("Couldn't generate tweet. Try again!")
 
 
 # ══════════════════════════════════════════════
