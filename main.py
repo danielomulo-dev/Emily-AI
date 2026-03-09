@@ -3475,31 +3475,26 @@ async def cmd_emilytweet(ctx, *, topic: str = "random"):
             if len(tweet_text) > 280:
                 tweet_text = tweet_text[:277] + "..."
 
-            # Show preview first
-            await ctx.reply(f"**Preview:**\n> {tweet_text}\n\nReact ✅ to post or ❌ to cancel.")
+            # Show preview and add reactions
+            preview_msg = await ctx.reply(f"**Preview:**\n> {tweet_text}\n\nReact ✅ to post or ❌ to cancel.")
+            await preview_msg.add_reaction("✅")
+            await preview_msg.add_reaction("❌")
 
-            msg = ctx.message
-            preview = await ctx.channel.history(limit=1).flatten()
-            if preview:
-                preview_msg = preview[0]
-                await preview_msg.add_reaction("✅")
-                await preview_msg.add_reaction("❌")
+            def check(reaction, user):
+                return user == ctx.author and str(reaction.emoji) in ("✅", "❌") and reaction.message.id == preview_msg.id
 
-                def check(reaction, user):
-                    return user == ctx.author and str(reaction.emoji) in ("✅", "❌") and reaction.message.id == preview_msg.id
-
-                try:
-                    reaction, user = await bot.wait_for("reaction_add", timeout=60.0, check=check)
-                    if str(reaction.emoji) == "✅":
-                        success, result = await asyncio.to_thread(send_tweet, tweet_text)
-                        if success:
-                            await ctx.reply(f"🐦 **Tweeted!** https://x.com/i/status/{result}")
-                        else:
-                            await ctx.reply(f"Tweet failed: {result}")
+            try:
+                reaction, user = await bot.wait_for("reaction_add", timeout=60.0, check=check)
+                if str(reaction.emoji) == "✅":
+                    success, result = await asyncio.to_thread(send_tweet, tweet_text)
+                    if success:
+                        await ctx.reply(f"🐦 **Tweeted!** https://x.com/i/status/{result}")
                     else:
-                        await ctx.reply("Tweet cancelled.")
-                except asyncio.TimeoutError:
-                    await ctx.reply("Timed out. Tweet not posted.")
+                        await ctx.reply(f"Tweet failed: {result}")
+                else:
+                    await ctx.reply("Tweet cancelled.")
+            except asyncio.TimeoutError:
+                await ctx.reply("Timed out. Tweet not posted.")
 
         except Exception as e:
             logger.error(f"Emily tweet error: {e}")
