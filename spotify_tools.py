@@ -418,55 +418,66 @@ def analyze_playlist(playlist_id):
 
 
 def get_similar_to_playlist(playlist_id, limit=5):
-    """Get recommendations based on a playlist's top artists and genres."""
+    """Get recommendations based on a playlist's top artists and genres using search."""
     analysis, error = analyze_playlist(playlist_id)
     if error:
         return None, error
 
-    # Use top artists as seeds
-    seed_artists = []
-    for artist_name, _ in analysis["top_artists"][:2]:
-        artists, _ = search_artists(artist_name, limit=1)
-        if artists:
-            # Get artist ID from search
-            artist_data = _spotify_get("/search", {"q": artist_name, "type": "artist", "limit": 1})
-            if artist_data and artist_data["artists"]["items"]:
-                seed_artists.append(artist_data["artists"]["items"][0]["id"])
-
-    # Use top genres as seeds
-    seed_genres = [g for g, _ in analysis["top_genres"][:3]]
-    # Spotify only accepts specific genre seeds, limit to what works
-    valid_genres = _spotify_get("/recommendations/available-genre-seeds")
-    if valid_genres:
-        valid_set = set(valid_genres.get("genres", []))
-        seed_genres = [g for g in seed_genres if g in valid_set][:2]
-
-    if not seed_artists and not seed_genres:
-        return None, "Couldn't extract enough data for recommendations"
-
-    params = {
-        "limit": limit,
-        "market": "KE",
-    }
-    if seed_artists:
-        params["seed_artists"] = ",".join(seed_artists[:2])
-    if seed_genres:
-        params["seed_genres"] = ",".join(seed_genres[:3 - len(seed_artists)])
-
-    data = _spotify_get("/recommendations", params)
-    if not data or "tracks" not in data:
-        return None, "Couldn't generate recommendations"
+    # Build search queries from top artists and genres
+    top_artist_names = [name for name, _ in analysis["top_artists"][:3]]
+    top_genre_names = [genre for genre, _ in analysis["top_genres"][:3]]
 
     tracks = []
-    for item in data["tracks"]:
-        artists = ", ".join([a["name"] for a in item["artists"]])
-        tracks.append({
-            "name": item["name"],
-            "artists": artists,
-            "url": item["external_urls"].get("spotify", ""),
-        })
+    seen_tracks = set()
 
-    return {"analysis": analysis, "recommendations": tracks}, None
+    # Search for tracks by similar artists
+    for artist_name in top_artist_names:
+        query = f"artist:{artist_name}"
+        data = _spotify_get("/search", {
+            "q": query,
+            "type": "track",
+            "limit": 5,
+            "market": "KE",
+        })
+        if data and data.get("tracks", {}).get("items"):
+            for item in data["tracks"]["items"]:
+                track_key = f"{item['name']}_{item['artists'][0]['name']}"
+                if track_key not in seen_tracks:
+                    seen_tracks.add(track_key)
+                    artists = ", ".join([a["name"] for a in item["artists"]])
+                    tracks.append({
+                        "name": item["name"],
+                        "artists": artists,
+                        "url": item["external_urls"].get("spotify", ""),
+                    })
+
+    # Search by genres for variety
+    for genre in top_genre_names[:2]:
+        query = f"genre:{genre}"
+        data = _spotify_get("/search", {
+            "q": query,
+            "type": "track",
+            "limit": 3,
+            "market": "KE",
+        })
+        if data and data.get("tracks", {}).get("items"):
+            for item in data["tracks"]["items"]:
+                track_key = f"{item['name']}_{item['artists'][0]['name']}"
+                if track_key not in seen_tracks:
+                    seen_tracks.add(track_key)
+                    artists = ", ".join([a["name"] for a in item["artists"]])
+                    tracks.append({
+                        "name": item["name"],
+                        "artists": artists,
+                        "url": item["external_urls"].get("spotify", ""),
+                    })
+
+    if not tracks:
+        return None, "Couldn't find similar tracks"
+
+    # Shuffle and limit
+    random.shuffle(tracks)
+    return {"analysis": analysis, "recommendations": tracks[:limit]}, None
 
 
 # ══════════════════════════════════════════════
@@ -484,6 +495,78 @@ def extract_playlist_id(text):
     if clean.isalnum() and 15 <= len(clean) <= 30:
         return clean
     return None
+
+
+# ══════════════════════════════════════════════
+# USER PLAYLIST FOR WEEKLY RECOMMENDATIONS
+# ══════════════════════════════════════════════
+def save_user_playlist(user_id, playlist_id, playlist_name=""):
+    """Save a user's playlist for weekly recommendations."""
+    if saved_playlists_col is None:
+        return False
+    try:
+        from datetime import datetime
+        saved_playlists_col.update_one(
+            {"user_id": str(user_id), "label": "weekly_rec"},
+            {"$set": {
+                "user_id": str(user_id),
+                "playlist_id": playlist_id,
+                "playlist_name": playlist_name,
+                "label": "weekly_rec",
+                "updated_at": datetime.utcnow(),
+            }},
+            upsert=True,
+        )
+        logger.info(f"Saved weekly playlist for {user_id}: {playlist_id}")
+        return True
+    except Exception as e:
+        logger.error(f"Save user playlist error: {e}")
+        return False
+
+
+def get_user_playlist(user_id):
+    """Get a user's saved playlist for weekly recs."""
+    if saved_playlists_col is None:
+        return None
+    try:
+        doc = saved_playlists_col.find_one({"user_id": str(user_id), "label": "weekly_rec"})
+        return doc
+    except Exception as e:
+        logger.error(f"Get user playlist error: {e}")
+        return None
+
+
+def get_all_weekly_playlist_users():
+    """Get all users who have a saved weekly playlist."""
+    if saved_playlists_col is None:
+        return []
+    try:
+        return list(saved_playlists_col.find({"label": "weekly_rec"}))
+    except Exception as e:
+        logger.error(f"Get all weekly playlists error: {e}")
+        return []
+
+
+def format_weekly_recommendations(result):
+    """Format playlist-based recommendations for Discord."""
+    analysis = result["analysis"]
+    tracks = result["recommendations"]
+
+    lines = [f"🎵 **Weekly Music Picks** (based on *{analysis['name']}*)\n"]
+    lines.append(f"Your top artists: {', '.join([a for a, _ in analysis['top_artists'][:3]])}")
+    if analysis["top_genres"]:
+        lines.append(f"Your vibe: {', '.join([g for g, _ in analysis['top_genres'][:3]])}")
+    lines.append("")
+
+    lines.append("**Tracks you might love:**")
+    for i, t in enumerate(tracks, 1):
+        if t.get("url"):
+            lines.append(f"**{i}.** [{t['artists']} — {t['name']}]({t['url']})")
+        else:
+            lines.append(f"**{i}.** {t['artists']} — {t['name']}")
+
+    lines.append("\n_Based on your playlist. Update it anytime with `!myplaylist <url>`_ 🎧")
+    return "\n".join(lines)
 
 
 # ══════════════════════════════════════════════

@@ -72,6 +72,9 @@ from spotify_tools import (
     search_tracks, get_recommendations,
     format_search_results, format_recommendations,
     is_configured as spotify_configured, MOOD_PROFILES,
+    extract_playlist_id, get_similar_to_playlist,
+    save_user_playlist, get_user_playlist, get_all_weekly_playlist_users,
+    format_weekly_recommendations,
 )
 from reddit_tools import (
     get_trending_posts, get_investment_buzz, get_stock_mentions, search_reddit,
@@ -1266,6 +1269,8 @@ async def on_ready():
         weekly_finance_coaching.start()
     if not film_tweet.is_running():
         film_tweet.start()
+    if not weekly_playlist_recs.is_running():
+        weekly_playlist_recs.start()
 
 
 # ══════════════════════════════════════════════
@@ -2110,6 +2115,70 @@ async def before_film_tweet():
     await bot.wait_until_ready()
 
 
+# ══════════════════════════════════════════════
+# WEEKLY PLAYLIST RECOMMENDATIONS (every Monday)
+# ══════════════════════════════════════════════
+@tasks.loop(minutes=1)
+async def weekly_playlist_recs():
+    """Send weekly music recommendations based on saved playlists every Monday at 10am EAT."""
+    try:
+        now = datetime.now(pytz.timezone('Africa/Nairobi'))
+
+        # Monday at 10:00 AM EAT
+        if now.weekday() != 0 or now.strftime("%H:%M") != "10:00":
+            return
+
+        if not spotify_configured():
+            return
+
+        users_with_playlists = await asyncio.to_thread(get_all_weekly_playlist_users)
+        if not users_with_playlists:
+            return
+
+        for saved in users_with_playlists:
+            try:
+                user_id = saved["user_id"]
+                playlist_id = saved["playlist_id"]
+
+                result, error = await asyncio.to_thread(
+                    get_similar_to_playlist, playlist_id, 7
+                )
+                if error:
+                    logger.warning(f"Weekly rec failed for {user_id}: {error}")
+                    continue
+
+                message_text = format_weekly_recommendations(result)
+
+                # DM the user
+                try:
+                    user = bot.get_user(int(user_id))
+                    if not user:
+                        user = await bot.fetch_user(int(user_id))
+                    if user:
+                        await user.send(message_text)
+                        logger.info(f"Weekly playlist rec sent to {user_id}")
+                except Exception as e:
+                    logger.warning(f"Couldn't DM weekly rec to {user_id}: {e}")
+
+                # Small delay between users to avoid rate limits
+                await asyncio.sleep(2)
+
+            except Exception as e:
+                logger.error(f"Weekly rec error for user {saved.get('user_id')}: {e}")
+
+    except Exception as e:
+        logger.error(f"Weekly playlist recs task error: {e}")
+        try:
+            await notify_owner(bot, "Weekly Playlist Recs Task", str(e))
+        except Exception:
+            pass
+
+
+@weekly_playlist_recs.before_loop
+async def before_weekly_playlist_recs():
+    await bot.wait_until_ready()
+
+
 async def send_chunked_reply_to_channel(channel, text):
     """Send a long message to a channel (not as a reply)."""
     while len(text) > 2000:
@@ -2185,7 +2254,7 @@ async def cmd_help(ctx):
 `!suggest` · `!setmovienight` · `!addmovie` · `!watchlist`
 `!vote` · `!watchparty` · `!join` · `!endparty`
 
-**🎵 Spotify:** `!song <query>` · `!vibes <mood>`
+**🎵 Spotify:** `!song <query>` · `!vibes <mood>` · `!myplaylist <url>` · `!playlistrec`
 
 **⏰ Reminders:** `!remind 5pm call mum` · `!reminders`"""
 
@@ -3537,6 +3606,80 @@ async def cmd_setmusic(ctx):
         return
     update_server_setting(str(ctx.guild.id), "music_channel_id", str(ctx.channel.id))
     await ctx.reply("✅ Monday music will be posted **here** every Monday at 9am EAT! 🎵")
+
+
+@bot.command(name="myplaylist")
+async def cmd_myplaylist(ctx, *, url: str = ""):
+    """Save your Spotify playlist for weekly recommendations. Usage: !myplaylist <spotify_url>"""
+    if not spotify_configured():
+        await ctx.reply("Spotify isn't set up yet.")
+        return
+
+    if not url:
+        # Show current saved playlist
+        saved = get_user_playlist(str(ctx.author.id))
+        if saved:
+            await ctx.reply(
+                f"🎵 Your saved playlist: **{saved.get('playlist_name', 'Unknown')}**\n"
+                f"I'll send recommendations based on this every Monday!\n"
+                f"_Update it anytime with `!myplaylist <new_url>`_"
+            )
+        else:
+            await ctx.reply(
+                "You haven't saved a playlist yet!\n"
+                "Share a **public** Spotify playlist link:\n"
+                "`!myplaylist https://open.spotify.com/playlist/...`\n\n"
+                "I'll analyze your taste and send weekly recommendations every Monday 🎵"
+            )
+        return
+
+    async with ctx.typing():
+        playlist_id = extract_playlist_id(url)
+        if not playlist_id:
+            await ctx.reply("That doesn't look like a Spotify playlist link. Try pasting the full URL!")
+            return
+
+        # Verify we can read it
+        from spotify_tools import get_playlist
+        data, error = await asyncio.to_thread(get_playlist, playlist_id)
+        if error:
+            await ctx.reply(f"Couldn't access that playlist — make sure it's **public**! ({error})")
+            return
+
+        playlist_name = data.get("name", "Unknown")
+        track_count = data.get("tracks", {}).get("total", 0)
+
+        if save_user_playlist(str(ctx.author.id), playlist_id, playlist_name):
+            await ctx.reply(
+                f"✅ Saved: **{playlist_name}** ({track_count} tracks)\n\n"
+                f"Every Monday, I'll analyze this playlist and send you fresh recommendations! 🎵\n"
+                f"_Want a preview now? Try `!playlistrec`_"
+            )
+        else:
+            await ctx.reply("Eish, couldn't save that. Try again?")
+
+
+@bot.command(name="playlistrec")
+async def cmd_playlistrec(ctx):
+    """Get recommendations based on your saved playlist. Usage: !playlistrec"""
+    if not spotify_configured():
+        await ctx.reply("Spotify isn't set up yet.")
+        return
+
+    saved = get_user_playlist(str(ctx.author.id))
+    if not saved:
+        await ctx.reply("No playlist saved! Use `!myplaylist <url>` first.")
+        return
+
+    async with ctx.typing():
+        result, error = await asyncio.to_thread(
+            get_similar_to_playlist, saved["playlist_id"], 7
+        )
+        if error:
+            await ctx.reply(f"Couldn't generate recommendations: {error}")
+            return
+
+        await send_chunked_reply(ctx.message, format_weekly_recommendations(result))
 
 
 # ══════════════════════════════════════════════
