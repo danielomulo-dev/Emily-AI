@@ -542,22 +542,32 @@ def extract_playlist_id(text):
 def save_user_playlist(user_id, playlist_id, playlist_name=""):
     """Save a user's playlist for weekly recommendations."""
     if saved_playlists_col is None:
+        logger.error("save_user_playlist: saved_playlists_col is None!")
         return False
     try:
-        from datetime import datetime
-        saved_playlists_col.update_one(
-            {"user_id": str(user_id), "label": "weekly_rec"},
+        result = saved_playlists_col.update_one(
+            {"user_id": str(user_id), "type": "weekly_rec"},
             {"$set": {
                 "user_id": str(user_id),
                 "playlist_id": playlist_id,
                 "playlist_name": playlist_name,
-                "label": "weekly_rec",
+                "type": "weekly_rec",
                 "updated_at": datetime.utcnow(),
             }},
             upsert=True,
         )
-        logger.info(f"Saved weekly playlist for {user_id}: {playlist_id}")
-        return True
+        logger.info(f"Saved weekly playlist for {user_id}: {playlist_id} "
+                     f"(matched={result.matched_count}, modified={result.modified_count}, "
+                     f"upserted_id={result.upserted_id})")
+
+        # Verify the save worked
+        verify = saved_playlists_col.find_one({"user_id": str(user_id), "type": "weekly_rec"})
+        if verify:
+            logger.info(f"Verified: playlist saved for {user_id}")
+            return True
+        else:
+            logger.error(f"Save verification FAILED for {user_id}")
+            return False
     except Exception as e:
         logger.error(f"Save user playlist error: {e}")
         return False
@@ -566,9 +576,11 @@ def save_user_playlist(user_id, playlist_id, playlist_name=""):
 def get_user_playlist(user_id):
     """Get a user's saved playlist for weekly recs."""
     if saved_playlists_col is None:
+        logger.error("get_user_playlist: saved_playlists_col is None!")
         return None
     try:
-        doc = saved_playlists_col.find_one({"user_id": str(user_id), "label": "weekly_rec"})
+        doc = saved_playlists_col.find_one({"user_id": str(user_id), "type": "weekly_rec"})
+        logger.info(f"get_user_playlist for {user_id}: {'found' if doc else 'NOT found'}")
         return doc
     except Exception as e:
         logger.error(f"Get user playlist error: {e}")
@@ -580,7 +592,7 @@ def get_all_weekly_playlist_users():
     if saved_playlists_col is None:
         return []
     try:
-        return list(saved_playlists_col.find({"label": "weekly_rec"}))
+        return list(saved_playlists_col.find({"type": "weekly_rec"}))
     except Exception as e:
         logger.error(f"Get all weekly playlists error: {e}")
         return []
