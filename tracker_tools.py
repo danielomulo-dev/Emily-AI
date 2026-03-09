@@ -287,16 +287,17 @@ def get_monthly_income(user_id, month_str=None):
 def get_effective_budget(user_id):
     """
     Calculate the effective monthly budget.
-    If user has a fixed budget limit AND income, use the higher of the two.
-    If only income, use income as the budget.
-    If only fixed limit, use that.
+    Base budget + any income logged this month.
+    - If user has a fixed budget AND income: budget + income
+    - If only income: use income as the budget
+    - If only fixed limit: use that
     """
     limit = get_budget_limit(user_id)
     monthly_income = get_monthly_income(user_id)
     income_total = monthly_income["total"] if monthly_income else 0
 
     if income_total > 0 and limit:
-        return max(limit, income_total)
+        return limit + income_total
     elif income_total > 0:
         return income_total
     elif limit:
