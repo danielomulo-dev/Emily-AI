@@ -2138,6 +2138,7 @@ async def weekly_playlist_recs():
             try:
                 user_id = saved["user_id"]
                 artists = saved.get("artists", [])
+                channel_id = saved.get("channel_id")
                 if not artists:
                     continue
 
@@ -2148,17 +2149,31 @@ async def weekly_playlist_recs():
                     logger.warning(f"Weekly rec failed for {user_id}: {error}")
                     continue
 
-                message_text = format_weekly_recommendations(result)
+                message_text = f"<@{user_id}> 🎵\n\n" + format_weekly_recommendations(result)
 
-                try:
-                    user = bot.get_user(int(user_id))
-                    if not user:
-                        user = await bot.fetch_user(int(user_id))
-                    if user:
-                        await user.send(message_text)
-                        logger.info(f"Weekly music rec sent to {user_id}")
-                except Exception as e:
-                    logger.warning(f"Couldn't DM weekly rec to {user_id}: {e}")
+                # Post to saved channel if available
+                sent = False
+                if channel_id:
+                    try:
+                        channel = bot.get_channel(int(channel_id))
+                        if channel:
+                            await send_chunked_reply_to_channel(channel, message_text)
+                            logger.info(f"Weekly music rec posted to channel {channel_id} for {user_id}")
+                            sent = True
+                    except Exception as e:
+                        logger.warning(f"Couldn't post weekly rec to channel {channel_id}: {e}")
+
+                # Fallback to DM if channel posting failed
+                if not sent:
+                    try:
+                        user = bot.get_user(int(user_id))
+                        if not user:
+                            user = await bot.fetch_user(int(user_id))
+                        if user:
+                            await user.send(format_weekly_recommendations(result))
+                            logger.info(f"Weekly music rec DM'd to {user_id}")
+                    except Exception as e:
+                        logger.warning(f"Couldn't DM weekly rec to {user_id}: {e}")
 
                 await asyncio.sleep(2)
 
@@ -3641,10 +3656,14 @@ async def cmd_mytaste(ctx, *, artists_text: str = ""):
         artists = artists[:10]
         await ctx.reply("Noted! I'll use the first 10 artists.")
 
-    if save_user_artists(str(ctx.author.id), artists):
+    if save_user_artists(
+        str(ctx.author.id), artists,
+        guild_id=str(ctx.guild.id) if ctx.guild else None,
+        channel_id=str(ctx.channel.id),
+    ):
         await ctx.reply(
             f"✅ Saved your taste: **{', '.join(artists)}**\n\n"
-            f"Every Monday, I'll DM you fresh recommendations based on these artists! 🎵\n"
+            f"Every Monday at 10am, I'll post recommendations right here in <#{ctx.channel.id}>! 🎵\n"
             f"_Want a preview now? Try `!myrec`_"
         )
     else:

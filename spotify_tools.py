@@ -541,7 +541,7 @@ def extract_playlist_id(text):
 # Spotify Feb 2026 changes removed playlist track access
 # for non-owned playlists, so we use artists instead.
 # ══════════════════════════════════════════════
-def save_user_artists(user_id, artists):
+def save_user_artists(user_id, artists, guild_id=None, channel_id=None):
     """Save a user's favorite artists for weekly recommendations.
     artists = list of artist name strings
     """
@@ -549,14 +549,20 @@ def save_user_artists(user_id, artists):
         logger.error("save_user_artists: collection is None!")
         return False
     try:
+        update_data = {
+            "user_id": str(user_id),
+            "artists": artists,
+            "type": "weekly_music",
+            "updated_at": datetime.utcnow(),
+        }
+        if guild_id:
+            update_data["guild_id"] = str(guild_id)
+        if channel_id:
+            update_data["channel_id"] = str(channel_id)
+
         result = saved_playlists_col.update_one(
             {"user_id": str(user_id), "type": "weekly_music"},
-            {"$set": {
-                "user_id": str(user_id),
-                "artists": artists,
-                "type": "weekly_music",
-                "updated_at": datetime.utcnow(),
-            }},
+            {"$set": update_data},
             upsert=True,
         )
         logger.info(f"Saved music taste for {user_id}: {artists} "
