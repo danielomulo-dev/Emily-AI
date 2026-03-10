@@ -36,6 +36,10 @@ from tracker_tools import (
     add_holding, remove_holding, get_portfolio, format_portfolio,
     add_reminder, get_due_reminders, mark_reminder_done, get_user_reminders,
     get_server_settings, update_server_setting, set_news_channel, get_news_servers,
+    set_server_persona, get_server_persona, PERSONA_PRESETS,
+    set_alert_settings, get_alert_settings, get_all_alert_users,
+    save_last_prices, get_last_prices, get_all_users_with_portfolios,
+    set_voice_chat_channel, is_voice_chat_channel,
 )
 from utility_tools import (
     convert_currency, format_currency_result,
@@ -1088,7 +1092,7 @@ async def _get_claude_response(conversation_history, emily_prompt):
 # ══════════════════════════════════════════════
 # EMILY'S BRAIN (HIVE MIND ORCHESTRATOR)
 # ══════════════════════════════════════════════
-async def get_ai_response(conversation_history, user_id, chosen_model, route_reason):
+async def get_ai_response(conversation_history, user_id, chosen_model, route_reason, guild_id=None):
     """
     Routes to the right model, handles memory, tags, and fallback.
     Returns tuple: (response_text, source_links)
@@ -1102,6 +1106,19 @@ async def get_ai_response(conversation_history, user_id, chosen_model, route_rea
         facts_str = "\n- ".join(safe_facts) if safe_facts else "A new friend — haven't learned much about them yet."
 
         emily_prompt = _build_emily_prompt(current_time, facts_str)
+
+        # ─── CUSTOM SERVER PERSONA ───
+        if guild_id:
+            custom_persona = get_server_persona(str(guild_id))
+            if custom_persona:
+                emily_prompt += f"""
+
+═══════════════════════════════════════
+SERVER PERSONALITY MODIFIER:
+═══════════════════════════════════════
+{custom_persona}
+Adapt your responses to match this style while keeping your core Emily identity.
+"""
 
         # Add model-specific instructions
         if chosen_model == "gemini":
@@ -1268,6 +1285,8 @@ async def on_ready():
         weekly_finance_coaching.start()
     if not film_tweet.is_running():
         film_tweet.start()
+    if not investment_alerts.is_running():
+        investment_alerts.start()
     if not weekly_playlist_recs.is_running():
         weekly_playlist_recs.start()
 
@@ -2115,6 +2134,98 @@ async def before_film_tweet():
 
 
 # ══════════════════════════════════════════════
+# INVESTMENT ALERTS (check every 30 minutes)
+# ══════════════════════════════════════════════
+@tasks.loop(minutes=30)
+async def investment_alerts():
+    """Check portfolio stocks and alert users on big price moves."""
+    try:
+        alert_users = await asyncio.to_thread(get_all_alert_users)
+        if not alert_users:
+            return
+
+        for alert in alert_users:
+            try:
+                user_id = alert["user_id"]
+                channel_id = alert.get("channel_id")
+                threshold = alert.get("threshold_pct", 5.0)
+
+                holdings = await asyncio.to_thread(get_portfolio, user_id)
+                if not holdings:
+                    continue
+
+                last_prices = await asyncio.to_thread(get_last_prices, user_id)
+                current_prices = {}
+                alerts_to_send = []
+
+                for h in holdings:
+                    ticker = h["ticker"]
+                    try:
+                        stock_data = await asyncio.to_thread(get_stock_price, ticker)
+                        if not stock_data or "couldn't find" in stock_data:
+                            continue
+
+                        # Parse price from formatted string
+                        import re
+                        price_match = re.search(r'Price:\s*([\d,]+\.?\d*)', stock_data)
+                        if not price_match:
+                            continue
+
+                        current_price = float(price_match.group(1).replace(",", ""))
+                        current_prices[ticker] = current_price
+
+                        # Compare with last known price
+                        last_price = last_prices.get(ticker)
+                        if last_price and last_price > 0:
+                            change_pct = ((current_price - last_price) / last_price) * 100
+
+                            if abs(change_pct) >= threshold:
+                                direction = "📈" if change_pct > 0 else "📉"
+                                sign = "+" if change_pct > 0 else ""
+                                alerts_to_send.append(
+                                    f"{direction} **{ticker}**: {sign}{change_pct:.1f}% "
+                                    f"(was {last_price:,.2f} → now {current_price:,.2f})"
+                                )
+
+                    except Exception as e:
+                        logger.warning(f"Alert check failed for {ticker}: {e}")
+                        continue
+
+                # Save current prices for next comparison
+                if current_prices:
+                    await asyncio.to_thread(save_last_prices, user_id, current_prices)
+
+                # Send alerts
+                if alerts_to_send and channel_id:
+                    try:
+                        channel = bot.get_channel(int(channel_id))
+                        if channel:
+                            alert_msg = (
+                                f"🔔 **Investment Alert** <@{user_id}>\n\n"
+                                + "\n".join(alerts_to_send)
+                                + f"\n\n_Threshold: {threshold}% | Update with `!setalert <pct>`_"
+                            )
+                            await channel.send(alert_msg)
+                            logger.info(f"Investment alert sent to {user_id}: {len(alerts_to_send)} alerts")
+                    except Exception as e:
+                        logger.warning(f"Couldn't send alert to channel {channel_id}: {e}")
+
+                # Brief delay between users
+                await asyncio.sleep(3)
+
+            except Exception as e:
+                logger.error(f"Investment alert error for {alert.get('user_id')}: {e}")
+
+    except Exception as e:
+        logger.error(f"Investment alerts task error: {e}")
+
+
+@investment_alerts.before_loop
+async def before_investment_alerts():
+    await bot.wait_until_ready()
+
+
+# ══════════════════════════════════════════════
 # WEEKLY MUSIC RECOMMENDATIONS (every Monday)
 # ══════════════════════════════════════════════
 @tasks.loop(minutes=1)
@@ -2283,11 +2394,13 @@ async def cmd_help(ctx):
 
 **🎂 Dates:** `!birthday <name> <date>` · `!anniversary <name> <date>` · `!birthdays`
 
-**🎙️ Settings:** `!voicemode` · `!reset` · `!forget` · `!setfinance` · `!setmusic` · `!help`
+**🎙️ Settings:** `!voicemode` · `!voicechat` · `!setpersona` · `!reset` · `!forget` · `!setfinance` · `!setmusic` · `!help`
 
 **🐦 Twitter:** `!tweet <text>` · `!emilytweet <topic>`
 
 **💻 Code:** `!review <code or file>` · `!explain <code or file>`
+
+**🔔 Alerts:** `!setalert 5` · `!stopalert`
 
 _Or just @ mention me to chat!_ 😊"""
 
@@ -3624,6 +3737,125 @@ async def cmd_setmusic(ctx):
     await ctx.reply("✅ Monday music will be posted **here** every Monday at 9am EAT! 🎵")
 
 
+# ══════════════════════════════════════════════
+# CUSTOM SERVER PERSONA
+# ══════════════════════════════════════════════
+@bot.command(name="setpersona")
+async def cmd_setpersona(ctx, *, persona: str = ""):
+    """Set Emily's personality for this server. Usage: !setpersona professional | !setpersona <custom text>"""
+    if not ctx.guild:
+        await ctx.reply("This only works in a server!")
+        return
+
+    # Check if user has manage server permission
+    if not ctx.author.guild_permissions.manage_guild:
+        await ctx.reply("You need **Manage Server** permission to change my personality!")
+        return
+
+    if not persona:
+        current = get_server_persona(str(ctx.guild.id))
+        presets = ", ".join(f"`{p}`" for p in PERSONA_PRESETS.keys())
+        if current:
+            await ctx.reply(
+                f"🎭 Current persona: *{current[:100]}...*\n\n"
+                f"**Presets:** {presets}\n"
+                f"**Custom:** `!setpersona Be extra sarcastic and reference memes`\n"
+                f"**Reset:** `!setpersona default`"
+            )
+        else:
+            await ctx.reply(
+                f"🎭 I'm using my default personality here.\n\n"
+                f"**Presets:** {presets}\n"
+                f"**Custom:** `!setpersona Be extra sarcastic and reference memes`\n"
+                f"Example: `!setpersona professional`"
+            )
+        return
+
+    persona_lower = persona.lower().strip()
+
+    # Check for presets
+    if persona_lower in PERSONA_PRESETS:
+        if persona_lower == "default":
+            set_server_persona(str(ctx.guild.id), None)
+            await ctx.reply("🎭 Reset to **default Emily**! Back to my usual self, manze.")
+        else:
+            preset_text = PERSONA_PRESETS[persona_lower]
+            set_server_persona(str(ctx.guild.id), preset_text)
+            await ctx.reply(f"🎭 Persona set to **{persona_lower}**!\n*{preset_text}*")
+    else:
+        # Custom persona text
+        if len(persona) > 500:
+            await ctx.reply("That's too long! Keep the persona description under 500 characters.")
+            return
+        set_server_persona(str(ctx.guild.id), persona)
+        await ctx.reply(f"🎭 Custom persona set!\n*{persona}*\n\nI'll adapt my style here accordingly.")
+
+
+# ══════════════════════════════════════════════
+# INVESTMENT ALERTS
+# ══════════════════════════════════════════════
+@bot.command(name="setalert")
+async def cmd_setalert(ctx, threshold: str = "5"):
+    """Set investment alerts. Usage: !setalert 5 (alerts when stock moves 5%+)"""
+    try:
+        pct = float(threshold.replace("%", "").strip())
+        if pct <= 0 or pct > 50:
+            await ctx.reply("Threshold should be between 1% and 50%. Try: `!setalert 5`")
+            return
+
+        holdings = get_portfolio(str(ctx.author.id))
+        if not holdings:
+            await ctx.reply("You don't have any stocks in your portfolio yet! Add some with `!buy SCOM 100 25`")
+            return
+
+        if set_alert_settings(str(ctx.author.id), str(ctx.channel.id), pct, True):
+            tickers = ", ".join([h["ticker"] for h in holdings])
+            await ctx.reply(
+                f"🔔 **Investment alerts ON!**\n\n"
+                f"I'll check your portfolio every 30 minutes and alert you here when any stock moves **{pct}%+**.\n"
+                f"**Tracking:** {tickers}\n\n"
+                f"_Turn off with `!stopalert`_"
+            )
+        else:
+            await ctx.reply("Couldn't set alerts. Try again?")
+    except ValueError:
+        await ctx.reply("Invalid threshold. Try: `!setalert 5` (for 5% moves)")
+
+
+@bot.command(name="stopalert")
+async def cmd_stopalert(ctx):
+    """Turn off investment alerts."""
+    if set_alert_settings(str(ctx.author.id), str(ctx.channel.id), 5.0, False):
+        await ctx.reply("🔕 Investment alerts **OFF**.")
+    else:
+        await ctx.reply("No alerts to turn off!")
+
+
+# ══════════════════════════════════════════════
+# VOICE CHAT CHANNEL
+# ══════════════════════════════════════════════
+@bot.command(name="voicechat")
+async def cmd_voicechat(ctx):
+    """Toggle voice chat mode for this channel. Emily always replies with voice here."""
+    if not ctx.guild:
+        await ctx.reply("This only works in a server!")
+        return
+
+    currently_on = is_voice_chat_channel(str(ctx.guild.id), str(ctx.channel.id))
+
+    if currently_on:
+        set_voice_chat_channel(str(ctx.guild.id), str(ctx.channel.id), enabled=False)
+        await ctx.reply("🔇 Voice chat mode **OFF** for this channel. I'll reply with text here now.")
+    else:
+        set_voice_chat_channel(str(ctx.guild.id), str(ctx.channel.id), enabled=True)
+        await ctx.reply(
+            "🎙️ Voice chat mode **ON** for this channel!\n\n"
+            "I'll always reply with voice notes here — like we're having a real conversation. "
+            "Text version included for long replies.\n"
+            "Say `!voicechat` again to turn off."
+        )
+
+
 @bot.command(name="mytaste")
 async def cmd_mytaste(ctx, *, artists_text: str = ""):
     """Save your favorite artists for weekly recommendations. Usage: !mytaste Royal Blood, Muse, Arctic Monkeys"""
@@ -4244,6 +4476,11 @@ async def on_message(message):
                     except (ValueError, IndexError):
                         pass
 
+            # ─── VOICE CHAT CHANNEL CHECK ───
+            is_voice_channel = False
+            if message.guild:
+                is_voice_channel = is_voice_chat_channel(str(message.guild.id), str(message.channel.id))
+
             # ─── STOCK AUTO-DETECT ───
             if clean_msg:
                 detected_ticker = _detect_stock_query(clean_msg)
@@ -4251,7 +4488,7 @@ async def on_message(message):
                     stock_data = await asyncio.to_thread(get_stock_price, detected_ticker)
                     if stock_data and "couldn't find" not in stock_data:
                         full_response = "Sawa, let me pull that up!\n\n" + stock_data
-                        if is_voice_input or wants_voice_reply or user_id in _voice_mode_users:
+                        if is_voice_input or wants_voice_reply or user_id in _voice_mode_users or is_voice_channel:
                             if not await send_voice_reply(message, full_response):
                                 await send_chunked_reply(message, full_response)
                         else:
@@ -4272,11 +4509,12 @@ async def on_message(message):
             history.append({"role": "user", "parts": user_parts})
 
             response_text, source_links = await get_ai_response(
-                history, user_id, chosen_model, route_reason
+                history, user_id, chosen_model, route_reason,
+                guild_id=str(message.guild.id) if message.guild else None
             )
             full_response = response_text + source_links
 
-            if is_voice_input or wants_voice_reply or user_id in _voice_mode_users:
+            if is_voice_input or wants_voice_reply or user_id in _voice_mode_users or is_voice_channel:
                 # Send voice note + text fallback
                 voice_sent = await send_voice_reply(message, response_text)
                 if not voice_sent:

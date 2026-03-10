@@ -627,3 +627,161 @@ def get_news_servers():
     except PyMongoError as e:
         logger.error(f"News servers fetch error: {e}")
         return []
+
+
+# ══════════════════════════════════════════════
+# CUSTOM SERVER PERSONA
+# ══════════════════════════════════════════════
+PERSONA_PRESETS = {
+    "default": None,  # Standard Emily
+    "professional": "Speak in a more professional, formal tone. Less slang, more business-like. Still warm but corporate-appropriate.",
+    "casual": "Be extra casual and relaxed. More slang, more jokes, super chill vibes.",
+    "sarcastic": "Be witty and sarcastic (but never mean). Dry humor, clever comebacks, playful roasts.",
+    "mentor": "Be a supportive mentor. Focus on teaching, encouraging growth, and giving detailed explanations. Patient and nurturing.",
+    "hype": "Be extremely enthusiastic and hype! Lots of energy, exclamation marks, motivational vibes. Like a best friend who's always cheering you on.",
+    "techbro": "Speak like a Nairobi tech scene insider. Reference startups, Silicon Savannah, iHub, Konza City, tech Twitter. Mix tech jargon with Sheng.",
+}
+
+
+def set_server_persona(guild_id, persona_text):
+    """Set a custom persona modifier for a server."""
+    return update_server_setting(guild_id, "custom_persona", persona_text)
+
+
+def get_server_persona(guild_id):
+    """Get the custom persona for a server."""
+    if server_settings_col is None:
+        return None
+    try:
+        doc = server_settings_col.find_one({"guild_id": str(guild_id)})
+        return doc.get("custom_persona") if doc else None
+    except PyMongoError as e:
+        logger.error(f"Get server persona error: {e}")
+        return None
+
+
+# ══════════════════════════════════════════════
+# INVESTMENT ALERTS
+# ══════════════════════════════════════════════
+def set_alert_settings(user_id, channel_id, threshold_pct=5.0, enabled=True):
+    """Set investment alert preferences for a user."""
+    if db is None:
+        return False
+    try:
+        db["investment_alerts"].update_one(
+            {"user_id": str(user_id)},
+            {"$set": {
+                "user_id": str(user_id),
+                "channel_id": str(channel_id),
+                "threshold_pct": float(threshold_pct),
+                "enabled": enabled,
+                "updated_at": _now(),
+            }},
+            upsert=True,
+        )
+        return True
+    except PyMongoError as e:
+        logger.error(f"Set alert error: {e}")
+        return False
+
+
+def get_alert_settings(user_id):
+    """Get a user's alert settings."""
+    if db is None:
+        return None
+    try:
+        return db["investment_alerts"].find_one({"user_id": str(user_id)})
+    except PyMongoError as e:
+        logger.error(f"Get alert error: {e}")
+        return None
+
+
+def get_all_alert_users():
+    """Get all users with alerts enabled."""
+    if db is None:
+        return []
+    try:
+        return list(db["investment_alerts"].find({"enabled": True}))
+    except PyMongoError as e:
+        logger.error(f"Get all alerts error: {e}")
+        return []
+
+
+def save_last_prices(user_id, prices):
+    """Save last known prices for a user's portfolio (for change detection)."""
+    if db is None:
+        return False
+    try:
+        db["investment_alerts"].update_one(
+            {"user_id": str(user_id)},
+            {"$set": {"last_prices": prices, "last_check": _now()}},
+        )
+        return True
+    except PyMongoError as e:
+        logger.error(f"Save prices error: {e}")
+        return False
+
+
+def get_last_prices(user_id):
+    """Get last saved prices for a user."""
+    if db is None:
+        return {}
+    try:
+        doc = db["investment_alerts"].find_one({"user_id": str(user_id)})
+        return doc.get("last_prices", {}) if doc else {}
+    except PyMongoError as e:
+        logger.error(f"Get last prices error: {e}")
+        return {}
+
+
+def get_all_users_with_portfolios():
+    """Get all user IDs that have portfolio holdings."""
+    if portfolio_col is None:
+        return []
+    try:
+        return portfolio_col.distinct("user_id")
+    except PyMongoError as e:
+        logger.error(f"Get portfolio users error: {e}")
+        return []
+
+
+# ══════════════════════════════════════════════
+# VOICE CHAT MODE (per channel)
+# ══════════════════════════════════════════════
+def set_voice_chat_channel(guild_id, channel_id, enabled=True):
+    """Set a channel as a voice-chat channel where Emily always replies with voice."""
+    if server_settings_col is None:
+        return False
+    try:
+        # Store as a list of voice chat channels per guild
+        if enabled:
+            server_settings_col.update_one(
+                {"guild_id": str(guild_id)},
+                {"$addToSet": {"voice_chat_channels": str(channel_id)},
+                 "$set": {"updated_at": _now()}},
+                upsert=True,
+            )
+        else:
+            server_settings_col.update_one(
+                {"guild_id": str(guild_id)},
+                {"$pull": {"voice_chat_channels": str(channel_id)}},
+            )
+        return True
+    except PyMongoError as e:
+        logger.error(f"Set voice chat channel error: {e}")
+        return False
+
+
+def is_voice_chat_channel(guild_id, channel_id):
+    """Check if a channel is set as a voice-chat channel."""
+    if server_settings_col is None:
+        return False
+    try:
+        doc = server_settings_col.find_one({"guild_id": str(guild_id)})
+        if doc:
+            channels = doc.get("voice_chat_channels", [])
+            return str(channel_id) in channels
+        return False
+    except PyMongoError as e:
+        logger.error(f"Check voice chat channel error: {e}")
+        return False
