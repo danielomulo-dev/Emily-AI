@@ -2287,6 +2287,8 @@ async def cmd_help(ctx):
 
 **🐦 Twitter:** `!tweet <text>` · `!emilytweet <topic>`
 
+**💻 Code:** `!review <code or file>` · `!explain <code or file>`
+
 _Or just @ mention me to chat!_ 😊"""
 
     await ctx.send(page1)
@@ -3691,6 +3693,188 @@ async def cmd_myrec(ctx):
             return
 
         await send_chunked_reply(ctx.message, format_weekly_recommendations(result))
+
+
+# ══════════════════════════════════════════════
+# CODE REVIEW
+# ══════════════════════════════════════════════
+CODE_REVIEW_PROMPT = (
+    f"{EMILY_MINI_PERSONA} You are also an expert code reviewer. "
+    "Review the following code and provide:\n"
+    "1. **Overview** — What the code does (1-2 sentences)\n"
+    "2. **Issues** — Bugs, security risks, or logic errors (if any)\n"
+    "3. **Improvements** — Performance, readability, best practices\n"
+    "4. **Rating** — Score out of 10 with a short verdict\n\n"
+    "Be specific — reference line numbers or function names. "
+    "Be honest but constructive. Use Emily's personality — direct, opinionated, helpful. "
+    "If the code is good, say so! Don't invent problems that don't exist."
+)
+
+
+@bot.command(name="review")
+async def cmd_review(ctx, *, code: str = ""):
+    """Review code. Paste code or attach a file. Usage: !review <code> or !review + attachment"""
+    code_to_review = code.strip()
+    filename = ""
+
+    # Check for file attachments
+    if ctx.message.attachments:
+        attachment = ctx.message.attachments[0]
+
+        # Check file size (max 100KB for code review)
+        if attachment.size > 100_000:
+            await ctx.reply("That file is too large for review. Keep it under 100KB, manze!")
+            return
+
+        try:
+            file_bytes = await attachment.read()
+            file_text = file_bytes.decode("utf-8", errors="replace")
+            filename = attachment.filename
+            code_to_review = file_text
+        except Exception as e:
+            await ctx.reply(f"Couldn't read that file: {e}")
+            return
+
+    # Strip markdown code blocks if pasted
+    if code_to_review.startswith("```") and code_to_review.endswith("```"):
+        # Remove opening ```language and closing ```
+        lines = code_to_review.split("\n")
+        if lines[0].startswith("```"):
+            lines = lines[1:]
+        if lines and lines[-1].strip() == "```":
+            lines = lines[:-1]
+        code_to_review = "\n".join(lines)
+
+    if not code_to_review:
+        await ctx.reply(
+            "Give me something to review!\n\n"
+            "**Option 1 — Paste code:**\n"
+            "```\n!review\n"
+            "def hello():\n"
+            "    print('hello')\n```\n\n"
+            "**Option 2 — Attach a file:**\n"
+            "Upload a `.py`, `.js`, `.ts`, or any code file with the message `!review`"
+        )
+        return
+
+    # Truncate very long code
+    if len(code_to_review) > 15000:
+        code_to_review = code_to_review[:15000] + "\n\n... (truncated — file too long for full review)"
+
+    async with ctx.typing():
+        try:
+            file_context = f"\n\nFilename: {filename}" if filename else ""
+            response = await asyncio.wait_for(
+                claude_client.messages.create(
+                    model=MODEL_CLAUDE,
+                    max_tokens=2000,
+                    messages=[{
+                        "role": "user",
+                        "content": f"{CODE_REVIEW_PROMPT}\n\n---\n{file_context}\n```\n{code_to_review}\n```"
+                    }],
+                ),
+                timeout=60,
+            )
+
+            review_text = ""
+            for block in response.content:
+                if block.type == "text":
+                    review_text += block.text
+
+            if not review_text:
+                await ctx.reply("Eish, couldn't generate a review. Try again?")
+                return
+
+            header = f"📝 **Code Review"
+            if filename:
+                header += f" — `{filename}`"
+            header += "**\n\n"
+
+            await send_chunked_reply(ctx.message, header + review_text)
+
+        except asyncio.TimeoutError:
+            await ctx.reply("Review timed out — the code might be too complex. Try a smaller chunk?")
+        except Exception as e:
+            logger.error(f"Code review error: {e}")
+            await ctx.reply("Something went wrong with the review. Try again?")
+
+
+@bot.command(name="explain")
+async def cmd_explain(ctx, *, code: str = ""):
+    """Explain what code does in simple terms. Usage: !explain <code> or !explain + attachment"""
+    code_to_explain = code.strip()
+    filename = ""
+
+    if ctx.message.attachments:
+        attachment = ctx.message.attachments[0]
+        if attachment.size > 100_000:
+            await ctx.reply("File too large. Keep it under 100KB!")
+            return
+        try:
+            file_bytes = await attachment.read()
+            file_text = file_bytes.decode("utf-8", errors="replace")
+            filename = attachment.filename
+            code_to_explain = file_text
+        except Exception as e:
+            await ctx.reply(f"Couldn't read that file: {e}")
+            return
+
+    if code_to_explain.startswith("```") and code_to_explain.endswith("```"):
+        lines = code_to_explain.split("\n")
+        if lines[0].startswith("```"):
+            lines = lines[1:]
+        if lines and lines[-1].strip() == "```":
+            lines = lines[:-1]
+        code_to_explain = "\n".join(lines)
+
+    if not code_to_explain:
+        await ctx.reply("Give me code to explain! Paste it after `!explain` or attach a file.")
+        return
+
+    if len(code_to_explain) > 15000:
+        code_to_explain = code_to_explain[:15000] + "\n\n... (truncated)"
+
+    async with ctx.typing():
+        try:
+            explain_prompt = (
+                f"{EMILY_MINI_PERSONA} Explain this code in simple, clear terms. "
+                "Break it down: what it does, how it works, and any key concepts someone should know. "
+                "Use analogies if helpful. Be concise but thorough."
+            )
+            file_context = f"\n\nFilename: {filename}" if filename else ""
+            response = await asyncio.wait_for(
+                claude_client.messages.create(
+                    model=MODEL_CLAUDE,
+                    max_tokens=1500,
+                    messages=[{
+                        "role": "user",
+                        "content": f"{explain_prompt}\n\n---\n{file_context}\n```\n{code_to_explain}\n```"
+                    }],
+                ),
+                timeout=60,
+            )
+
+            explain_text = ""
+            for block in response.content:
+                if block.type == "text":
+                    explain_text += block.text
+
+            if not explain_text:
+                await ctx.reply("Couldn't generate an explanation. Try again?")
+                return
+
+            header = f"💡 **Code Explanation"
+            if filename:
+                header += f" — `{filename}`"
+            header += "**\n\n"
+
+            await send_chunked_reply(ctx.message, header + explain_text)
+
+        except asyncio.TimeoutError:
+            await ctx.reply("Timed out — try a smaller chunk of code?")
+        except Exception as e:
+            logger.error(f"Code explain error: {e}")
+            await ctx.reply("Something went wrong. Try again?")
 
 
 # ══════════════════════════════════════════════
