@@ -785,3 +785,45 @@ def is_voice_chat_channel(guild_id, channel_id):
     except PyMongoError as e:
         logger.error(f"Check voice chat channel error: {e}")
         return False
+
+
+# ══════════════════════════════════════════════
+# NEWS DEDUPLICATION
+# ══════════════════════════════════════════════
+def save_sent_news(guild_id, urls):
+    """Save URLs of news articles that were sent to a server."""
+    if db is None:
+        return
+    try:
+        now = _now()
+        for url in urls:
+            db["sent_news"].update_one(
+                {"guild_id": str(guild_id), "url": url},
+                {"$set": {
+                    "guild_id": str(guild_id),
+                    "url": url,
+                    "sent_at": now,
+                }},
+                upsert=True,
+            )
+        # Clean up articles older than 7 days
+        cutoff = now - timedelta(days=7)
+        db["sent_news"].delete_many({"sent_at": {"$lt": cutoff}})
+    except PyMongoError as e:
+        logger.error(f"Save sent news error: {e}")
+
+
+def get_sent_news_urls(guild_id, days=3):
+    """Get URLs of articles sent in the last N days."""
+    if db is None:
+        return set()
+    try:
+        cutoff = _now() - timedelta(days=days)
+        docs = db["sent_news"].find({
+            "guild_id": str(guild_id),
+            "sent_at": {"$gte": cutoff},
+        })
+        return {doc["url"] for doc in docs}
+    except PyMongoError as e:
+        logger.error(f"Get sent news error: {e}")
+        return set()

@@ -14,23 +14,64 @@ DEFAULT_MAX_CHARS = 3000
 RESEARCH_MAX_CHARS = 15000
 
 # --- NEWS SEARCH ---
-def get_latest_news(topic, max_results=5):
+def get_latest_news(topic, max_results=5, exclude_urls=None):
     try:
         logger.info(f"Fetching news for: {topic}")
+        exclude = exclude_urls or set()
+
         with DDGS() as ddgs:
-            results = list(ddgs.news(keywords=topic, region="wt-wt", safesearch="moderate", max_results=max_results))
-            if not results: return None
-            news_summary = f"📰 **Latest News: {topic}**\n"
+            # Fetch extra results to account for filtered duplicates
+            fetch_count = max_results + len(exclude) if exclude else max_results
+            results = list(ddgs.news(keywords=topic, region="wt-wt", safesearch="moderate", max_results=min(fetch_count, 15)))
+            if not results: return None, []
+
+            # Filter out already-sent articles
+            fresh_results = []
             for r in results:
+                url = r.get('url', '')
+                title = r.get('title', '').lower()
+
+                # Skip if URL was already sent
+                if url in exclude:
+                    continue
+
+                # Skip if title is very similar to one already included
+                is_dupe_title = False
+                for fr in fresh_results:
+                    existing_title = fr.get('title', '').lower()
+                    # Simple word overlap check
+                    existing_words = set(existing_title.split())
+                    new_words = set(title.split())
+                    if existing_words and new_words:
+                        overlap = len(existing_words & new_words) / max(len(existing_words), len(new_words))
+                        if overlap > 0.6:
+                            is_dupe_title = True
+                            break
+
+                if not is_dupe_title:
+                    fresh_results.append(r)
+
+                if len(fresh_results) >= max_results:
+                    break
+
+            if not fresh_results:
+                return None, []
+
+            sent_urls = []
+            news_summary = f"📰 **Latest News: {topic}**\n"
+            for r in fresh_results:
                 title = r.get('title', 'No Title')
                 source = r.get('source', 'Unknown')
                 date = r.get('date', '')
                 url = r.get('url', '#')
                 news_summary += f"• [{title}]({url}) - *{source}* ({date})\n"
-            return news_summary
+                if url and url != '#':
+                    sent_urls.append(url)
+
+            return news_summary, sent_urls
     except Exception as e:
         logger.error(f"News search error: {e}")
-        return None
+        return None, []
 
 # --- WEB SEARCH ---
 def get_search_results(query, max_results=3):

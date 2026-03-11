@@ -40,6 +40,7 @@ from tracker_tools import (
     set_alert_settings, get_alert_settings, get_all_alert_users,
     save_last_prices, get_last_prices, get_all_users_with_portfolios,
     set_voice_chat_channel, is_voice_chat_channel,
+    save_sent_news, get_sent_news_urls,
 )
 from utility_tools import (
     convert_currency, format_currency_result,
@@ -1367,13 +1368,20 @@ async def daily_news_briefing():
             if not channel:
                 continue
 
-            # Fetch news
+            # Fetch news with dedup
+            guild_id = server["guild_id"]
             topics = server.get("news_topics", ["Kenya", "business", "technology"])
+            already_sent = get_sent_news_urls(guild_id, days=3)
+
             news_parts = []
+            all_new_urls = []
             for topic in topics[:3]:
-                news = get_latest_news(topic, max_results=3)
+                news, sent_urls = get_latest_news(topic, max_results=3, exclude_urls=already_sent)
                 if news:
                     news_parts.append(news)
+                    all_new_urls.extend(sent_urls)
+                    # Add to exclude set so cross-topic dupes are caught too
+                    already_sent.update(sent_urls)
 
             if news_parts:
                 briefing = "☀️ **Good Morning! Here's your daily briefing:**\n\n" + "\n".join(news_parts)
@@ -1381,6 +1389,10 @@ async def daily_news_briefing():
                 if len(briefing) > 2000:
                     briefing = briefing[:1997] + "..."
                 await channel.send(briefing)
+
+                # Save sent URLs for future dedup
+                if all_new_urls:
+                    save_sent_news(guild_id, all_new_urls)
 
                 # Mark as posted
                 update_server_setting(server["guild_id"], "last_news_date", today)
@@ -2665,7 +2677,7 @@ async def cmd_reminders(ctx):
 async def cmd_news(ctx):
     """Get latest news now."""
     async with ctx.typing():
-        news = get_latest_news("Kenya", max_results=5)
+        news, _ = get_latest_news("Kenya", max_results=5)
         if news:
             await ctx.send(news)
         else:
