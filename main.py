@@ -1173,8 +1173,21 @@ IMPORTANT:
                 final_text, source_links = await _get_gemini_response(conversation_history, emily_prompt)
             else:
                 final_text, source_links = await _get_claude_response(conversation_history, emily_prompt)
+
+            # ─── FALLBACK: If primary returned empty text, try the other model ───
+            if not final_text or not final_text.strip():
+                fallback = "claude" if chosen_model == "gemini" else "gemini"
+                logger.warning(f"{chosen_model.upper()} returned empty response, falling back to {fallback.upper()}")
+                try:
+                    if fallback == "gemini":
+                        final_text, source_links = await _get_gemini_response(conversation_history, emily_prompt)
+                    else:
+                        final_text, source_links = await _get_claude_response(conversation_history, emily_prompt)
+                except Exception as fallback_error:
+                    logger.error(f"Fallback {fallback} also failed: {fallback_error}")
+
         except Exception as primary_error:
-            # ─── FALLBACK TO OTHER MODEL ───
+            # ─── FALLBACK TO OTHER MODEL (on exception) ───
             fallback = "claude" if chosen_model == "gemini" else "gemini"
             logger.warning(f"{chosen_model.upper()} failed ({primary_error}), falling back to {fallback.upper()}")
             try:
@@ -1187,8 +1200,9 @@ IMPORTANT:
                 return "Manze, both my brains are jammed right now. Try again in a sec?", ""
 
         # ─── GUARD: Ensure final_text is never None ───
-        if not final_text:
-            final_text = "Hmm, I had a thought but it came out blank. Try again, manze?"
+        if not final_text or not final_text.strip():
+            logger.error(f"Both models returned empty text for user {user_id}")
+            final_text = "Manze, both my brains drew a blank on that one. Can you rephrase or try again?"
 
         # ─── MEMORY EXTRACTION (always via Gemini — it has JSON mode) ───
         if "[MEMORY SAVED]" in final_text:
