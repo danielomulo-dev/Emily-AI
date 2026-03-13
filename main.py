@@ -996,7 +996,7 @@ async def _get_gemini_response(conversation_history, emily_prompt):
         )
     )
 
-    return response.text, _extract_sources(response)
+    return response.text or "", _extract_sources(response)
 
 
 # ══════════════════════════════════════════════
@@ -1185,6 +1185,10 @@ IMPORTANT:
             except Exception as fallback_error:
                 logger.error(f"Both models failed. Primary: {primary_error}, Fallback: {fallback_error}")
                 return "Manze, both my brains are jammed right now. Try again in a sec?", ""
+
+        # ─── GUARD: Ensure final_text is never None ───
+        if not final_text:
+            final_text = "Hmm, I had a thought but it came out blank. Try again, manze?"
 
         # ─── MEMORY EXTRACTION (always via Gemini — it has JSON mode) ───
         if "[MEMORY SAVED]" in final_text:
