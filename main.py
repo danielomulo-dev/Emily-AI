@@ -25,7 +25,7 @@ import anthropic
 # Tool Imports
 from memory import get_user_profile, update_user_fact, set_voice_mode, add_message_to_history, get_chat_history
 from image_tools import get_media_link
-from web_tools import search_video_link, extract_text_from_url, get_latest_news
+from web_tools import search_video_link, extract_text_from_url, get_latest_news, get_search_results
 from finance_tools import get_stock_price
 from voice_tools import generate_voice_note, cleanup_voice_file
 from tracker_tools import (
@@ -2095,6 +2095,23 @@ async def film_tweet():
         # Get a random film prompt and have Claude generate the tweet
         prompt = get_film_tweet_prompt()
 
+        # Search for current film news to keep tweets relevant
+        search_context = ""
+        try:
+            search_results = await asyncio.to_thread(
+                get_search_results, "trending movies 2026 new releases box office", 2
+            )
+            if search_results:
+                content = await asyncio.to_thread(extract_text_from_url, search_results[0], 800)
+                if content:
+                    search_context = (
+                        f"\n\nHere is CURRENT film news for context:\n{content}\n\n"
+                        "You can reference this current info if relevant to your tweet, "
+                        "but you don't have to. Feel free to tweet about any film topic."
+                    )
+        except Exception as e:
+            logger.warning(f"Film tweet search failed: {e}")
+
         try:
             response = await asyncio.wait_for(
                 claude_client.messages.create(
@@ -2105,7 +2122,8 @@ async def film_tweet():
                         f"{prompt} "
                         f"Write ONLY the tweet text, max 260 characters. "
                         f"Be punchy, opinionated, and authentic. Use 1-2 relevant hashtags. "
-                        f"Don't use quotes around it. No preamble."
+                        f"Don't use quotes around it. No preamble. "
+                        f"Do NOT tweet about Nairobi traffic.{search_context}"
                     )}],
                 ),
                 timeout=API_TIMEOUT_SECONDS,
@@ -4171,10 +4189,58 @@ async def cmd_emilytweet(ctx, *, topic: str = "random"):
         return
 
     async with ctx.typing():
+        # ── RANDOM TOPIC: Pick from diverse categories ──
+        if topic.lower() == "random":
+            import random as _rnd
+            random_topics = [
+                "a hot take on a trending movie or TV show",
+                "a financial tip for young Kenyans",
+                "an opinion about a popular song or music artist",
+                "a funny observation about Nairobi dating culture",
+                "a motivational thought about hustle and entrepreneurship in Kenya",
+                "a food opinion — Kenyan cuisine vs international",
+                "a take on current tech trends or social media",
+                "a relatable Monday morning or Friday evening vibe",
+                "an unpopular opinion about something everyone loves",
+                "a book or podcast recommendation with a reason",
+                "a gym, fitness, or self-care observation",
+                "a funny take on WhatsApp group culture in Kenya",
+                "a thought about saving vs spending in your 20s and 30s",
+                "a hot take about a football match or sports moment",
+                "a comparison between Nairobi neighborhoods and their vibes",
+                "advice for someone starting their career in Kenya",
+            ]
+            topic = _rnd.choice(random_topics)
+
+        # ── SEARCH FOR CURRENT INFO on specific topics ──
+        search_context = ""
+        topic_lower = topic.lower()
+        needs_search = any(kw in topic_lower for kw in [
+            "manutd", "man u", "arsenal", "chelsea", "liverpool", "football",
+            "match", "game", "score", "transfer", "premier league",
+            "trending", "news", "latest", "today", "current", "recent",
+            "crypto", "bitcoin", "stock", "market", "election",
+        ])
+
+        if needs_search:
+            try:
+                search_results = await asyncio.to_thread(get_search_results, topic, 3)
+                if search_results:
+                    # Fetch first result for context
+                    first_url = search_results[0]
+                    content = await asyncio.to_thread(extract_text_from_url, first_url, 1000)
+                    if content:
+                        search_context = f"\n\nHere is CURRENT information to base your tweet on (from today's search):\n{content}\n\nIMPORTANT: Use ONLY this current information. Do NOT use outdated facts."
+                        logger.info(f"Tweet search context loaded from: {first_url}")
+            except Exception as e:
+                logger.warning(f"Tweet search failed: {e}")
+
         prompt = (
             f"{EMILY_MINI_PERSONA} Write a single tweet (max 270 characters) about: {topic}. "
             f"Make it punchy, insightful, and add 2-3 relevant hashtags. "
-            f"Don't use quotes around it. Just the tweet text."
+            f"Don't use quotes around it. Just the tweet text. "
+            f"IMPORTANT: Do NOT tweet about Nairobi traffic unless specifically asked about traffic. "
+            f"Be creative and varied — surprise people.{search_context}"
         )
 
         try:
