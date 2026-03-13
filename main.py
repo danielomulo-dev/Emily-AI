@@ -94,6 +94,13 @@ from twitter_tools import (
     is_configured as twitter_configured,
     is_film_tweet_day, get_film_tweet_time, get_film_tweet_prompt,
 )
+from messaging_tools import (
+    send_sms, send_sms_batch, send_whatsapp,
+    add_contact, remove_contact, remove_contact_by_name,
+    get_contacts, format_contacts,
+    is_configured as messaging_configured,
+    get_reminder_log, log_reminder_sent,
+)
 
 load_dotenv()
 logging.basicConfig(level=logging.INFO)
@@ -1306,6 +1313,8 @@ async def on_ready():
         film_tweet.start()
     if not investment_alerts.is_running():
         investment_alerts.start()
+    if not watchparty_sms_reminders.is_running():
+        watchparty_sms_reminders.start()
     if not weekly_playlist_recs.is_running():
         weekly_playlist_recs.start()
 
@@ -2274,6 +2283,113 @@ async def before_investment_alerts():
 
 
 # ══════════════════════════════════════════════
+# WATCHPARTY SMS REMINDERS (4 days before)
+# ══════════════════════════════════════════════
+@tasks.loop(hours=6)
+async def watchparty_sms_reminders():
+    """Check for upcoming watch parties and send SMS reminders 4 days before."""
+    try:
+        if not messaging_configured():
+            return
+
+        # Check all guilds for upcoming watch parties
+        for guild in bot.guilds:
+            guild_id = str(guild.id)
+
+            next_wp = get_next_watchparty(guild_id)
+            if not next_wp:
+                continue
+
+            wp_time = next_wp.get("time")
+            wp_title = next_wp.get("title", "Movie Night")
+            wp_id = str(next_wp.get("_id", ""))
+
+            if not wp_time:
+                continue
+
+            # Check if it's ~4 days away (between 3.5 and 4.5 days)
+            now = datetime.now(pytz.timezone('Africa/Nairobi'))
+            if hasattr(wp_time, 'tzinfo') and wp_time.tzinfo is None:
+                wp_time = pytz.timezone('Africa/Nairobi').localize(wp_time)
+
+            days_until = (wp_time - now).total_seconds() / 86400
+            if not (3.5 <= days_until <= 4.5):
+                continue
+
+            # Check if we already sent reminders for this party
+            if wp_id and get_reminder_log(guild_id, wp_id):
+                continue
+
+            contacts = get_contacts(guild_id)
+            if not contacts:
+                continue
+
+            # Search for trailer
+            trailer_link = ""
+            try:
+                trailer_link = await asyncio.to_thread(search_video_link, f"{wp_title} official trailer")
+            except Exception:
+                pass
+
+            # Generate and send unique reminders
+            wp_date = wp_time.strftime("%A, %b %d at %I:%M %p")
+            sent_count = 0
+
+            for contact in contacts:
+                name = contact.get("name", "Friend")
+                phone = contact.get("phone", "")
+                if not phone:
+                    continue
+
+                # Generate unique message via Claude
+                try:
+                    response = await asyncio.wait_for(
+                        claude_client.messages.create(
+                            model=MODEL_CLAUDE,
+                            max_tokens=150,
+                            messages=[{"role": "user", "content": (
+                                f"{EMILY_MINI_PERSONA} Write a short, fun SMS reminder (max 140 chars) to {name}. "
+                                f"Remind them that the watch party for '{wp_title}' is in 4 days on {wp_date}. "
+                                f"Make it personal — like texting a friend. No hashtags. Just the text."
+                            )}],
+                        ),
+                        timeout=15,
+                    )
+                    msg = ""
+                    for block in response.content:
+                        if block.type == "text":
+                            msg += block.text
+                    msg = msg.strip().strip('"')
+                except Exception:
+                    msg = f"Yo {name}! Reminder — {wp_title} watch party is in 4 days ({wp_date}). Mark your calendar, manze!"
+
+                if trailer_link:
+                    msg += f"\n\nTrailer: {trailer_link}"
+
+                success, _ = await asyncio.to_thread(send_sms, phone, msg)
+                if success:
+                    sent_count += 1
+                await asyncio.sleep(2)
+
+            # Log that reminders were sent
+            if wp_id and sent_count > 0:
+                log_reminder_sent(guild_id, wp_id)
+                logger.info(f"Watchparty reminders sent: {sent_count} contacts for '{wp_title}' in guild {guild_id}")
+
+    except Exception as e:
+        logger.error(f"Watchparty SMS reminder error: {e}")
+        try:
+            await notify_owner(bot, "Watchparty SMS Reminder", str(e))
+        except Exception:
+            pass
+
+
+@watchparty_sms_reminders.before_loop
+async def before_watchparty_sms_reminders():
+    await bot.wait_until_ready()
+
+
+# ══════════════════════════════════════════════
 # WEEKLY MUSIC RECOMMENDATIONS (every Monday)
 # ══════════════════════════════════════════════
 @tasks.loop(minutes=1)
@@ -2449,6 +2565,8 @@ async def cmd_help(ctx):
 **💻 Code:** `!review <code or file>` · `!explain <code or file>`
 
 **🔔 Alerts:** `!setalert 5` · `!stopalert`
+
+**📱 SMS:** `!addphone <n> <num>` · `!removephone <n>` · `!contacts` · `!notifywp <movie>`
 
 _Or just @ mention me to chat!_ 😊"""
 
@@ -3202,6 +3320,35 @@ async def cmd_watchparty(ctx, *, args: str = None):
                 f"**Host:** {ctx.author.display_name}\n\n"
                 f"Join with `!join` — Emily will ping everyone when it's time!"
             )
+
+            # Auto-send SMS notifications if contacts exist
+            if messaging_configured():
+                contacts = get_contacts(str(ctx.guild.id))
+                if contacts:
+                    trailer_link = ""
+                    try:
+                        trailer_link = await asyncio.to_thread(search_video_link, f"{title} official trailer")
+                    except Exception:
+                        pass
+
+                    sent_count = 0
+                    for contact in contacts:
+                        name = contact.get("name", "Friend")
+                        phone = contact.get("phone", "")
+                        if not phone:
+                            continue
+
+                        msg = f"Sasa {name}! Watch party is ON — we're watching {title} on {time_str}. Be there, manze!"
+                        if trailer_link:
+                            msg += f"\n\nTrailer: {trailer_link}"
+
+                        success, _ = await asyncio.to_thread(send_sms, phone, msg)
+                        if success:
+                            sent_count += 1
+                        await asyncio.sleep(1)
+
+                    if sent_count > 0:
+                        await ctx.send(f"📱 SMS sent to **{sent_count}** contacts!")
         else:
             await ctx.reply("Couldn't schedule that. Try again?")
     except Exception as e:
@@ -4155,6 +4302,172 @@ async def cmd_explain(ctx, *, code: str = ""):
         except Exception as e:
             logger.error(f"Code explain error: {e}")
             await ctx.reply("Something went wrong. Try again?")
+
+
+# ══════════════════════════════════════════════
+# WATCHPARTY SMS NOTIFICATIONS
+# ══════════════════════════════════════════════
+@bot.command(name="addphone")
+async def cmd_addphone(ctx, name: str, phone: str):
+    """Add a contact for watch party SMS. Usage: !addphone Daniel +254712345678"""
+    if not ctx.guild:
+        await ctx.reply("This only works in a server!")
+        return
+
+    if not ctx.author.guild_permissions.manage_guild:
+        await ctx.reply("You need **Manage Server** permission to manage contacts!")
+        return
+
+    if add_contact(str(ctx.guild.id), name, phone):
+        contacts = get_contacts(str(ctx.guild.id))
+        await ctx.reply(f"✅ Added **{name}** to the watch party contact list! ({len(contacts)} contacts total)")
+    else:
+        await ctx.reply("Couldn't add that contact. Check the phone number format — use `+254712345678` or `0712345678`")
+
+
+@bot.command(name="removephone")
+async def cmd_removephone(ctx, *, name: str):
+    """Remove a contact by name. Usage: !removephone Daniel"""
+    if not ctx.guild:
+        await ctx.reply("This only works in a server!")
+        return
+
+    if not ctx.author.guild_permissions.manage_guild:
+        await ctx.reply("You need **Manage Server** permission to manage contacts!")
+        return
+
+    if remove_contact_by_name(str(ctx.guild.id), name):
+        await ctx.reply(f"🗑️ Removed **{name}** from the contact list.")
+    else:
+        await ctx.reply(f"Couldn't find **{name}** in the contact list.")
+
+
+@bot.command(name="contacts")
+async def cmd_contacts(ctx):
+    """View watch party contacts. Usage: !contacts"""
+    if not ctx.guild:
+        return
+    contacts = get_contacts(str(ctx.guild.id))
+    await ctx.send(format_contacts(contacts))
+
+
+@bot.command(name="notifywp")
+async def cmd_notifywp(ctx, *, movie_title: str = ""):
+    """Send watch party SMS to all contacts. Usage: !notifywp Inception"""
+    if not ctx.guild:
+        await ctx.reply("This only works in a server!")
+        return
+
+    if not messaging_configured():
+        await ctx.reply("SMS isn't set up yet. Add `AT_API_KEY` to env.")
+        return
+
+    bot_owner = os.getenv("BOT_OWNER_ID")
+    if bot_owner and str(ctx.author.id) != bot_owner:
+        if not ctx.author.guild_permissions.manage_guild:
+            await ctx.reply("You need **Manage Server** permission to send notifications!")
+            return
+
+    contacts = get_contacts(str(ctx.guild.id))
+    if not contacts:
+        await ctx.reply("No contacts saved! Add some first with `!addphone <name> <number>`")
+        return
+
+    # Get watch party details
+    next_party = get_next_watchparty(str(ctx.guild.id))
+    wp_title = movie_title
+    wp_date = ""
+
+    if next_party:
+        wp_title = wp_title or next_party.get("title", "Movie Night")
+        wp_time = next_party.get("time")
+        if wp_time:
+            wp_date = wp_time.strftime("%A, %b %d at %I:%M %p")
+
+    if not wp_title:
+        await ctx.reply("What movie? Try: `!notifywp Inception` or schedule one with `!watchparty`")
+        return
+
+    # Search for YouTube trailer
+    trailer_link = ""
+    try:
+        trailer_link = await asyncio.to_thread(search_video_link, f"{wp_title} official trailer")
+    except Exception:
+        pass
+
+    async with ctx.typing():
+        # Generate unique messages using Claude
+        async def generate_unique_message(name):
+            try:
+                response = await asyncio.wait_for(
+                    claude_client.messages.create(
+                        model=MODEL_CLAUDE,
+                        max_tokens=150,
+                        messages=[{"role": "user", "content": (
+                            f"{EMILY_MINI_PERSONA} Write a short, fun SMS (max 140 chars) to {name} "
+                            f"about an upcoming watch party for '{wp_title}'"
+                            f"{' on ' + wp_date if wp_date else ''}. "
+                            f"Make it personal and unique — like you're texting a friend. "
+                            f"Don't include hashtags. Just the message text, nothing else."
+                        )}],
+                    ),
+                    timeout=15,
+                )
+                msg = ""
+                for block in response.content:
+                    if block.type == "text":
+                        msg += block.text
+                return msg.strip().strip('"')
+            except Exception:
+                return f"Hey {name}! Watch party alert — we're watching {wp_title}! Don't miss it, manze!"
+
+        # Send to each contact with a unique message
+        results = {"sent": 0, "failed": 0, "errors": []}
+
+        for contact in contacts:
+            name = contact.get("name", "Friend")
+            phone = contact.get("phone", "")
+
+            if not phone:
+                results["failed"] += 1
+                continue
+
+            # Generate unique message
+            personal_msg = await generate_unique_message(name)
+
+            # Add trailer if available
+            if trailer_link:
+                full_msg = f"{personal_msg}\n\nTrailer: {trailer_link}"
+            else:
+                full_msg = personal_msg
+
+            # Add date if available
+            if wp_date and wp_date not in full_msg:
+                full_msg = f"{full_msg}\n{wp_date}"
+
+            success, detail = await asyncio.to_thread(send_sms, phone, full_msg)
+            if success:
+                results["sent"] += 1
+            else:
+                results["failed"] += 1
+                results["errors"].append(f"{name}: {detail}")
+
+            # Brief delay between messages
+            await asyncio.sleep(1)
+
+        # Report results
+        report = f"📱 **Watch Party Notifications Sent!**\n\n"
+        report += f"**Movie:** {wp_title}\n"
+        if wp_date:
+            report += f"**Date:** {wp_date}\n"
+        if trailer_link:
+            report += f"**Trailer:** {trailer_link}\n"
+        report += f"\n✅ Sent: {results['sent']} | ❌ Failed: {results['failed']}"
+
+        if results["errors"]:
+            report += f"\n\n**Errors:**\n" + "\n".join(f"• {e}" for e in results["errors"][:5])
+
+        await ctx.reply(report)
 
 
 # ══════════════════════════════════════════════

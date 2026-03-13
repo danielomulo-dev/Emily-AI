@@ -31,3 +31,6 @@ dateparser
 
 # === Social Media ===
 tweepy
+
+# === Messaging ===
+africastalking
