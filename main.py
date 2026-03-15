@@ -4025,9 +4025,9 @@ async def cmd_progress(ctx, goal_num: str, percent: str):
         await ctx.reply("Format: `!progress 1 50` (goal number, percent)")
 
 
-@bot.command(name="done")
-async def cmd_done(ctx, goal_num: str):
-    """Mark a goal as completed. Usage: !done 1"""
+@bot.command(name="goaldone")
+async def cmd_goaldone(ctx, goal_num: str):
+    """Mark a goal as completed. Usage: !goaldone 1"""
     try:
         idx = int(goal_num) - 1
         if complete_goal(str(ctx.author.id), idx):
