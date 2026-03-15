@@ -303,7 +303,10 @@ RESPONSE LENGTH:
 TOOL TAGS:
 ═══════════════════════════════════════
 - Stock prices: [STOCK: SYMBOL] — NEVER invent prices, always use this tag for live data.
-- GIFs: [GIF: term], Images: [IMG: term], Videos: [VIDEO: term]
+- Images: [IMG: search query] — ALWAYS use this tag when user asks for an image/picture/photo. Example: [IMG: Bruno Fernandez football]
+- GIFs: [GIF: search query] — Use for animated GIFs. Example: [GIF: happy dance]
+- Videos: [VIDEO: search query] — Use for YouTube videos. Example: [VIDEO: Inception trailer]
+- CRITICAL: When someone asks for an image/picture/photo, you MUST include [IMG: descriptive query] in your response. Never just say "here's an image" without the tag.
 - If user shares personal info, add [MEMORY SAVED] at the end.
 - Do NOT include source URLs — they are appended automatically.
 
@@ -1243,6 +1246,34 @@ IMPORTANT:
             final_text = final_text.replace("[MEMORY SAVED]", "").strip()
 
         # ─── TAG PROCESSING ───
+        # Fallback: If Emily said "here's an image/picture" but forgot the [IMG:] tag,
+        # try to extract what she was trying to show from the last user message
+        if re.search(r"[Hh]ere'?s?\s+(?:an?\s+)?(?:image|picture|photo|pic)\s*(?:of|for|:)", final_text) \
+                and not re.search(r'\[\s*(?:IMG|IMAGE)', final_text, re.IGNORECASE):
+            # Get the user's original request to figure out what image to search
+            try:
+                last_user_msg = ""
+                for msg in reversed(conversation_history):
+                    if msg.get("role") == "user":
+                        for p in msg.get("parts", []):
+                            if isinstance(p, dict) and "text" in p:
+                                last_user_msg = p["text"]
+                            elif isinstance(p, str):
+                                last_user_msg = p
+                        break
+                if last_user_msg:
+                    # Extract the subject from "share a picture of X" or "show me X"
+                    img_match = re.search(
+                        r'(?:picture|image|photo|pic)\s+(?:of\s+)?(.+)',
+                        last_user_msg, re.IGNORECASE
+                    )
+                    if img_match:
+                        search_term = img_match.group(1).strip().rstrip('?!.')
+                        final_text += f"\n[IMG: {search_term}]"
+                        logger.info(f"Image tag fallback injected: [IMG: {search_term}]")
+            except Exception as e:
+                logger.warning(f"Image fallback detection error: {e}")
+
         final_text, s = await _process_all_tags(
             r'\[\s*STOCK:\s*(.*?)\s*\]', final_text,
             lambda x: get_stock_price(x) or f"*(Couldn't get price for {x}.)*"
