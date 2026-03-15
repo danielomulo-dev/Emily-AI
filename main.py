@@ -25,7 +25,7 @@ import anthropic
 # Tool Imports
 from memory import get_user_profile, update_user_fact, set_voice_mode, add_message_to_history, get_chat_history
 from image_tools import get_media_link
-from web_tools import search_video_link, extract_text_from_url, get_latest_news, get_search_results
+from web_tools import search_video_link, extract_text_from_url, get_latest_news, get_search_results, get_news_raw
 from finance_tools import get_stock_price
 from voice_tools import generate_voice_note, cleanup_voice_file
 from tracker_tools import (
@@ -684,6 +684,26 @@ async def send_chunked_reply(message, response):
     # Send media URLs as separate messages so Discord auto-embeds them
     for url in media_urls[:3]:  # Limit to 3 media embeds
         await message.channel.send(url)
+
+
+async def send_chunked_reply_channel(channel, text):
+    """Send a long message to a channel (not as a reply), splitting into chunks."""
+    if not text:
+        return
+    chunks = []
+    while len(text) > 2000:
+        split_at = text.rfind('\n', 0, 2000)
+        if split_at == -1:
+            split_at = text.rfind(' ', 0, 2000)
+        if split_at == -1:
+            split_at = 2000
+        chunks.append(text[:split_at])
+        text = text[split_at:].lstrip()
+    if text:
+        chunks.append(text)
+    for chunk in chunks:
+        await channel.send(chunk)
+
 
 def _extract_sources(response):
     try:
@@ -1464,7 +1484,7 @@ async def before_reminders():
 
 @tasks.loop(minutes=1)
 async def daily_news_briefing():
-    """Post daily news at configured time for each server."""
+    """Post daily news at configured time for each server — with AI commentary."""
     try:
         now = datetime.now(pytz.timezone('Africa/Nairobi'))
         current_time = now.strftime("%H:%M")
@@ -1489,35 +1509,79 @@ async def daily_news_briefing():
             if not channel:
                 continue
 
-            # Fetch news with dedup
+            # Fetch raw news with dedup
             guild_id = server["guild_id"]
-            topics = server.get("news_topics", ["Kenya", "business", "technology"])
+            topics = server.get("news_topics", ["Kenya", "business Kenya", "technology Africa"])
             already_sent = get_sent_news_urls(guild_id, days=3)
 
-            news_parts = []
-            all_new_urls = []
+            all_articles = []
+            all_urls = []
             for topic in topics[:3]:
-                news, sent_urls = get_latest_news(topic, max_results=3, exclude_urls=already_sent)
-                if news:
-                    news_parts.append(news)
-                    all_new_urls.extend(sent_urls)
-                    # Add to exclude set so cross-topic dupes are caught too
-                    already_sent.update(sent_urls)
+                articles, urls = get_news_raw(topic, max_results=3, exclude_urls=already_sent)
+                for a in articles:
+                    a["topic"] = topic
+                all_articles.extend(articles)
+                all_urls.extend(urls)
+                already_sent.update(urls)
 
-            if news_parts:
-                briefing = "☀️ **Good Morning! Here's your daily briefing:**\n\n" + "\n".join(news_parts)
-                # Chunk if needed
-                if len(briefing) > 2000:
-                    briefing = briefing[:1997] + "..."
-                await channel.send(briefing)
+            if not all_articles:
+                continue
 
-                # Save sent URLs for future dedup
-                if all_new_urls:
-                    save_sent_news(guild_id, all_new_urls)
+            # Generate AI commentary
+            headlines = "\n".join([
+                f"- [{a.get('title', '')}] ({a.get('source', '')}) — {a.get('snippet', '')[:80]}"
+                for a in all_articles[:8]
+            ])
 
-                # Mark as posted
-                update_server_setting(server["guild_id"], "last_news_date", today)
-                logger.info(f"News posted to server {server['guild_id']}")
+            try:
+                response = await asyncio.wait_for(
+                    claude_client.messages.create(
+                        model=MODEL_CLAUDE,
+                        max_tokens=800,
+                        messages=[{"role": "user", "content": (
+                            f"{EMILY_MINI_PERSONA}\n\n"
+                            f"Write a morning news briefing for a Kenyan Discord server based on these headlines:\n\n"
+                            f"{headlines}\n\n"
+                            f"For each major story (pick 4-5 most important):\n"
+                            f"1. One-line summary\n"
+                            f"2. Your quick take (witty, Kenyan perspective)\n\n"
+                            f"Start with a morning greeting. Keep it under 1200 characters. Be punchy."
+                        )}],
+                    ),
+                    timeout=30,
+                )
+                commentary = ""
+                for block in response.content:
+                    if block.type == "text":
+                        commentary += block.text
+            except Exception:
+                commentary = None
+
+            # Build briefing
+            briefing = "☀️📰 **Good Morning! Emily's Daily Briefing:**\n\n"
+
+            if commentary:
+                briefing += commentary
+            else:
+                for a in all_articles[:6]:
+                    briefing += f"• **{a.get('title', '')}** — *{a.get('source', '')}*\n"
+
+            # Add source links
+            briefing += "\n\n**Read more:**\n"
+            for a in all_articles[:6]:
+                title = a.get('title', 'Link')[:45]
+                url = a.get('url', '#')
+                briefing += f"• [{title}]({url})\n"
+
+            await send_chunked_reply_channel(channel, briefing)
+
+            # Save sent URLs for future dedup
+            if all_urls:
+                save_sent_news(guild_id, all_urls)
+
+            # Mark as posted
+            update_server_setting(guild_id, "last_news_date", today)
+            logger.info(f"AI news briefing posted to server {guild_id}")
 
     except Exception as e:
         logger.error(f"News briefing error: {e}")
@@ -2643,7 +2707,7 @@ async def cmd_help(ctx):
 
     page2 = """**Emily's Commands** 🇰🇪 **(2/2)**
 
-**📰 Fun:** `!news` · `!setnews` · `!quote` · `!trivia` · `!roast` · `!debate` · `!learn`
+**📰 Fun:** `!news` · `!newsbrief` · `!setnews` · `!quote` · `!trivia` · `!roast` · `!debate` · `!learn`
 
 **📱 Reddit:**
 `!reddit <subreddit>` · `!wsb` · `!investbuzz` · `!stockreddit <ticker>` · `!rsearch <topic>`
@@ -3014,26 +3078,152 @@ async def cmd_cleartodos(ctx):
 
 
 @bot.command(name="news")
-async def cmd_news(ctx):
-    """Get latest news now."""
+async def cmd_news(ctx, *, topic: str = "Kenya"):
+    """Get latest news. Usage: !news | !news technology | !news sports"""
     async with ctx.typing():
-        news, _ = get_latest_news("Kenya", max_results=5)
+        news, _ = get_latest_news(topic, max_results=5)
         if news:
-            await ctx.send(news)
+            await send_chunked_reply(ctx.message, news)
         else:
-            await ctx.reply("Couldn't fetch news right now. Try again?")
+            await ctx.reply(f"Couldn't fetch news for '{topic}' right now. Try again?")
+
+
+@bot.command(name="newsbrief")
+async def cmd_newsbrief(ctx, *, topics: str = ""):
+    """Get an AI-powered Kenyan news digest with Emily's commentary.
+    Usage: !newsbrief | !newsbrief tech, sports | !newsbrief politics"""
+    async with ctx.typing():
+        try:
+            # Parse topics or use defaults
+            if topics:
+                topic_list = [t.strip() for t in topics.split(",") if t.strip()]
+            else:
+                topic_list = ["Kenya", "business Kenya", "technology Africa"]
+
+            # Fetch raw news for each topic
+            guild_id = str(ctx.guild.id) if ctx.guild else "dm"
+            already_sent = get_sent_news_urls(guild_id, days=3) if ctx.guild else set()
+
+            all_articles = []
+            all_urls = []
+            for topic in topic_list[:4]:  # Max 4 topics
+                articles, urls = await asyncio.to_thread(
+                    get_news_raw, topic, max_results=3, exclude_urls=already_sent
+                )
+                for article in articles:
+                    article["topic"] = topic
+                all_articles.extend(articles)
+                all_urls.extend(urls)
+                already_sent.update(urls)
+
+            if not all_articles:
+                await ctx.reply("Couldn't fetch any news right now. Try again later?")
+                return
+
+            # Build headlines summary for Claude
+            headlines = "\n".join([
+                f"- [{a.get('title', 'No title')}] ({a.get('source', 'Unknown')}) — {a.get('snippet', '')[:100]}"
+                for a in all_articles[:10]
+            ])
+
+            # Generate AI commentary
+            commentary_prompt = (
+                f"{EMILY_MINI_PERSONA}\n\n"
+                f"Here are today's news headlines:\n\n{headlines}\n\n"
+                f"Write a Kenyan-style news briefing based on these headlines. For each major story:\n"
+                f"1. Summarize what happened in 1-2 sentences\n"
+                f"2. Add your personal take / commentary (witty, insightful, Kenyan perspective)\n"
+                f"3. Rate the story's importance (🔥 big deal, 👀 interesting, 💤 meh)\n\n"
+                f"Start with a greeting like 'Habari za leo!' and end with a witty sign-off.\n"
+                f"Keep the whole briefing under 1500 characters. Be punchy and opinionated."
+            )
+
+            try:
+                response = await asyncio.wait_for(
+                    claude_client.messages.create(
+                        model=MODEL_CLAUDE,
+                        max_tokens=800,
+                        messages=[{"role": "user", "content": commentary_prompt}],
+                    ),
+                    timeout=30,
+                )
+                commentary = ""
+                for block in response.content:
+                    if block.type == "text":
+                        commentary += block.text
+            except Exception as e:
+                logger.error(f"News commentary generation error: {e}")
+                commentary = None
+
+            # Build final output
+            briefing = "📰🇰🇪 **Emily's News Briefing**\n\n"
+
+            if commentary:
+                briefing += commentary
+            else:
+                # Fallback — just list the headlines without AI commentary
+                briefing += "Here's what's happening:\n\n"
+                for a in all_articles[:8]:
+                    briefing += f"• **{a.get('title', '')}** — *{a.get('source', '')}*\n"
+
+            # Add source links at the bottom
+            briefing += "\n\n**Sources:**\n"
+            for a in all_articles[:8]:
+                title = a.get('title', 'Link')[:50]
+                url = a.get('url', '#')
+                briefing += f"• [{title}]({url})\n"
+
+            # Save sent URLs for dedup
+            if ctx.guild and all_urls:
+                save_sent_news(guild_id, all_urls)
+
+            await send_chunked_reply(ctx.message, briefing)
+
+        except Exception as e:
+            logger.error(f"Newsbrief error: {e}")
+            await ctx.reply(f"Something went wrong: {e}")
 
 
 @bot.command(name="setnews")
-async def cmd_setnews(ctx):
-    """Set current channel for daily morning news briefing."""
+async def cmd_setnews(ctx, *, config: str = ""):
+    """Set up daily AI news briefing. Usage: !setnews | !setnews 8:00 tech, sports, Kenya"""
     try:
         if not ctx.guild:
             await ctx.reply("This only works in a server, not DMs!")
             return
-        logger.info(f"Setting news channel: guild={ctx.guild.id}, channel={ctx.channel.id}")
-        if set_news_channel(str(ctx.guild.id), str(ctx.channel.id)):
-            await ctx.reply(f"✅ Daily news will be posted here every morning at 7:00 AM EAT!\nTopics: Kenya, business, technology")
+
+        guild_id = str(ctx.guild.id)
+        channel_id = str(ctx.channel.id)
+
+        # Parse time and topics
+        news_time = "07:00"
+        topics = ["Kenya", "business Kenya", "technology Africa"]
+
+        if config:
+            # Check if first part is a time
+            parts = config.split(None, 1)
+            time_match = re.match(r'^(\d{1,2}):(\d{2})$', parts[0])
+            if time_match:
+                news_time = parts[0]
+                if len(parts) > 1:
+                    topics = [t.strip() for t in parts[1].split(",") if t.strip()]
+            else:
+                # No time — treat everything as topics
+                topics = [t.strip() for t in config.split(",") if t.strip()]
+
+        if set_news_channel(guild_id, channel_id):
+            update_server_setting(guild_id, "news_time", news_time)
+            update_server_setting(guild_id, "news_topics", topics)
+
+            topic_str = ", ".join(topics[:4])
+            await ctx.reply(
+                f"✅ **Daily AI News Briefing set!**\n\n"
+                f"📍 Channel: <#{channel_id}>\n"
+                f"⏰ Time: **{news_time} EAT** daily\n"
+                f"📰 Topics: **{topic_str}**\n\n"
+                f"Emily will fetch headlines and add her Kenyan commentary every morning!\n"
+                f"Want one now? Try `!newsbrief` or `!news`"
+            )
         else:
             await ctx.reply("Couldn't set up news. Try again?")
     except Exception as e:

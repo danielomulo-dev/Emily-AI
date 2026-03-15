@@ -362,3 +362,29 @@ def get_youtube_transcript(url, max_chars=None):
         return f"\n\n--- VIDEO TRANSCRIPT: {url} ---\n{full_text[:_max]}..."
     except Exception:
         return ""
+
+
+def get_news_raw(topic, max_results=5, exclude_urls=None):
+    """Fetch latest news as structured data (for AI commentary).
+    Returns list of dicts with: title, url, source, snippet, date
+    """
+    try:
+        results = None
+        if _google_configured():
+            results = _google_news_search(topic, max_results=max_results + 5)
+        if not results:
+            results = _ddg_news_search(topic, max_results=max_results + 5)
+        if not results:
+            return [], []
+
+        fresh = _dedup_results(results, exclude_urls)
+        if not fresh:
+            return [], []
+
+        fresh = fresh[:max_results]
+        sent_urls = [r.get("url", "") for r in fresh if r.get("url")]
+        return fresh, sent_urls
+
+    except Exception as e:
+        logger.error(f"Raw news fetch error: {e}")
+        return [], []
