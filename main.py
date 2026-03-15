@@ -33,6 +33,7 @@ from tracker_tools import (
     get_budget_limit, format_budget_summary,
     log_income, get_monthly_income, get_effective_budget, format_full_budget_summary,
     delete_last_income, INCOME_CATEGORIES,
+    recategorize_expenses,
     add_holding, remove_holding, get_portfolio, format_portfolio,
     add_reminder, get_due_reminders, mark_reminder_done, get_user_reminders,
     get_server_settings, update_server_setting, set_news_channel, get_news_servers,
@@ -3096,6 +3097,34 @@ async def cmd_report(ctx):
             await ctx.reply(f"Report generation failed: {e}")
 
 
+@bot.command(name="recat")
+async def cmd_recat(ctx):
+    """Recategorize all expenses this month with improved detection. Usage: !recat"""
+    async with ctx.typing():
+        try:
+            user_id = str(ctx.author.id)
+            result = recategorize_expenses(user_id, _detect_expense_category)
+
+            if result is None:
+                await ctx.reply("Couldn't recategorize. Try again?")
+                return
+
+            if result["updated"] == 0:
+                await ctx.reply("✅ All your expenses are already correctly categorized!")
+                return
+
+            report = f"🔄 **Recategorized {result['updated']}/{result['total']} expenses!**\n\n"
+            for change, count in sorted(result["by_category"].items(), key=lambda x: -x[1]):
+                report += f"• {change}: **{count}** items\n"
+
+            report += f"\nRun `!report` to see the updated breakdown."
+            await ctx.reply(report)
+
+        except Exception as e:
+            logger.error(f"Recat error: {e}")
+            await ctx.reply(f"Something went wrong: {e}")
+
+
 @bot.command(name="setfinance")
 async def cmd_setfinance(ctx):
     """Set this channel for weekly finance coaching tips."""
@@ -4910,25 +4939,79 @@ async def cmd_rsearch(ctx, *, query: str):
 def _detect_expense_category(description):
     """Auto-detect expense category from description."""
     desc = description.lower()
-    categories = {
-        "food": ["lunch", "dinner", "breakfast", "snack", "coffee", "tea", "meal", "restaurant",
-                 "java", "kfc", "pizza", "burger", "fries", "chapati", "ugali", "nyama",
-                 "mandazi", "samosa", "food", "eat", "supper", "brunch"],
-        "transport": ["uber", "bolt", "taxi", "matatu", "bus", "fare", "fuel", "petrol",
-                     "parking", "boda", "bodaboda", "sgr", "flight", "airfare", "transport"],
-        "shopping": ["clothes", "shoes", "shopping", "naivas", "carrefour", "quickmart",
-                    "supermarket", "mall", "buy", "purchase", "gift"],
-        "bills": ["rent", "electricity", "water", "wifi", "internet", "kplc", "safaricom",
-                 "airtel", "bill", "subscription", "netflix", "spotify", "dstv", "showmax"],
-        "health": ["hospital", "doctor", "pharmacy", "medicine", "medical", "nhif", "dental",
-                  "gym", "clinic", "drugs", "chemist"],
-        "entertainment": ["movie", "cinema", "concert", "drinks", "bar", "club", "party",
-                         "game", "bet", "sportpesa", "fun"],
-        "savings": ["mpesa", "m-pesa", "save", "invest", "sacco", "bank", "deposit"],
-    }
-    for cat, keywords in categories.items():
+
+    # Priority-ordered categories — more specific matches first
+    # Each keyword is checked with word boundary awareness where needed
+    categories = [
+        # Bills & utilities (check FIRST — "buying electricity tokens" should be bills, not shopping)
+        ("bills", [
+            "rent", "electricity", "electric", "tokens", "kplc", "wifi", "internet",
+            "safaricom", "airtel", "telkom", "bill", "subscription", "netflix", "spotify",
+            "dstv", "showmax", "paybill", "water bill", "garbage", "sewer",
+            "insurance", "nhif", "shif", "mortgage", "loan repay", "repair",
+        ]),
+        # Transport
+        ("transport", [
+            "uber", "bolt", "taxi", "matatu", "bus", "fare", "fuel", "petrol",
+            "parking", "bodaboda", "boda", "sgr", "flight", "airfare", "transport",
+        ]),
+        # Savings & investments (check BEFORE food — "Enweath" contains "eat" which would false-match food)
+        ("savings", [
+            "save", "saving", "invest", "sacco", "deposit", "m-shwari", "mshwari",
+            "enweath", "money market", "fixed deposit", "shares", "stocks",
+            "treasury", "t-bill",
+        ]),
+        # Food & groceries (removed "eat" — too many false positives: heater, enweath, etc.)
+        ("food", [
+            "lunch", "dinner", "breakfast", "snack", "coffee", "tea", "meal", "restaurant",
+            "java", "kfc", "pizza", "burger", "fries", "chapati", "ugali", "nyama",
+            "mandazi", "samosa", "food", "supper", "brunch", "rice", "flour",
+            "bread", "milk", "maziwa", "mala", "meat", "chicken", "fish", "vegetables",
+            "tomato", "onion", "avocado", "fruit", "sugar", "salt", "oil", "spice",
+            "cinnamon", "yoghurt", "yogurt", "juice", "soda", "cooking", "cook",
+            "grocery", "minced", "wheat", "eggs", "cabbage", "potato", "beans",
+            "lemon", "garlic", "ginger", "pepper",
+        ]),
+        # Health & medicine
+        ("health", [
+            "hospital", "doctor", "pharmacy", "medicine", "medication", "medical", "nhif",
+            "dental", "gym", "clinic", "chemist", "prescription",
+            "health", "therapy", "checkup",
+        ]),
+        # Entertainment
+        ("entertainment", [
+            "movie", "cinema", "concert", "drinks", "bar", "club", "party",
+            "game", "bet", "sportpesa", "fun", "event", "show", "ticket",
+            "birthday party", "celebration", "outing",
+        ]),
+        # Airtime & data (separate from shopping — these are utility costs)
+        ("bills", [
+            "airtime", "bundles", "data bundle", "sms token",
+        ]),
+        # Shopping (check LAST — catch-all for purchases that don't fit above)
+        ("shopping", [
+            "clothes", "shoes", "shopping", "naivas", "carrefour", "quickmart",
+            "supermarket", "mall", "purchase", "gift", "earphones", "headphones",
+            "phone", "laptop", "charger", "case", "bag", "shirt", "trouser",
+            "dress", "basin", "remote", "batteries", "lighter", "soap",
+            "lotion", "perfume", "deodorant", "dispenser", "weed",
+        ]),
+    ]
+
+    # Check each category in priority order
+    for cat, keywords in categories:
         if any(k in desc for k in keywords):
             return cat
+
+    # If description starts with "buying" but didn't match anything above,
+    # it's probably shopping
+    if desc.startswith("buying") or desc.startswith("bought"):
+        return "shopping"
+
+    # Money transfers → general
+    if any(k in desc for k in ["sent", "send", "loan", "helping", "contribution", "tip"]):
+        return "general"
+
     return "general"
 
 

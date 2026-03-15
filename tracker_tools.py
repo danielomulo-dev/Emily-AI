@@ -76,6 +76,45 @@ def log_expense(user_id, amount, description, category="general"):
         return False
 
 
+def recategorize_expenses(user_id, category_func, month_str=None):
+    """Re-apply category detection to all expenses for a user.
+    category_func: callable(description) -> category string
+    Returns: dict with counts of changes per category
+    """
+    if budgets_col is None:
+        return None
+    try:
+        if not month_str:
+            month_str = _now().strftime("%Y-%m")
+
+        entries = list(budgets_col.find({
+            "user_id": str(user_id),
+            "month_str": month_str,
+        }))
+
+        changes = {"total": len(entries), "updated": 0, "by_category": {}}
+
+        for entry in entries:
+            old_cat = entry.get("category", "general")
+            desc = entry.get("description", "")
+            new_cat = category_func(desc)
+
+            if new_cat != old_cat:
+                budgets_col.update_one(
+                    {"_id": entry["_id"]},
+                    {"$set": {"category": new_cat}}
+                )
+                changes["updated"] += 1
+                key = f"{old_cat} → {new_cat}"
+                changes["by_category"][key] = changes["by_category"].get(key, 0) + 1
+
+        logger.info(f"Recategorized {changes['updated']}/{changes['total']} expenses for {user_id}")
+        return changes
+    except PyMongoError as e:
+        logger.error(f"Recategorize error: {e}")
+        return None
+
+
 def get_daily_spending(user_id, date_str=None):
     """Get total spending for a specific day (default: today)."""
     if budgets_col is None:
