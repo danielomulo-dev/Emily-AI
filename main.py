@@ -449,7 +449,7 @@ def _route_to_model(text, has_attachments=False, attachment_types=None):
             return "claude", "Food/cooking expertise"
 
     # Film / cinema — split between Gemini (needs search for specific movies) and Claude (general opinions)
-    # Specific movie lookup patterns → Gemini (needs to search for plot, reviews, ratings)
+    # Specific movie/show lookup patterns → Gemini (needs to search for plot, reviews, ratings)
     film_search_patterns = [
         r'(?:review|rating|rated|rotten\s+tomatoes|imdb)',
         r'(?:what\s+do\s+you\s+think\s+(?:of|about)\s+)',
@@ -459,6 +459,14 @@ def _route_to_model(text, has_attachments=False, attachment_types=None):
         r'(?:how\s+(?:is|was)\s+(?:the\s+)?(?:movie|film|show))',
         r'(?:tell\s+me\s+about\s+(?:the\s+)?(?:movie|film|show))',
         r'(?:plot|summary|synopsis)',
+        # Season, episode, character arc questions — need search for accuracy
+        r'(?:season|series|episode|sn)\s*\d',
+        r'(?:story\s*arc|character\s*arc|storyline|plot\s*line)',
+        r'(?:what\s+happen|how\s+(?:does|did)\s+\w+\s+die|who\s+(?:kills?|dies|survives?))',
+        r'(?:ending|finale|cliffhanger)',
+        r'(?:cast|actor|actress)\s+(?:of|in|for)\s+',
+        r'(?:spoiler|recap)',
+        r'(?:animated\s+series|anime|cartoon)\s+.*(?:season|episode|arc)',
     ]
     for pattern in film_search_patterns:
         if re.search(pattern, text_lower):
@@ -1136,8 +1144,10 @@ Adapt your responses to match this style while keeping your core Emily identity.
             emily_prompt += """
 ABSOLUTE SEARCH RULES — VIOLATION IS UNACCEPTABLE:
 - You MUST use Google Search for ANY factual question: awards, events, people, dates, news, scores.
+- You MUST use Google Search for ANY question about specific TV show/movie plots, character arcs, season details, or episode events.
 - If a message contains [IMPORTANT: You MUST use Google Search], you MUST search. No exceptions.
 - NEVER list nominees, winners, facts, stats, or current events without searching first.
+- NEVER describe a character's fate, death, or story arc without searching first — your memory may be WRONG.
 - If you answer a factual question without searching, you are WRONG. Always search.
 - If search returns no results, say "I couldn't verify that right now" — NEVER guess or fabricate.
 - When you search, cite what you found. Be specific with names, dates, and details from search results.
@@ -1146,6 +1156,9 @@ ABSOLUTE SEARCH RULES — VIOLATION IS UNACCEPTABLE:
             emily_prompt += """
 IMPORTANT:
 - You do NOT have access to Google Search or live data.
+- For factual claims about TV show plots, character arcs, specific episode events, or who dies/lives — 
+  be honest if you're not 100% sure. Say "from what I remember" or "I'd need to double-check that."
+  Do NOT present uncertain plot details as facts.
 - For factual claims, be clear about what you know vs what might have changed.
 - If the user needs LIVE data (stock prices, news, weather), tell them to ask again 
   and you'll route to your search brain. Or use [STOCK: SYMBOL] for prices.
