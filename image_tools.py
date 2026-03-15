@@ -34,8 +34,8 @@ def _is_valid_image_url(url: str) -> bool:
     return True
 
 
-def _verify_image_loads(url: str, timeout: int = 5) -> bool:
-    """HEAD request to check the image URL actually resolves."""
+def _verify_image_loads(url: str, timeout: int = 3) -> bool:
+    """Quick HEAD request to check the image URL resolves. Short timeout to avoid blocking."""
     try:
         resp = requests.head(url, timeout=timeout, allow_redirects=True,
                              headers={'User-Agent': 'Mozilla/5.0'})
@@ -126,29 +126,27 @@ def get_media_link(query, is_gif=False):
         clean_query = query.strip(' ".,!*')
         logger.info(f"Image search: '{clean_query}' (GIF: {is_gif})")
 
-        # Try Google first
+        # Try Google first — results are reliable, skip HEAD verification
         urls = _google_image_search(clean_query, is_gif=is_gif, max_results=5)
+        if urls:
+            # Google image results are reliable — just return the first one
+            logger.info(f"Image found (Google): {urls[0][:80]}")
+            return urls[0]
 
-        # Fallback to DuckDuckGo
-        if not urls:
-            urls = _ddg_image_search(clean_query, is_gif=is_gif, max_results=10)
-
+        # Fallback to DuckDuckGo — verify only 2 to avoid hanging
+        urls = _ddg_image_search(clean_query, is_gif=is_gif, max_results=5)
         if not urls:
             logger.warning(f"No image results for: '{clean_query}'")
             return None
 
-        # Shuffle for variety
-        random.shuffle(urls)
-
-        # Try to find one that loads
-        for url in urls[:5]:
+        # Quick verify just 2 URLs max
+        for url in urls[:2]:
             if _verify_image_loads(url):
-                logger.info(f"Image found (verified): {url[:80]}")
+                logger.info(f"Image found (DDG verified): {url[:80]}")
                 return url
 
-        # If HEAD checks all fail, return the first one anyway
-        # (Discord might still embed it)
-        logger.info(f"Image found (unverified): {urls[0][:80]}")
+        # Return first unverified if verification fails
+        logger.info(f"Image found (DDG unverified): {urls[0][:80]}")
         return urls[0]
 
     except Exception as e:
