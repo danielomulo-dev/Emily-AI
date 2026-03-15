@@ -4568,24 +4568,95 @@ async def cmd_notifywp(ctx, *, movie_title: str = ""):
 async def cmd_testimg(ctx, *, query: str = "cat"):
     """Debug: Test image search directly. Usage: !testimg Bruno Fernandez"""
     async with ctx.typing():
-        url = await asyncio.to_thread(get_media_link, query, False)
-        if url:
-            await ctx.reply(f"✅ Image found:\n{url}")
-            await ctx.channel.send(url)
+        # Test Google first
+        from image_tools import _google_image_search, _ddg_image_search, GOOGLE_API_KEY, GOOGLE_CX
+        results = []
+        google_status = "❌ Not configured"
+        ddg_status = "❌ Not attempted"
+
+        if GOOGLE_API_KEY and GOOGLE_CX:
+            try:
+                google_urls = await asyncio.to_thread(_google_image_search, query, False, 3)
+                if google_urls:
+                    google_status = f"✅ {len(google_urls)} results"
+                    results = google_urls
+                else:
+                    google_status = "❌ No results (quota may be exhausted)"
+            except Exception as e:
+                google_status = f"❌ Error: {str(e)[:100]}"
+        
+        if not results:
+            try:
+                ddg_urls = await asyncio.to_thread(_ddg_image_search, query, False, 3)
+                if ddg_urls:
+                    ddg_status = f"✅ {len(ddg_urls)} results"
+                    results = ddg_urls
+                else:
+                    ddg_status = "❌ No results"
+            except Exception as e:
+                ddg_status = f"❌ Error: {str(e)[:100]}"
+
+        report = (
+            f"🔍 **Image Search Debug: `{query}`**\n\n"
+            f"**Google:** {google_status}\n"
+            f"**DuckDuckGo:** {ddg_status}\n"
+        )
+        if results:
+            report += f"\n**First URL:** {results[0]}"
+            await ctx.reply(report)
+            await ctx.channel.send(results[0])
         else:
-            await ctx.reply(f"❌ No image found for: `{query}`")
+            report += "\n**Both search engines failed!**"
+            report += f"\n\nGoogle API Key set: `{bool(GOOGLE_API_KEY)}`"
+            report += f"\nGoogle CX set: `{bool(GOOGLE_CX)}`"
+            await ctx.reply(report)
 
 
 @bot.command(name="testgif")
 async def cmd_testgif(ctx, *, query: str = "cat dancing"):
     """Debug: Test GIF search directly. Usage: !testgif cat dancing"""
     async with ctx.typing():
-        url = await asyncio.to_thread(get_media_link, query, True)
-        if url:
-            await ctx.reply(f"✅ GIF found:\n{url}")
-            await ctx.channel.send(url)
+        from image_tools import _google_image_search, _ddg_image_search, GOOGLE_API_KEY, GOOGLE_CX
+        results = []
+        google_status = "❌ Not configured"
+        ddg_status = "❌ Not attempted"
+
+        if GOOGLE_API_KEY and GOOGLE_CX:
+            try:
+                google_urls = await asyncio.to_thread(_google_image_search, query, True, 3)
+                if google_urls:
+                    google_status = f"✅ {len(google_urls)} results"
+                    results = google_urls
+                else:
+                    google_status = "❌ No results (quota may be exhausted)"
+            except Exception as e:
+                google_status = f"❌ Error: {str(e)[:100]}"
+
+        if not results:
+            try:
+                ddg_urls = await asyncio.to_thread(_ddg_image_search, query, True, 3)
+                if ddg_urls:
+                    ddg_status = f"✅ {len(ddg_urls)} results"
+                    results = ddg_urls
+                else:
+                    ddg_status = "❌ No results"
+            except Exception as e:
+                ddg_status = f"❌ Error: {str(e)[:100]}"
+
+        report = (
+            f"🔍 **GIF Search Debug: `{query}`**\n\n"
+            f"**Google:** {google_status}\n"
+            f"**DuckDuckGo:** {ddg_status}\n"
+        )
+        if results:
+            report += f"\n**First URL:** {results[0]}"
+            await ctx.reply(report)
+            await ctx.channel.send(results[0])
         else:
-            await ctx.reply(f"❌ No GIF found for: `{query}`")
+            report += "\n**Both search engines failed!**"
+            report += f"\n\nGoogle API Key set: `{bool(GOOGLE_API_KEY)}`"
+            report += f"\nGoogle CX set: `{bool(GOOGLE_CX)}`"
+            await ctx.reply(report)
 
 
 # ══════════════════════════════════════════════
