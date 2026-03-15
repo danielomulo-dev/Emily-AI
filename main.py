@@ -4845,10 +4845,14 @@ async def on_message(message):
     # ─── DEDUP: Skip if we already processed this message ───
     if message.id in _processed_messages:
         return
+    # Also dedup by content+user+time (catches same message sent multiple times)
+    content_hash = f"{user_id}:{message.content[:100]}:{int(message.created_at.timestamp()) // 3}"
+    if content_hash in _processed_messages:
+        return
     _processed_messages.add(message.id)
+    _processed_messages.add(content_hash)
     # Keep the set from growing forever
     if len(_processed_messages) > MAX_DEDUP_SIZE:
-        # Remove oldest entries (sets are unordered, but this is good enough)
         to_remove = list(_processed_messages)[:MAX_DEDUP_SIZE // 2]
         for mid in to_remove:
             _processed_messages.discard(mid)
@@ -4997,6 +5001,45 @@ async def on_message(message):
                         add_message_to_history(user_id, "model", [{"text": full_response}])
                         return
 
+            # ─── MEDIA REQUEST PRE-DETECT ───
+            # If user asks for an image/gif, search immediately so we can append
+            # the result to whatever the AI says (don't rely on AI using tags)
+            pre_media_url = None
+            pre_media_type = None
+            if clean_msg:
+                msg_lower = clean_msg.lower()
+                # GIF request
+                gif_match = re.search(
+                    r'(?:show|send|share|get|find)\s+(?:me\s+)?(?:a\s+)?(?:gif|animated)\s+(?:of\s+)?(.+)',
+                    msg_lower
+                )
+                if not gif_match:
+                    gif_match = re.search(r'gif\s+(?:of\s+)?(.+)', msg_lower)
+
+                # Image request
+                img_match = re.search(
+                    r'(?:show|send|share|get|find)\s+(?:me\s+)?(?:a\s+)?(?:picture|image|photo|pic)\s+(?:of\s+)?(.+)',
+                    msg_lower
+                )
+                if not img_match:
+                    img_match = re.search(
+                        r'(?:picture|image|photo|pic)\s+(?:of\s+)?(.+)',
+                        msg_lower
+                    )
+
+                if gif_match:
+                    search_term = gif_match.group(1).strip().rstrip('?!.')
+                    if search_term:
+                        pre_media_url = await asyncio.to_thread(get_media_link, search_term, True)
+                        pre_media_type = "gif"
+                        logger.info(f"Pre-detected GIF request: '{search_term}' -> {pre_media_url}")
+                elif img_match:
+                    search_term = img_match.group(1).strip().rstrip('?!.')
+                    if search_term:
+                        pre_media_url = await asyncio.to_thread(get_media_link, search_term, False)
+                        pre_media_type = "image"
+                        logger.info(f"Pre-detected image request: '{search_term}' -> {pre_media_url}")
+
             # ─── HIVE MIND ROUTING ───
             chosen_model, route_reason = _route_to_model(
                 clean_msg, 
@@ -5013,6 +5056,10 @@ async def on_message(message):
                 guild_id=str(message.guild.id) if message.guild else None
             )
             full_response = response_text + source_links
+
+            # Append pre-detected media URL if the AI response doesn't already contain it
+            if pre_media_url and pre_media_url not in full_response:
+                full_response += f"\n\n{pre_media_url}"
 
             if is_voice_input or wants_voice_reply or user_id in _voice_mode_users or is_voice_channel:
                 # Send voice note + text fallback
