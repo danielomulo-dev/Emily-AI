@@ -20,6 +20,7 @@ portfolio_col = None
 reminders_col = None
 server_settings_col = None
 todos_col = None
+journal_col = None
 
 try:
     mongo_client = MongoClient(
@@ -36,6 +37,7 @@ try:
     reminders_col = db["reminders"]
     server_settings_col = db["server_settings"]
     todos_col = db["todos"]
+    journal_col = db["journal"]
 
     # Indexes
     budgets_col.create_index([("user_id", ASCENDING), ("date", ASCENDING)])
@@ -44,6 +46,7 @@ try:
     reminders_col.create_index([("remind_at", ASCENDING), ("status", ASCENDING)])
     server_settings_col.create_index([("guild_id", ASCENDING)])
     todos_col.create_index([("user_id", ASCENDING), ("status", ASCENDING)])
+    journal_col.create_index([("user_id", ASCENDING), ("date", ASCENDING)])
 
     logger.info("Tracker tools connected to MongoDB!")
 except Exception as e:
@@ -1017,3 +1020,245 @@ def cancel_reminder(user_id, index):
     except PyMongoError as e:
         logger.error(f"Cancel reminder error: {e}")
         return None
+
+
+# ══════════════════════════════════════════════
+# PERSONAL JOURNAL / MOOD TRACKER
+# ══════════════════════════════════════════════
+MOOD_SCALE = {
+    1: ("😢", "terrible"),
+    2: ("😔", "rough"),
+    3: ("😐", "okay"),
+    4: ("😊", "good"),
+    5: ("🤩", "amazing"),
+}
+
+MOOD_KEYWORDS = {
+    5: ["amazing", "incredible", "best day", "promoted", "got the job", "engaged", "married",
+        "wonderful", "fantastic", "blessed", "thrilled", "ecstatic", "overjoyed", "won"],
+    4: ["great", "good day", "happy", "proud", "grateful", "excited", "fun", "enjoyed",
+        "accomplished", "productive", "awesome", "nice", "pleasant", "relaxed", "peaceful"],
+    3: ["okay", "fine", "alright", "normal", "regular", "average", "meh", "not bad",
+        "so-so", "usual", "same", "nothing special"],
+    2: ["tough", "hard", "difficult", "stressed", "tired", "frustrated", "annoyed",
+        "disappointed", "lonely", "anxious", "worried", "sad", "bad day", "rough",
+        "exhausting", "overwhelming", "struggling"],
+    1: ["terrible", "awful", "worst", "crying", "depressed", "heartbroken", "devastated",
+        "hopeless", "miserable", "broke down", "can't cope", "falling apart"],
+}
+
+
+def detect_mood(text):
+    """Auto-detect mood score (1-5) from journal text."""
+    text_lower = text.lower()
+    # Check from extreme moods inward
+    for score in [1, 5, 2, 4, 3]:
+        for keyword in MOOD_KEYWORDS[score]:
+            if keyword in text_lower:
+                return score
+    return 3  # Default to neutral
+
+
+def add_journal_entry(user_id, text, mood_score=None, tags=None):
+    """Add a journal entry with mood tracking."""
+    if journal_col is None:
+        return None
+    try:
+        if mood_score is None:
+            mood_score = detect_mood(text)
+
+        mood_score = max(1, min(5, mood_score))
+        mood_emoji, mood_label = MOOD_SCALE.get(mood_score, ("😐", "okay"))
+
+        now = _now()
+        entry = {
+            "user_id": str(user_id),
+            "text": text,
+            "mood_score": mood_score,
+            "mood_emoji": mood_emoji,
+            "mood_label": mood_label,
+            "tags": tags or [],
+            "date": now,
+            "date_str": now.strftime("%Y-%m-%d"),
+            "time_str": now.strftime("%I:%M %p"),
+            "day_name": now.strftime("%A"),
+        }
+        journal_col.insert_one(entry)
+        logger.info(f"Journal entry for {user_id}: mood={mood_score} ({mood_label})")
+        return entry
+    except PyMongoError as e:
+        logger.error(f"Journal entry error: {e}")
+        return None
+
+
+def get_journal_entries(user_id, days=7, limit=10):
+    """Get recent journal entries."""
+    if journal_col is None:
+        return []
+    try:
+        cutoff = _now() - timedelta(days=days)
+        return list(journal_col.find({
+            "user_id": str(user_id),
+            "date": {"$gte": cutoff},
+        }).sort("date", -1).limit(limit))
+    except PyMongoError as e:
+        logger.error(f"Get journal error: {e}")
+        return []
+
+
+def get_mood_trend(user_id, days=14):
+    """Get mood scores over time for trend analysis."""
+    if journal_col is None:
+        return []
+    try:
+        cutoff = _now() - timedelta(days=days)
+        entries = list(journal_col.find({
+            "user_id": str(user_id),
+            "date": {"$gte": cutoff},
+        }).sort("date", 1))
+
+        # Group by day, average the mood
+        daily_moods = {}
+        for e in entries:
+            day = e.get("date_str", "")
+            if day not in daily_moods:
+                daily_moods[day] = []
+            daily_moods[day].append(e.get("mood_score", 3))
+
+        trend = []
+        for day, scores in sorted(daily_moods.items()):
+            avg = sum(scores) / len(scores)
+            trend.append({
+                "date": day,
+                "avg_mood": round(avg, 1),
+                "entries": len(scores),
+            })
+        return trend
+    except PyMongoError as e:
+        logger.error(f"Mood trend error: {e}")
+        return []
+
+
+def get_mood_stats(user_id, days=30):
+    """Get mood statistics for a period."""
+    if journal_col is None:
+        return None
+    try:
+        cutoff = _now() - timedelta(days=days)
+        entries = list(journal_col.find({
+            "user_id": str(user_id),
+            "date": {"$gte": cutoff},
+        }))
+
+        if not entries:
+            return None
+
+        scores = [e.get("mood_score", 3) for e in entries]
+        avg_mood = sum(scores) / len(scores)
+        best_day = max(entries, key=lambda e: e.get("mood_score", 0))
+        worst_day = min(entries, key=lambda e: e.get("mood_score", 5))
+
+        # Count by mood level
+        mood_dist = {1: 0, 2: 0, 3: 0, 4: 0, 5: 0}
+        for s in scores:
+            mood_dist[s] = mood_dist.get(s, 0) + 1
+
+        return {
+            "total_entries": len(entries),
+            "avg_mood": round(avg_mood, 1),
+            "best_day": best_day,
+            "worst_day": worst_day,
+            "mood_distribution": mood_dist,
+            "streak": _get_journal_streak(user_id),
+        }
+    except PyMongoError as e:
+        logger.error(f"Mood stats error: {e}")
+        return None
+
+
+def _get_journal_streak(user_id):
+    """Calculate how many consecutive days the user has journaled."""
+    if journal_col is None:
+        return 0
+    try:
+        entries = list(journal_col.find({
+            "user_id": str(user_id),
+        }).sort("date", -1).limit(60))
+
+        if not entries:
+            return 0
+
+        dates = sorted(set(e.get("date_str", "") for e in entries), reverse=True)
+        if not dates:
+            return 0
+
+        today = _now().strftime("%Y-%m-%d")
+        yesterday = (_now() - timedelta(days=1)).strftime("%Y-%m-%d")
+
+        # Streak must include today or yesterday
+        if dates[0] != today and dates[0] != yesterday:
+            return 0
+
+        streak = 1
+        for i in range(1, len(dates)):
+            prev = datetime.strptime(dates[i - 1], "%Y-%m-%d")
+            curr = datetime.strptime(dates[i], "%Y-%m-%d")
+            if (prev - curr).days == 1:
+                streak += 1
+            else:
+                break
+        return streak
+    except Exception:
+        return 0
+
+
+def format_journal_entries(entries):
+    """Format journal entries for Discord display."""
+    if not entries:
+        return "📓 No journal entries yet. Start with `!journal I had a great day!` or just tell Emily about your day."
+
+    lines = ["📓 **Your Journal**\n"]
+    for e in entries:
+        mood = e.get("mood_emoji", "😐")
+        date = e.get("date_str", "")
+        time = e.get("time_str", "")
+        day = e.get("day_name", "")
+        text = e.get("text", "")
+        if len(text) > 120:
+            text = text[:118] + ".."
+        lines.append(f"{mood} **{day}, {date}** at {time}")
+        lines.append(f"  {text}\n")
+
+    return "\n".join(lines)
+
+
+def format_mood_trend(trend):
+    """Format mood trend as a visual chart for Discord."""
+    if not trend:
+        return "📊 Not enough data for a mood trend yet. Keep journaling!"
+
+    lines = ["📊 **Your Mood Trend**\n"]
+
+    for day in trend:
+        avg = day["avg_mood"]
+        date = day["date"]
+        # Visual bar
+        filled = round(avg)
+        bar = "█" * filled + "░" * (5 - filled)
+        emoji = MOOD_SCALE.get(filled, ("😐", "okay"))[0]
+
+        # Shorten date
+        try:
+            short = datetime.strptime(date, "%Y-%m-%d").strftime("%b %d")
+        except Exception:
+            short = date
+
+        lines.append(f"{emoji} `{bar}` {avg}/5 — {short} ({day['entries']} entries)")
+
+    # Overall average
+    all_scores = [d["avg_mood"] for d in trend]
+    overall = sum(all_scores) / len(all_scores)
+    overall_emoji = MOOD_SCALE.get(round(overall), ("😐", "okay"))[0]
+    lines.append(f"\n**Overall: {overall_emoji} {overall:.1f}/5**")
+
+    return "\n".join(lines)

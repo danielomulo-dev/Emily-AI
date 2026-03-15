@@ -38,6 +38,8 @@ from tracker_tools import (
     add_reminder, get_due_reminders, mark_reminder_done, get_user_reminders,
     cancel_reminder,
     add_todo, complete_todo, remove_todo, get_todos, clear_done_todos, format_todos,
+    add_journal_entry, get_journal_entries, get_mood_trend, get_mood_stats,
+    format_journal_entries, format_mood_trend, detect_mood, MOOD_SCALE,
     get_server_settings, update_server_setting, set_news_channel, get_news_servers,
     set_server_persona, get_server_persona, PERSONA_PRESETS,
     set_alert_settings, get_alert_settings, get_all_alert_users,
@@ -2730,6 +2732,8 @@ async def cmd_help(ctx):
 
 **⏰ Reminders:** `!remind 5pm call mum` · `!reminders` · `!cancelremind 1`
 
+**📓 Journal:** `!journal <entry>` · `!diary` · `!mood` · `!reflect`
+
 _Or just @ mention me to chat!_ 😊"""
 
     await ctx.send(page1)
@@ -3075,6 +3079,174 @@ async def cmd_cleartodos(ctx):
         await ctx.reply(f"🧹 Cleared {count} completed item{'s' if count != 1 else ''}!")
     else:
         await ctx.reply("No completed items to clear.")
+
+
+# ══════════════════════════════════════════════
+# PERSONAL JOURNAL / MOOD TRACKER
+# ══════════════════════════════════════════════
+@bot.command(name="journal")
+async def cmd_journal(ctx, *, entry_text: str = ""):
+    """Write a journal entry. Usage: !journal Had a great day at work!"""
+    user_id = str(ctx.author.id)
+
+    if not entry_text:
+        # Show recent entries
+        entries = get_journal_entries(user_id, days=7, limit=5)
+        await ctx.send(format_journal_entries(entries))
+        return
+
+    async with ctx.typing():
+        # Log the entry
+        entry = add_journal_entry(user_id, entry_text)
+        if not entry:
+            await ctx.reply("Couldn't save that. Try again?")
+            return
+
+        mood_emoji = entry["mood_emoji"]
+        mood_label = entry["mood_label"]
+        streak = entry.get("streak", 0)
+
+        # Generate Emily's reflection
+        try:
+            response = await asyncio.wait_for(
+                claude_client.messages.create(
+                    model=MODEL_CLAUDE,
+                    max_tokens=200,
+                    messages=[{"role": "user", "content": (
+                        f"{EMILY_MINI_PERSONA}\n\n"
+                        f"Someone just wrote this journal entry (mood: {mood_label}):\n"
+                        f"\"{entry_text}\"\n\n"
+                        f"Respond with a short, warm, empathetic reflection (2-3 sentences max). "
+                        f"Acknowledge their feelings. If they're happy, celebrate with them. "
+                        f"If they're struggling, be supportive without being preachy. "
+                        f"Be genuine, not generic. No hashtags."
+                    )}],
+                ),
+                timeout=15,
+            )
+            reflection = ""
+            for block in response.content:
+                if block.type == "text":
+                    reflection += block.text
+            reflection = reflection.strip().strip('"')
+        except Exception:
+            reflection = None
+
+        # Build response
+        reply = f"📓 **Journal Entry Saved** {mood_emoji}\n"
+        reply += f"**Mood:** {mood_emoji} {mood_label.title()}\n\n"
+
+        if reflection:
+            reply += f"*{reflection}*\n"
+
+        # Streak info
+        from tracker_tools import _get_journal_streak
+        streak = _get_journal_streak(user_id)
+        if streak > 1:
+            reply += f"\n🔥 **{streak}-day journaling streak!** Keep it up!"
+        elif streak == 1:
+            reply += f"\n✨ First entry today — start of a streak!"
+
+        await ctx.reply(reply)
+
+
+@bot.command(name="diary")
+async def cmd_diary(ctx, days: int = 7):
+    """View recent journal entries. Usage: !diary | !diary 14"""
+    entries = get_journal_entries(str(ctx.author.id), days=days, limit=10)
+    await send_chunked_reply(ctx.message, format_journal_entries(entries))
+
+
+@bot.command(name="mood")
+async def cmd_mood(ctx, days: int = 14):
+    """View your mood trend. Usage: !mood | !mood 30"""
+    user_id = str(ctx.author.id)
+    trend = get_mood_trend(user_id, days=days)
+    output = format_mood_trend(trend)
+
+    # Add stats
+    stats = get_mood_stats(user_id, days=days)
+    if stats:
+        output += f"\n\n📈 **Stats ({days} days):**"
+        output += f"\n• {stats['total_entries']} entries"
+        if stats["streak"] > 0:
+            output += f" | 🔥 {stats['streak']}-day streak"
+
+        # Best & worst days
+        best = stats["best_day"]
+        worst = stats["worst_day"]
+        output += f"\n• Best: {best.get('mood_emoji', '')} {best.get('date_str', '')} — {best.get('text', '')[:50]}"
+        output += f"\n• Lowest: {worst.get('mood_emoji', '')} {worst.get('date_str', '')} — {worst.get('text', '')[:50]}"
+
+    await send_chunked_reply(ctx.message, output)
+
+
+@bot.command(name="reflect")
+async def cmd_reflect(ctx):
+    """Get Emily's AI reflection on your recent journal entries."""
+    user_id = str(ctx.author.id)
+    entries = get_journal_entries(user_id, days=14, limit=10)
+
+    if len(entries) < 2:
+        await ctx.reply("I need at least 2 journal entries to reflect on. Write more with `!journal`!")
+        return
+
+    async with ctx.typing():
+        # Build context for Claude
+        journal_context = "\n".join([
+            f"- {e.get('date_str', '')} ({e.get('mood_label', 'neutral')}): {e.get('text', '')}"
+            for e in reversed(entries)
+        ])
+
+        try:
+            response = await asyncio.wait_for(
+                claude_client.messages.create(
+                    model=MODEL_CLAUDE,
+                    max_tokens=500,
+                    messages=[{"role": "user", "content": (
+                        f"{EMILY_MINI_PERSONA}\n\n"
+                        f"Here are someone's recent journal entries:\n\n{journal_context}\n\n"
+                        f"Write a thoughtful, warm reflection (about 150-200 words). Include:\n"
+                        f"1. Patterns you notice (mood changes, recurring themes, growth)\n"
+                        f"2. Something positive to highlight\n"
+                        f"3. A gentle observation or encouragement\n\n"
+                        f"Be insightful and personal, not generic. Reference specific entries. "
+                        f"Speak as a caring friend, not a therapist."
+                    )}],
+                ),
+                timeout=30,
+            )
+            reflection = ""
+            for block in response.content:
+                if block.type == "text":
+                    reflection += block.text
+        except Exception as e:
+            logger.error(f"Reflect error: {e}")
+            await ctx.reply("Couldn't generate a reflection right now. Try again?")
+            return
+
+        # Get mood stats
+        trend = get_mood_trend(user_id, days=14)
+        avg_moods = [d["avg_mood"] for d in trend] if trend else []
+        overall = sum(avg_moods) / len(avg_moods) if avg_moods else 3
+        overall_emoji = MOOD_SCALE.get(round(overall), ("😐", "okay"))[0]
+
+        output = f"🪞 **Emily's Reflection** {overall_emoji}\n\n"
+        output += reflection.strip()
+
+        # Add mini trend
+        if trend and len(trend) > 2:
+            recent_avg = avg_moods[-3:]  # Last 3 days
+            earlier_avg = avg_moods[:-3] if len(avg_moods) > 3 else avg_moods[:1]
+            if recent_avg and earlier_avg:
+                recent = sum(recent_avg) / len(recent_avg)
+                earlier = sum(earlier_avg) / len(earlier_avg)
+                if recent > earlier + 0.3:
+                    output += "\n\n📈 *Your mood has been trending up recently!*"
+                elif recent < earlier - 0.3:
+                    output += "\n\n💛 *Your mood has dipped a bit lately. Be kind to yourself.*"
+
+        await send_chunked_reply(ctx.message, output)
 
 
 @bot.command(name="news")
@@ -5646,6 +5818,28 @@ async def on_message(message):
                                 # Don't return — let Emily comment on it too
                     except Exception as e:
                         logger.warning(f"NLP todo detection error: {e}")
+
+            # ─── NATURAL LANGUAGE JOURNAL DETECTION ───
+            # Detect when someone is sharing feelings/day experiences naturally
+            if clean_msg and not clean_msg.startswith("!") and len(clean_msg.split()) >= 5:
+                journal_match = re.search(
+                    r'(?:today\s+was|my\s+day\s+was|i\s+(?:had|have)\s+(?:a|an)\s+(?:great|good|bad|terrible|rough|amazing|tough|wonderful|stressful)\s+day'
+                    r'|(?:i\s+feel|i\'?m\s+feeling|feeling\s+(?:so\s+)?(?:happy|sad|stressed|anxious|grateful|blessed|overwhelmed|proud|tired|excited|depressed|lonely))'
+                    r'|(?:i\s+(?:got|received)\s+(?:promoted|fired|hired|accepted|rejected|dumped))'
+                    r'|(?:journal|dear\s+diary|log\s+this))',
+                    clean_msg, re.IGNORECASE
+                )
+                if journal_match:
+                    try:
+                        entry = add_journal_entry(user_id, clean_msg)
+                        if entry:
+                            mood = entry["mood_emoji"]
+                            logger.info(f"Auto-journal for {user_id}: {mood} — {clean_msg[:50]}")
+                            # Don't reply separately — Emily will respond naturally
+                            # But add a subtle indicator in history
+                            add_message_to_history(user_id, "model", [{"text": f"[Journal logged: {mood}]"}])
+                    except Exception as e:
+                        logger.warning(f"NLP journal detection error: {e}")
 
             # ─── MEDIA REQUEST PRE-DETECT ───
             # If user asks for an image/gif, search immediately so we can append
