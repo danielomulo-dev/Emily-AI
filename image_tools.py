@@ -65,6 +65,9 @@ def _google_image_search(query, is_gif=False, max_results=5):
 
         if is_gif:
             params["fileType"] = "gif"
+            # Add "animated gif" to query for better results
+            if "gif" not in query.lower():
+                params["q"] = f"{query} animated gif"
 
         response = requests.get(
             "https://www.googleapis.com/customsearch/v1",

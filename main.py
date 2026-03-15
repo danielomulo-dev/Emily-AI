@@ -631,10 +631,32 @@ async def send_chunked_reply(message, response):
         return
 
     # Separate media URLs (GIFs/images) from text so Discord embeds them
-    media_pattern = re.compile(r'\n*\s*(https?://\S+\.(?:gif|png|jpg|jpeg|webp)(?:\?\S*)?)\s*\n*', re.IGNORECASE)
+    media_pattern = re.compile(
+        r'\n*\s*(https?://\S+\.(?:gif|png|jpg|jpeg|webp)(?:\?\S*)?'
+        r'|https?://(?:media\.giphy\.com|i\.giphy\.com|media\d?\.tenor\.com|c\.tenor\.com)/\S+)\s*\n*',
+        re.IGNORECASE
+    )
     media_urls = media_pattern.findall(response)
+    # Deduplicate media URLs
+    seen_urls = set()
+    unique_media = []
+    for url in media_urls:
+        if url not in seen_urls:
+            seen_urls.add(url)
+            unique_media.append(url)
+    media_urls = unique_media
     # Remove media URLs from the main text
     clean_response = media_pattern.sub('\n', response).strip()
+
+    # Clean up orphaned "Here's an image/gif:" text that had its URL removed
+    clean_response = re.sub(
+        r'(?:Here\'?s?\s+(?:an?\s+)?(?:image|picture|photo|gif|it|him|her)\s*(?:of\s+\w+)?\s*:?\s*)\n*$',
+        '', clean_response, flags=re.IGNORECASE
+    ).strip()
+    clean_response = re.sub(
+        r'\n\s*(?:Here\s+you\s+go|Here\s+it\s+is)\s*:?\s*$',
+        '', clean_response, flags=re.IGNORECASE
+    ).strip()
 
     # Send main text
     if clean_response:
@@ -1260,12 +1282,11 @@ IMPORTANT:
 
         # ─── TAG PROCESSING ───
         # Fallback: If Emily said "here's an image/picture" but forgot the [IMG:] tag,
-        # try to extract what she was trying to show from the last user message
-        if re.search(r"[Hh]ere'?s?\s+(?:an?\s+)?(?:image|picture|photo|pic)\s*(?:of|for|:)", final_text) \
-                and not re.search(r'\[\s*(?:IMG|IMAGE)', final_text, re.IGNORECASE):
-            # Get the user's original request to figure out what image to search
+        # or "here you go" for a GIF but forgot the [GIF:] tag
+        if not re.search(r'\[\s*(?:IMG|IMAGE|GIF)', final_text, re.IGNORECASE):
+            # Get the user's original request
+            last_user_msg = ""
             try:
-                last_user_msg = ""
                 for msg in reversed(conversation_history):
                     if msg.get("role") == "user":
                         for p in msg.get("parts", []):
@@ -1274,18 +1295,44 @@ IMPORTANT:
                             elif isinstance(p, str):
                                 last_user_msg = p
                         break
-                if last_user_msg:
-                    # Extract the subject from "share a picture of X" or "show me X"
+            except Exception:
+                pass
+
+            user_lower = last_user_msg.lower()
+
+            # GIF fallback — user asked for a GIF but Emily forgot the tag
+            if last_user_msg and any(kw in user_lower for kw in ["gif", "animated", "animation"]):
+                gif_match = re.search(
+                    r'(?:gif|animated\s+(?:image|pic))\s+(?:of\s+)?(.+)',
+                    last_user_msg, re.IGNORECASE
+                )
+                if gif_match:
+                    search_term = gif_match.group(1).strip().rstrip('?!.')
+                else:
+                    # Try broader extraction: "show me a gif of cat dancing"
+                    gif_match2 = re.search(r'(?:show|send|share|get)\s+(?:me\s+)?(?:a\s+)?gif\s+(?:of\s+)?(.+)', user_lower)
+                    search_term = gif_match2.group(1).strip().rstrip('?!.') if gif_match2 else ""
+                if search_term:
+                    final_text += f"\n[GIF: {search_term}]"
+                    logger.info(f"GIF tag fallback injected: [GIF: {search_term}]")
+
+            # Image fallback — user asked for an image but Emily forgot the tag
+            elif last_user_msg and re.search(r"[Hh]ere'?s?\s+(?:an?\s+)?(?:image|picture|photo|pic|him|her|it)\s*(?:of|for|:)?", final_text):
+                img_match = re.search(
+                    r'(?:picture|image|photo|pic)\s+(?:of\s+)?(.+)',
+                    last_user_msg, re.IGNORECASE
+                )
+                if not img_match:
+                    # Broader: "show me Bruno Fernandez"
                     img_match = re.search(
-                        r'(?:picture|image|photo|pic)\s+(?:of\s+)?(.+)',
+                        r'(?:show|send|share)\s+(?:me\s+)?(?:a\s+)?(?:picture|image|photo|pic)?\s*(?:of\s+)?(.+)',
                         last_user_msg, re.IGNORECASE
                     )
-                    if img_match:
-                        search_term = img_match.group(1).strip().rstrip('?!.')
+                if img_match:
+                    search_term = img_match.group(1).strip().rstrip('?!.')
+                    if search_term and len(search_term) > 2:
                         final_text += f"\n[IMG: {search_term}]"
                         logger.info(f"Image tag fallback injected: [IMG: {search_term}]")
-            except Exception as e:
-                logger.warning(f"Image fallback detection error: {e}")
 
         final_text, s = await _process_all_tags(
             r'\[\s*STOCK:\s*(.*?)\s*\]', final_text,
