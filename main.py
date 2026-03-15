@@ -4562,6 +4562,33 @@ async def cmd_notifywp(ctx, *, movie_title: str = ""):
 
 
 # ══════════════════════════════════════════════
+# DEBUG: TEST IMAGE/GIF SEARCH
+# ══════════════════════════════════════════════
+@bot.command(name="testimg")
+async def cmd_testimg(ctx, *, query: str = "cat"):
+    """Debug: Test image search directly. Usage: !testimg Bruno Fernandez"""
+    async with ctx.typing():
+        url = await asyncio.to_thread(get_media_link, query, False)
+        if url:
+            await ctx.reply(f"✅ Image found:\n{url}")
+            await ctx.channel.send(url)
+        else:
+            await ctx.reply(f"❌ No image found for: `{query}`")
+
+
+@bot.command(name="testgif")
+async def cmd_testgif(ctx, *, query: str = "cat dancing"):
+    """Debug: Test GIF search directly. Usage: !testgif cat dancing"""
+    async with ctx.typing():
+        url = await asyncio.to_thread(get_media_link, query, True)
+        if url:
+            await ctx.reply(f"✅ GIF found:\n{url}")
+            await ctx.channel.send(url)
+        else:
+            await ctx.reply(f"❌ No GIF found for: `{query}`")
+
+
+# ══════════════════════════════════════════════
 # TWITTER COMMANDS
 # ══════════════════════════════════════════════
 @bot.command(name="tweet")
@@ -5057,10 +5084,6 @@ async def on_message(message):
             )
             full_response = response_text + source_links
 
-            # Append pre-detected media URL if the AI response doesn't already contain it
-            if pre_media_url and pre_media_url not in full_response:
-                full_response += f"\n\n{pre_media_url}"
-
             if is_voice_input or wants_voice_reply or user_id in _voice_mode_users or is_voice_channel:
                 # Send voice note + text fallback
                 voice_sent = await send_voice_reply(message, response_text)
@@ -5071,6 +5094,14 @@ async def on_message(message):
                     await send_chunked_reply(message, full_response)
             else:
                 await send_chunked_reply(message, full_response)
+
+            # Send pre-detected media as a SEPARATE message so Discord embeds it
+            if pre_media_url:
+                try:
+                    await message.channel.send(pre_media_url)
+                    logger.info(f"Media sent: {pre_media_type} -> {pre_media_url[:80]}")
+                except Exception as e:
+                    logger.error(f"Failed to send media URL: {e}")
 
             text_for_history = clean_msg or "Sent a file"
             add_message_to_history(user_id, "user", [{"text": text_for_history}])
