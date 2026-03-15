@@ -4568,11 +4568,11 @@ async def cmd_notifywp(ctx, *, movie_title: str = ""):
 async def cmd_testimg(ctx, *, query: str = "cat"):
     """Debug: Test image search directly. Usage: !testimg Bruno Fernandez"""
     async with ctx.typing():
-        # Test Google first
-        from image_tools import _google_image_search, _ddg_image_search, GOOGLE_API_KEY, GOOGLE_CX
+        from image_tools import _google_image_search, _ddg_image_search, _bing_image_search, GOOGLE_API_KEY, GOOGLE_CX
         results = []
         google_status = "❌ Not configured"
         ddg_status = "❌ Not attempted"
+        bing_status = "❌ Not attempted"
 
         if GOOGLE_API_KEY and GOOGLE_CX:
             try:
@@ -4581,10 +4581,10 @@ async def cmd_testimg(ctx, *, query: str = "cat"):
                     google_status = f"✅ {len(google_urls)} results"
                     results = google_urls
                 else:
-                    google_status = "❌ No results (quota may be exhausted)"
+                    google_status = "❌ No results (quota exhausted?)"
             except Exception as e:
-                google_status = f"❌ Error: {str(e)[:100]}"
-        
+                google_status = f"❌ {str(e)[:80]}"
+
         if not results:
             try:
                 ddg_urls = await asyncio.to_thread(_ddg_image_search, query, False, 3)
@@ -4594,21 +4594,30 @@ async def cmd_testimg(ctx, *, query: str = "cat"):
                 else:
                     ddg_status = "❌ No results"
             except Exception as e:
-                ddg_status = f"❌ Error: {str(e)[:100]}"
+                ddg_status = f"❌ {str(e)[:80]}"
+
+        if not results:
+            try:
+                bing_urls = await asyncio.to_thread(_bing_image_search, query, False, 3)
+                if bing_urls:
+                    bing_status = f"✅ {len(bing_urls)} results"
+                    results = bing_urls
+                else:
+                    bing_status = "❌ No results"
+            except Exception as e:
+                bing_status = f"❌ {str(e)[:80]}"
 
         report = (
             f"🔍 **Image Search Debug: `{query}`**\n\n"
             f"**Google:** {google_status}\n"
             f"**DuckDuckGo:** {ddg_status}\n"
+            f"**Bing:** {bing_status}\n"
         )
         if results:
-            report += f"\n**First URL:** {results[0]}"
             await ctx.reply(report)
             await ctx.channel.send(results[0])
         else:
-            report += "\n**Both search engines failed!**"
-            report += f"\n\nGoogle API Key set: `{bool(GOOGLE_API_KEY)}`"
-            report += f"\nGoogle CX set: `{bool(GOOGLE_CX)}`"
+            report += f"\n**All sources failed!** API Key: `{bool(GOOGLE_API_KEY)}` CX: `{bool(GOOGLE_CX)}`"
             await ctx.reply(report)
 
 
@@ -4616,10 +4625,11 @@ async def cmd_testimg(ctx, *, query: str = "cat"):
 async def cmd_testgif(ctx, *, query: str = "cat dancing"):
     """Debug: Test GIF search directly. Usage: !testgif cat dancing"""
     async with ctx.typing():
-        from image_tools import _google_image_search, _ddg_image_search, GOOGLE_API_KEY, GOOGLE_CX
+        from image_tools import _google_image_search, _ddg_image_search, _bing_image_search, GOOGLE_API_KEY, GOOGLE_CX
         results = []
         google_status = "❌ Not configured"
         ddg_status = "❌ Not attempted"
+        bing_status = "❌ Not attempted"
 
         if GOOGLE_API_KEY and GOOGLE_CX:
             try:
@@ -4628,9 +4638,9 @@ async def cmd_testgif(ctx, *, query: str = "cat dancing"):
                     google_status = f"✅ {len(google_urls)} results"
                     results = google_urls
                 else:
-                    google_status = "❌ No results (quota may be exhausted)"
+                    google_status = "❌ No results (quota exhausted?)"
             except Exception as e:
-                google_status = f"❌ Error: {str(e)[:100]}"
+                google_status = f"❌ {str(e)[:80]}"
 
         if not results:
             try:
@@ -4641,21 +4651,30 @@ async def cmd_testgif(ctx, *, query: str = "cat dancing"):
                 else:
                     ddg_status = "❌ No results"
             except Exception as e:
-                ddg_status = f"❌ Error: {str(e)[:100]}"
+                ddg_status = f"❌ {str(e)[:80]}"
+
+        if not results:
+            try:
+                bing_urls = await asyncio.to_thread(_bing_image_search, query, True, 3)
+                if bing_urls:
+                    bing_status = f"✅ {len(bing_urls)} results"
+                    results = bing_urls
+                else:
+                    bing_status = "❌ No results"
+            except Exception as e:
+                bing_status = f"❌ {str(e)[:80]}"
 
         report = (
             f"🔍 **GIF Search Debug: `{query}`**\n\n"
             f"**Google:** {google_status}\n"
             f"**DuckDuckGo:** {ddg_status}\n"
+            f"**Bing:** {bing_status}\n"
         )
         if results:
-            report += f"\n**First URL:** {results[0]}"
             await ctx.reply(report)
             await ctx.channel.send(results[0])
         else:
-            report += "\n**Both search engines failed!**"
-            report += f"\n\nGoogle API Key set: `{bool(GOOGLE_API_KEY)}`"
-            report += f"\nGoogle CX set: `{bool(GOOGLE_CX)}`"
+            report += f"\n**All sources failed!** API Key: `{bool(GOOGLE_API_KEY)}` CX: `{bool(GOOGLE_CX)}`"
             await ctx.reply(report)
 
 
