@@ -3076,14 +3076,17 @@ async def cmd_report(ctx):
         try:
             user_id = str(ctx.author.id)
             monthly = get_monthly_spending(user_id)
-            limit = get_budget_limit(user_id)
 
             if not monthly or not monthly.get("entries"):
                 await ctx.reply("No expenses this month to report! Start logging with `!spent`")
                 return
 
+            # Use effective budget (base limit + income) not just base limit
+            limit = get_effective_budget(user_id)
+            income = get_monthly_income(user_id)
+
             user_name = ctx.author.display_name
-            pdf_bytes = generate_expense_pdf(user_name, monthly, limit)
+            pdf_bytes = generate_expense_pdf(user_name, monthly, limit, income_data=income)
 
             if pdf_bytes:
                 now = datetime.now(pytz.timezone('Africa/Nairobi'))

@@ -430,7 +430,7 @@ _CAT_COLORS = [
 ]
 
 
-def generate_expense_pdf(user_name, monthly_data, budget_limit=None):
+def generate_expense_pdf(user_name, monthly_data, budget_limit=None, income_data=None):
     """Generate a professional PDF expense report with visual charts. Returns bytes."""
     try:
         from fpdf import FPDF
@@ -452,13 +452,21 @@ def generate_expense_pdf(user_name, monthly_data, budget_limit=None):
         entries = monthly_data.get("entries", [])
         sorted_cats = sorted(categories.items(), key=lambda x: -x[1])
 
-        # Budget calculations
+        # Income data
+        total_income = 0
+        income_entries = []
+        if income_data:
+            total_income = income_data.get("total", 0)
+            income_entries = income_data.get("entries", [])
+
+        # Budget calculations — budget_limit should already be effective (base + income)
         remaining = (budget_limit - total) if budget_limit else None
         budget_pct = (total / budget_limit * 100) if budget_limit else 0
         day_of_month = now.day
         days_left = max(30 - day_of_month, 1)
         daily_avg = total / max(day_of_month, 1)
         daily_allowance = remaining / days_left if remaining and remaining > 0 else 0
+        net_balance = total_income - total  # Income minus expenses
 
         pdf = FPDF()
         pdf.set_auto_page_break(auto=True, margin=20)
@@ -485,7 +493,11 @@ def generate_expense_pdf(user_name, monthly_data, budget_limit=None):
         pdf.ln(10)
 
         # ── Summary Cards ──
-        card_w = pw / 3
+        if total_income > 0:
+            # 4 cards if we have income data
+            card_w = pw / 4
+        else:
+            card_w = pw / 3
         card_h = 22
         y_start = pdf.get_y()
 
@@ -494,29 +506,51 @@ def generate_expense_pdf(user_name, monthly_data, budget_limit=None):
             pdf.set_draw_color(*_COLORS["light_gray"])
             pdf.rect(x, y, card_w - 2, card_h, "DF")
             pdf.set_xy(x + 2, y + 2)
-            pdf.set_font("Helvetica", "", 8)
+            pdf.set_font("Helvetica", "", 7)
             pdf.set_text_color(*_COLORS["gray"])
             pdf.cell(card_w - 6, 5, label, ln=True)
             pdf.set_xy(x + 2, y + 8)
-            pdf.set_font("Helvetica", "B", 13)
+            pdf.set_font("Helvetica", "B", 12)
             pdf.set_text_color(*color)
             pdf.cell(card_w - 6, 10, value)
             pdf.set_text_color(*_COLORS["dark"])
 
-        _draw_card(10, y_start, "TOTAL SPENT", f"KES {total:,.0f}", _COLORS["danger"])
-        _draw_card(10 + card_w, y_start, "TRANSACTIONS", f"{count}", _COLORS["primary"])
+        col = 0
+        if total_income > 0:
+            _draw_card(10 + card_w * col, y_start, "INCOME", f"KES {total_income:,.0f}", _COLORS["success"])
+            col += 1
+
+        _draw_card(10 + card_w * col, y_start, "TOTAL SPENT", f"KES {total:,.0f}", _COLORS["danger"])
+        col += 1
+        _draw_card(10 + card_w * col, y_start, "TRANSACTIONS", f"{count}", _COLORS["primary"])
+        col += 1
+
         if budget_limit:
             r_color = _COLORS["success"] if remaining and remaining > 0 else _COLORS["danger"]
-            _draw_card(10 + card_w * 2, y_start, "REMAINING", f"KES {remaining:,.0f}" if remaining else "N/A", r_color)
+            _draw_card(10 + card_w * col, y_start, "REMAINING", f"KES {remaining:,.0f}" if remaining else "N/A", r_color)
         else:
-            _draw_card(10 + card_w * 2, y_start, "DAILY AVG", f"KES {daily_avg:,.0f}", _COLORS["warning"])
+            _draw_card(10 + card_w * col, y_start, "DAILY AVG", f"KES {daily_avg:,.0f}", _COLORS["warning"])
 
         pdf.set_y(y_start + card_h + 5)
+
+        # ── Net Balance (Income - Expenses) ──
+        if total_income > 0:
+            bal_color = _COLORS["success"] if net_balance >= 0 else _COLORS["danger"]
+            bal_sign = "+" if net_balance >= 0 else ""
+            pdf.set_font("Helvetica", "B", 9)
+            pdf.set_text_color(*bal_color)
+            pdf.cell(0, 5, f"Net Balance (Income - Expenses): KES {bal_sign}{net_balance:,.0f}", ln=True)
+            pdf.set_text_color(*_COLORS["dark"])
+            pdf.ln(3)
 
         # ── Budget Progress Bar ──
         if budget_limit:
             pdf.set_font("Helvetica", "B", 11)
-            pdf.cell(0, 8, "Budget Progress", ln=True)
+            budget_label = "Budget Progress"
+            if total_income > 0:
+                base_limit = budget_limit - total_income
+                budget_label += f" (Base: KES {base_limit:,.0f} + Income: KES {total_income:,.0f})"
+            pdf.cell(0, 8, budget_label, ln=True)
 
             bar_w = pw
             bar_h = 12
