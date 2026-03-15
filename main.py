@@ -5120,22 +5120,106 @@ async def on_message(message):
                     logger.info(f"Fetched {len(fetched_urls)} URL(s): {fetched_urls}")
 
             # ─── NATURAL LANGUAGE SPENDING DETECTION ───
-            if clean_msg:
-                spend_match = re.search(
-                    r'(?:i\s+)?(?:spent|paid|used|bought|cost)\s+(?:KES\s*|Ksh\s*)?(\d[\d,]*\.?\d*)\s+(?:on\s+|for\s+)?(.+)',
+            if clean_msg and not clean_msg.startswith("!"):
+                expense_detected = False
+                amount = None
+                desc = None
+
+                # Skip if it's clearly a question, not an expense report
+                msg_lower = clean_msg.lower().strip()
+                is_question = msg_lower.startswith(("what", "how", "when", "where", "why", "who", "can", "could", "should", "will", "is there", "are there", "do you", "does"))
+                # Skip very long messages (probably conversation, not expense logging)
+                is_too_long = len(clean_msg.split()) > 20
+                skip_expense = is_question or is_too_long
+
+                # Pattern 1: "spent/paid/bought 500 on/for lunch"
+                spend_match = None
+                if not skip_expense:
+                    spend_match = re.search(
+                    r'(?:i\s+)?(?:spent|paid|used|bought|cost\s+me)\s+(?:KES\s*|Ksh\s*)?(\d[\d,]*\.?\d*)\s+(?:on\s+|for\s+)?(.+)',
                     clean_msg, re.IGNORECASE
                 )
-                if not spend_match:
+                # Pattern 2: "KES 500 on/for lunch"
+                if not skip_expense and not spend_match:
                     spend_match = re.search(
                         r'(?:KES\s*|Ksh\s*)(\d[\d,]*\.?\d*)\s+(?:on|for)\s+(.+)',
                         clean_msg, re.IGNORECASE
                     )
-                if spend_match:
+                # Pattern 3: "bought lunch for 500" / "paid rent 15000" (amount AFTER description)
+                if not skip_expense and not spend_match:
+                    spend_match = re.search(
+                        r'(?:i\s+)?(?:bought|paid|spent\s+on|got)\s+(.+?)\s+(?:for\s+)?(?:KES\s*|Ksh\s*)?(\d[\d,]*\.?\d*)',
+                        clean_msg, re.IGNORECASE
+                    )
+                    if spend_match:
+                        try:
+                            amount = float(spend_match.group(2).replace(",", ""))
+                            desc = spend_match.group(1).strip().rstrip('.!?')
+                            expense_detected = True
+                        except (ValueError, IndexError):
+                            pass
+
+                # Pattern 4: "lunch was 500" / "taxi was 200" / "rent is 15000" / "lunch cost me 500"
+                if not skip_expense and not spend_match and not expense_detected:
+                    spend_match = re.search(
+                        r'(.+?)\s+(?:was|costs?(?:\s+me)?|is|came\s+to)\s+(?:KES\s*|Ksh\s*)?(\d[\d,]*\.?\d*)',
+                        clean_msg, re.IGNORECASE
+                    )
+                    if spend_match:
+                        try:
+                            amount = float(spend_match.group(2).replace(",", ""))
+                            desc = spend_match.group(1).strip().rstrip('.!?')
+                            if len(desc.split()) > 6 or amount <= 0:
+                                desc = None
+                                amount = None
+                            else:
+                                expense_detected = True
+                        except (ValueError, IndexError):
+                            pass
+
+                # Pattern 5: "500 for lunch" / "1500 on shoes"
+                if not skip_expense and not spend_match and not expense_detected:
+                    spend_match = re.search(
+                        r'^(?:KES\s*|Ksh\s*)?(\d[\d,]*\.?\d*)\s+(?:for|on)\s+(.+)',
+                        clean_msg, re.IGNORECASE
+                    )
+
+                # Pattern 6: "gave/sent 500 to/for X" (transfers)
+                if not skip_expense and not spend_match and not expense_detected:
+                    spend_match = re.search(
+                        r'(?:gave|sent|loaned|lent|helped)\s+(?:KES\s*|Ksh\s*)?(\d[\d,]*\.?\d*)\s+(?:to|for)\s+(.+)',
+                        clean_msg, re.IGNORECASE
+                    )
+
+                # Pattern 7: "gave/sent X 500" (amount after name)
+                if not skip_expense and not spend_match and not expense_detected:
+                    spend_match = re.search(
+                        r'(?:gave|sent|loaned|lent|helped)\s+(\w+)\s+(?:KES\s*|Ksh\s*)?(\d[\d,]*\.?\d*)',
+                        clean_msg, re.IGNORECASE
+                    )
+                    if spend_match:
+                        try:
+                            amount = float(spend_match.group(2).replace(",", ""))
+                            name = spend_match.group(1).strip()
+                            desc = f"sent to {name}"
+                            expense_detected = True
+                        except (ValueError, IndexError):
+                            pass
+
+                # Extract amount/desc from standard patterns (groups 1=amount, 2=desc)
+                if spend_match and not expense_detected:
                     try:
                         amount = float(spend_match.group(1).replace(",", ""))
                         desc = spend_match.group(2).strip().rstrip('.!?')
+                        expense_detected = True
+                    except (ValueError, IndexError):
+                        pass
+
+                # Log the expense if detected
+                if expense_detected and amount and amount > 0 and desc and len(desc) > 1:
+                    try:
                         category = _detect_expense_category(desc)
-                        if amount > 0 and log_expense(user_id, amount, desc, category):
+                        if log_expense(user_id, amount, desc, category):
                             daily = get_daily_spending(user_id)
                             today_total = daily["total"] if daily else amount
                             budget_note = ""
