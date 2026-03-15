@@ -19,6 +19,7 @@ income_col = None
 portfolio_col = None
 reminders_col = None
 server_settings_col = None
+todos_col = None
 
 try:
     mongo_client = MongoClient(
@@ -34,6 +35,7 @@ try:
     portfolio_col = db["portfolios"]
     reminders_col = db["reminders"]
     server_settings_col = db["server_settings"]
+    todos_col = db["todos"]
 
     # Indexes
     budgets_col.create_index([("user_id", ASCENDING), ("date", ASCENDING)])
@@ -41,6 +43,7 @@ try:
     portfolio_col.create_index([("user_id", ASCENDING)])
     reminders_col.create_index([("remind_at", ASCENDING), ("status", ASCENDING)])
     server_settings_col.create_index([("guild_id", ASCENDING)])
+    todos_col.create_index([("user_id", ASCENDING), ("status", ASCENDING)])
 
     logger.info("Tracker tools connected to MongoDB!")
 except Exception as e:
@@ -866,3 +869,151 @@ def get_sent_news_urls(guild_id, days=3):
     except PyMongoError as e:
         logger.error(f"Get sent news error: {e}")
         return set()
+
+
+# ══════════════════════════════════════════════
+# TO-DO LIST
+# ══════════════════════════════════════════════
+def add_todo(user_id, text, priority="normal"):
+    """Add a to-do item."""
+    if todos_col is None:
+        return None
+    try:
+        result = todos_col.insert_one({
+            "user_id": str(user_id),
+            "text": text,
+            "priority": priority,
+            "status": "pending",
+            "created_at": _now(),
+            "completed_at": None,
+        })
+        # Return the position number
+        count = todos_col.count_documents({
+            "user_id": str(user_id),
+            "status": "pending",
+        })
+        return count
+    except PyMongoError as e:
+        logger.error(f"Add todo error: {e}")
+        return None
+
+
+def complete_todo(user_id, index):
+    """Mark a to-do as done by its position number (1-based)."""
+    if todos_col is None:
+        return None
+    try:
+        todos = list(todos_col.find({
+            "user_id": str(user_id),
+            "status": "pending",
+        }).sort("created_at", 1))
+
+        if index < 1 or index > len(todos):
+            return None
+
+        todo = todos[index - 1]
+        todos_col.update_one(
+            {"_id": todo["_id"]},
+            {"$set": {"status": "done", "completed_at": _now()}}
+        )
+        return todo["text"]
+    except PyMongoError as e:
+        logger.error(f"Complete todo error: {e}")
+        return None
+
+
+def remove_todo(user_id, index):
+    """Delete a to-do item by position number (1-based)."""
+    if todos_col is None:
+        return None
+    try:
+        todos = list(todos_col.find({
+            "user_id": str(user_id),
+            "status": "pending",
+        }).sort("created_at", 1))
+
+        if index < 1 or index > len(todos):
+            return None
+
+        todo = todos[index - 1]
+        todos_col.delete_one({"_id": todo["_id"]})
+        return todo["text"]
+    except PyMongoError as e:
+        logger.error(f"Remove todo error: {e}")
+        return None
+
+
+def get_todos(user_id, include_done=False):
+    """Get all to-do items for a user."""
+    if todos_col is None:
+        return []
+    try:
+        query = {"user_id": str(user_id)}
+        if not include_done:
+            query["status"] = "pending"
+
+        return list(todos_col.find(query).sort("created_at", 1))
+    except PyMongoError as e:
+        logger.error(f"Get todos error: {e}")
+        return []
+
+
+def clear_done_todos(user_id):
+    """Remove all completed to-do items."""
+    if todos_col is None:
+        return 0
+    try:
+        result = todos_col.delete_many({
+            "user_id": str(user_id),
+            "status": "done",
+        })
+        return result.deleted_count
+    except PyMongoError as e:
+        logger.error(f"Clear todos error: {e}")
+        return 0
+
+
+def format_todos(todos):
+    """Format to-do list for Discord display."""
+    if not todos:
+        return "📝 Your to-do list is empty! Add something with `!todo buy groceries` or just tell me naturally."
+
+    lines = ["📝 **Your To-Do List**\n"]
+    pending = [t for t in todos if t.get("status") == "pending"]
+    done = [t for t in todos if t.get("status") == "done"]
+
+    for i, t in enumerate(pending, 1):
+        priority_icon = "🔴" if t.get("priority") == "high" else "🟡" if t.get("priority") == "medium" else "⬜"
+        lines.append(f"{priority_icon} **{i}.** {t['text']}")
+
+    if done:
+        lines.append(f"\n✅ **Completed ({len(done)}):**")
+        for t in done[-5:]:  # Show last 5 completed
+            lines.append(f"~~{t['text']}~~")
+
+    lines.append(f"\n_Mark done: `!done 1` | Remove: `!deltodo 1` | Clear done: `!cleartodos`_")
+    return "\n".join(lines)
+
+
+# ══════════════════════════════════════════════
+# CANCEL REMINDER
+# ══════════════════════════════════════════════
+def cancel_reminder(user_id, index):
+    """Cancel a pending reminder by its position number (1-based)."""
+    if reminders_col is None:
+        return None
+    try:
+        reminders = list(reminders_col.find({
+            "user_id": str(user_id),
+            "status": "pending",
+        }).sort("remind_at", 1))
+
+        if index < 1 or index > len(reminders):
+            return None
+
+        reminder = reminders[index - 1]
+        reminders_col.delete_one({"_id": reminder["_id"]})
+        return reminder["text"]
+    except PyMongoError as e:
+        logger.error(f"Cancel reminder error: {e}")
+        return None

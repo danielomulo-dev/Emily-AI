@@ -36,6 +36,8 @@ from tracker_tools import (
     recategorize_expenses,
     add_holding, remove_holding, get_portfolio, format_portfolio,
     add_reminder, get_due_reminders, mark_reminder_done, get_user_reminders,
+    cancel_reminder,
+    add_todo, complete_todo, remove_todo, get_todos, clear_done_todos, format_todos,
     get_server_settings, update_server_setting, set_news_channel, get_news_servers,
     set_server_persona, get_server_persona, PERSONA_PRESETS,
     set_alert_settings, get_alert_settings, get_all_alert_users,
@@ -2660,6 +2662,10 @@ async def cmd_help(ctx):
 
 **📱 SMS:** `!addphone <n> <num>` · `!removephone <n>` · `!contacts` · `!notifywp <movie>`
 
+**📝 To-Do:** `!todo <task>` · `!todos` · `!done 1` · `!deltodo 1` · `!cleartodos`
+
+**⏰ Reminders:** `!remind 5pm call mum` · `!reminders` · `!cancelremind 1`
+
 _Or just @ mention me to chat!_ 😊"""
 
     await ctx.send(page1)
@@ -2910,13 +2916,101 @@ async def cmd_reminders(ctx):
     """List pending reminders."""
     reminders = get_user_reminders(str(ctx.author.id))
     if not reminders:
-        await ctx.reply("No pending reminders! Set one with `!remind 5pm do something`")
+        await ctx.reply("No pending reminders! Set one with `!remind 5pm do something` or tell me naturally.")
         return
     lines = ["⏰ **Your Reminders:**\n"]
-    for r in reminders:
+    for i, r in enumerate(reminders, 1):
         time_str = r["remind_at"].strftime("%I:%M %p, %b %d")
-        lines.append(f"• **{r['text']}** — {time_str}")
+        lines.append(f"**{i}.** {r['text']} — {time_str}")
+    lines.append(f"\n_Cancel: `!cancelremind 1`_")
     await ctx.send("\n".join(lines))
+
+
+@bot.command(name="cancelremind")
+async def cmd_cancelremind(ctx, index: int = 0):
+    """Cancel a pending reminder. Usage: !cancelremind 1"""
+    if index < 1:
+        await ctx.reply("Which reminder? Check `!reminders` for the list, then `!cancelremind 1`")
+        return
+    text = cancel_reminder(str(ctx.author.id), index)
+    if text:
+        await ctx.reply(f"🗑️ Cancelled: **{text}**")
+    else:
+        await ctx.reply(f"Couldn't find reminder #{index}. Check `!reminders`")
+
+
+# ══════════════════════════════════════════════
+# TO-DO LIST
+# ══════════════════════════════════════════════
+@bot.command(name="todo")
+async def cmd_todo(ctx, *, text: str = ""):
+    """Add a to-do item or view your list. Usage: !todo buy groceries"""
+    user_id = str(ctx.author.id)
+
+    if not text:
+        # Show list
+        todos = get_todos(user_id, include_done=True)
+        await ctx.send(format_todos(todos))
+        return
+
+    # Check for priority prefix
+    priority = "normal"
+    if text.startswith("!") or text.startswith("urgent"):
+        priority = "high"
+        text = text.lstrip("!").replace("urgent ", "", 1).strip()
+    elif text.startswith("*"):
+        priority = "medium"
+        text = text.lstrip("*").strip()
+
+    position = add_todo(user_id, text, priority)
+    if position:
+        icon = "🔴" if priority == "high" else "🟡" if priority == "medium" else "⬜"
+        await ctx.reply(f"{icon} Added to-do #{position}: **{text}**")
+    else:
+        await ctx.reply("Couldn't add that. Try again?")
+
+
+@bot.command(name="todos")
+async def cmd_todos(ctx):
+    """View your to-do list."""
+    todos = get_todos(str(ctx.author.id), include_done=True)
+    await ctx.send(format_todos(todos))
+
+
+@bot.command(name="done")
+async def cmd_done(ctx, index: int = 0):
+    """Mark a to-do as done. Usage: !done 1"""
+    if index < 1:
+        await ctx.reply("Which one? Check `!todos` then `!done 1`")
+        return
+    text = complete_todo(str(ctx.author.id), index)
+    if text:
+        await ctx.reply(f"✅ Done: ~~{text}~~")
+    else:
+        await ctx.reply(f"Couldn't find to-do #{index}. Check `!todos`")
+
+
+@bot.command(name="deltodo")
+async def cmd_deltodo(ctx, index: int = 0):
+    """Delete a to-do item. Usage: !deltodo 1"""
+    if index < 1:
+        await ctx.reply("Which one? Check `!todos` then `!deltodo 1`")
+        return
+    text = remove_todo(str(ctx.author.id), index)
+    if text:
+        await ctx.reply(f"🗑️ Removed: **{text}**")
+    else:
+        await ctx.reply(f"Couldn't find to-do #{index}. Check `!todos`")
+
+
+@bot.command(name="cleartodos")
+async def cmd_cleartodos(ctx):
+    """Clear all completed to-do items."""
+    count = clear_done_todos(str(ctx.author.id))
+    if count > 0:
+        await ctx.reply(f"🧹 Cleared {count} completed item{'s' if count != 1 else ''}!")
+    else:
+        await ctx.reply("No completed items to clear.")
 
 
 @bot.command(name="news")
@@ -5287,6 +5381,81 @@ async def on_message(message):
                         add_message_to_history(user_id, "user", [{"text": clean_msg}])
                         add_message_to_history(user_id, "model", [{"text": full_response}])
                         return
+
+            # ─── NATURAL LANGUAGE REMINDER DETECTION ───
+            if clean_msg and not clean_msg.startswith("!"):
+                reminder_match = re.search(
+                    r'remind\s+me\s+(?:to\s+)?(.+?)(?:\s+(?:at|on|in|by|tomorrow|tonight|next)\s+(.+)|$)',
+                    clean_msg, re.IGNORECASE
+                )
+                if reminder_match:
+                    try:
+                        task = reminder_match.group(1).strip().rstrip('.!?')
+                        time_part = reminder_match.group(2) or ""
+
+                        # If no time part was captured, try to parse the whole thing
+                        if not time_part:
+                            # Check if there's a time embedded at the end
+                            time_check = re.search(
+                                r'(.+?)\s+(tomorrow|tonight|next\s+\w+|\d{1,2}(?::\d{2})?\s*(?:am|pm)|in\s+\d+\s+(?:hour|minute|min|hr)s?)$',
+                                task, re.IGNORECASE
+                            )
+                            if time_check:
+                                task = time_check.group(1).strip()
+                                time_part = time_check.group(2).strip()
+
+                        eat_zone = pytz.timezone('Africa/Nairobi')
+                        parsed_time = None
+
+                        if time_part:
+                            parsed_time = dateparser.parse(
+                                time_part,
+                                settings={
+                                    'PREFER_DATES_FROM': 'future',
+                                    'TIMEZONE': 'Africa/Nairobi',
+                                    'RETURN_AS_TIMEZONE_AWARE': True,
+                                }
+                            )
+
+                        if parsed_time and task:
+                            if add_reminder(user_id, str(message.channel.id), parsed_time, task):
+                                time_str = parsed_time.strftime("%I:%M %p on %b %d")
+                                reply = f"⏰ Got it! I'll remind you: **{task}** at **{time_str}** (EAT)"
+                                await message.reply(reply)
+                                add_message_to_history(user_id, "user", [{"text": clean_msg}])
+                                add_message_to_history(user_id, "model", [{"text": reply}])
+                                return
+                        elif task and not time_part:
+                            # No time specified — add as a to-do instead
+                            position = add_todo(user_id, task)
+                            if position:
+                                reply = f"📝 No time specified, so I added it to your to-do list: **{task}** (#{position})\n_Want a reminder instead? Say: remind me to {task} at 5pm_"
+                                await message.reply(reply)
+                                add_message_to_history(user_id, "user", [{"text": clean_msg}])
+                                add_message_to_history(user_id, "model", [{"text": reply}])
+                                return
+                    except Exception as e:
+                        logger.warning(f"NLP reminder detection error: {e}")
+
+            # ─── NATURAL LANGUAGE TO-DO DETECTION ───
+            if clean_msg and not clean_msg.startswith("!"):
+                todo_match = re.search(
+                    r'(?:i\s+need\s+to|i\s+have\s+to|i\s+should|i\s+must|add\s+to\s+my\s+(?:to-?do|list))\s+(.+)',
+                    clean_msg, re.IGNORECASE
+                )
+                if todo_match:
+                    try:
+                        task = todo_match.group(1).strip().rstrip('.!?')
+                        if task and len(task) > 2 and len(task.split()) <= 15:
+                            position = add_todo(user_id, task)
+                            if position:
+                                reply = f"📝 Added to your to-do list: **{task}** (#{position})\n_Mark done: `!done {position}`_"
+                                await message.reply(reply)
+                                add_message_to_history(user_id, "user", [{"text": clean_msg}])
+                                add_message_to_history(user_id, "model", [{"text": reply}])
+                                # Don't return — let Emily comment on it too
+                    except Exception as e:
+                        logger.warning(f"NLP todo detection error: {e}")
 
             # ─── MEDIA REQUEST PRE-DETECT ───
             # If user asks for an image/gif, search immediately so we can append
