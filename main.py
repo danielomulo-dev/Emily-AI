@@ -2825,6 +2825,8 @@ async def cmd_help(ctx):
 
 **📰 Fun:** `!news` · `!newsbrief` · `!setnews` · `!quote` · `!trivia` · `!roast` · `!debate` · `!learn`
 
+**👩‍🍳 Cooking:** `!cook chicken, rice, onions` · `!recipe pilau`
+
 **📱 Reddit:**
 `!reddit <subreddit>` · `!wsb` · `!investbuzz` · `!stockreddit <ticker>` · `!rsearch <topic>`
 
@@ -3432,6 +3434,106 @@ async def cmd_scripture(ctx, *, theme: str = ""):
     reply += f"_Try: `!scripture {themes.split(', ')[0]}` or any of: {themes}_"
 
     await ctx.reply(reply)
+
+
+# ══════════════════════════════════════════════
+# RECIPE / COOKING
+# ══════════════════════════════════════════════
+@bot.command(name="cook")
+async def cmd_cook(ctx, *, ingredients: str = ""):
+    """Get a recipe from your ingredients. Usage: !cook chicken, rice, tomatoes, onions"""
+    if not ingredients:
+        await ctx.reply(
+            "Tell me what you have and I'll cook something up!\n\n"
+            "**Usage:** `!cook chicken, rice, tomatoes, onions`\n"
+            "**Or try:** `!cook what can I make with eggs and bread`\n"
+            "**Quick:** `!recipe pilau` for a specific dish"
+        )
+        return
+
+    async with ctx.typing():
+        try:
+            response = await asyncio.wait_for(
+                claude_client.messages.create(
+                    model=MODEL_CLAUDE,
+                    max_tokens=1000,
+                    messages=[{"role": "user", "content": (
+                        f"{EMILY_MINI_PERSONA}\n\n"
+                        f"Someone has these ingredients: {ingredients}\n\n"
+                        f"Suggest ONE delicious recipe they can make. Include:\n"
+                        f"1. Recipe name (creative Kenyan-style name if possible)\n"
+                        f"2. What you'll need (from their ingredients + common pantry items like salt, oil)\n"
+                        f"3. Step-by-step instructions (numbered, clear, concise)\n"
+                        f"4. Cooking time estimate\n"
+                        f"5. A fun Emily tip at the end\n\n"
+                        f"Keep it practical and achievable. Kenyan cooking style preferred but not required.\n"
+                        f"If they have very few ingredients, suggest the simplest thing possible.\n"
+                        f"Format nicely for Discord (use bold, numbered steps)."
+                    )}],
+                ),
+                timeout=30,
+            )
+            recipe = ""
+            for block in response.content:
+                if block.type == "text":
+                    recipe += block.text
+
+            if recipe:
+                await send_chunked_reply(ctx.message, f"👩‍🍳🍳 **Emily's Kitchen**\n\n{recipe.strip()}")
+            else:
+                await ctx.reply("My kitchen brain blanked out. Try again?")
+
+        except Exception as e:
+            logger.error(f"Cook error: {e}")
+            await ctx.reply("Something went wrong in the kitchen. Try again?")
+
+
+@bot.command(name="recipe")
+async def cmd_recipe(ctx, *, dish: str = ""):
+    """Get a recipe for a specific dish. Usage: !recipe pilau | !recipe chapati"""
+    if not dish:
+        await ctx.reply(
+            "What do you want to cook?\n\n"
+            "**Usage:** `!recipe pilau` · `!recipe chapati` · `!recipe biryani`\n"
+            "**Or:** `!cook chicken, rice` to cook with what you have"
+        )
+        return
+
+    async with ctx.typing():
+        try:
+            response = await asyncio.wait_for(
+                claude_client.messages.create(
+                    model=MODEL_CLAUDE,
+                    max_tokens=1200,
+                    messages=[{"role": "user", "content": (
+                        f"{EMILY_MINI_PERSONA}\n\n"
+                        f"Give me a complete recipe for: {dish}\n\n"
+                        f"Include:\n"
+                        f"1. Full ingredients list with measurements\n"
+                        f"2. Step-by-step cooking instructions (numbered)\n"
+                        f"3. Cooking time and servings\n"
+                        f"4. Pro tips for the best result\n"
+                        f"5. An Emily-style comment about the dish\n\n"
+                        f"If it's a Kenyan dish, make it authentic. If not, still make it accessible "
+                        f"with ingredients available in Kenyan supermarkets.\n"
+                        f"Format nicely for Discord."
+                    )}],
+                ),
+                timeout=30,
+            )
+            recipe = ""
+            for block in response.content:
+                if block.type == "text":
+                    recipe += block.text
+
+            if recipe:
+                await send_chunked_reply(ctx.message, f"👩‍🍳📝 **Recipe: {dish.title()}**\n\n{recipe.strip()}")
+            else:
+                await ctx.reply("Couldn't get that recipe. Try again?")
+
+        except Exception as e:
+            logger.error(f"Recipe error: {e}")
+            await ctx.reply("Something went wrong. Try again?")
 
 
 @bot.command(name="news")
