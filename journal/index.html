@@ -748,7 +748,7 @@ let recognition = null;
 let isRecording = false;
 let voiceTimerInterval = null;
 let voiceSeconds = 0;
-let finalTranscript = '';
+let preVoiceText = '';
 
 function initVoice() {
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -758,73 +758,81 @@ function initVoice() {
     return;
   }
   recognition = new SR();
-  recognition.continuous = true;
+  recognition.continuous = false;  // Process one phrase at a time
   recognition.interimResults = true;
   recognition.lang = 'en-US';
 
+  let currentInterim = '';
+
   recognition.onresult = (e) => {
+    let finalText = '';
     let interim = '';
-    finalTranscript = '';
-    for (let i = 0; i < e.results.length; i++) {
+
+    for (let i = e.resultIndex; i < e.results.length; i++) {
+      const transcript = e.results[i][0].transcript;
       if (e.results[i].isFinal) {
-        finalTranscript += e.results[i][0].transcript + ' ';
+        finalText += transcript;
       } else {
-        interim += e.results[i][0].transcript;
+        interim = transcript;
       }
     }
-    // Update textarea with transcribed text
+
     const ta = document.getElementById('jText');
-    const existingText = ta.dataset.preVoice || '';
-    ta.value = existingText + finalTranscript + interim;
+
+    // If we got a final result, append it permanently
+    if (finalText) {
+      preVoiceText += (preVoiceText && !preVoiceText.endsWith(' ') ? ' ' : '') + finalText.trim();
+      ta.value = preVoiceText;
+      currentInterim = '';
+    } else {
+      // Show interim (temporary preview)
+      ta.value = preVoiceText + (preVoiceText ? ' ' : '') + interim;
+    }
     updateCount();
   };
 
   recognition.onend = () => {
     if (isRecording) {
-      // Auto-restart if still recording (browser sometimes stops)
+      // Restart for next phrase
       try { recognition.start(); } catch(e) {}
     }
   };
 
   recognition.onerror = (e) => {
     if (e.error === 'not-allowed') {
-      toast('🎙️ Microphone access denied. Check browser permissions.');
+      toast('🎙️ Microphone access denied. Check permissions.');
       stopVoice();
-    } else if (e.error !== 'aborted' && e.error !== 'no-speech') {
+    } else if (e.error === 'no-speech') {
+      // Silence — just restart if still recording
+      if (isRecording) {
+        try { recognition.start(); } catch(ex) {}
+      }
+    } else if (e.error !== 'aborted') {
       console.warn('Speech error:', e.error);
     }
   };
 }
 
 function toggleVoice() {
-  if (isRecording) {
-    stopVoice();
-  } else {
-    startVoice();
-  }
+  if (isRecording) stopVoice();
+  else startVoice();
 }
 
 function startVoice() {
   if (!recognition) { toast('Voice not supported'); return; }
 
-  // Save existing text so we append to it
-  const ta = document.getElementById('jText');
-  ta.dataset.preVoice = ta.value;
-
+  // Save existing text
+  preVoiceText = document.getElementById('jText').value;
   isRecording = true;
   voiceSeconds = 0;
-  finalTranscript = '';
 
-  const btn = document.getElementById('voiceBtn');
-  btn.classList.add('recording');
-  btn.textContent = '⏹️';
-
+  document.getElementById('voiceBtn').classList.add('recording');
+  document.getElementById('voiceBtn').textContent = '⏹️';
   document.getElementById('voiceText').textContent = 'Listening...';
   document.getElementById('voiceHint').textContent = 'Speak naturally — tap again to stop';
   document.getElementById('voiceWave').style.display = 'flex';
   document.getElementById('voiceTimer').style.display = 'block';
 
-  // Start timer
   voiceTimerInterval = setInterval(() => {
     voiceSeconds++;
     const m = Math.floor(voiceSeconds / 60);
@@ -832,11 +840,7 @@ function startVoice() {
     document.getElementById('voiceTimer').textContent = `${m}:${s.toString().padStart(2, '0')}`;
   }, 1000);
 
-  try {
-    recognition.start();
-  } catch(e) {
-    // Already started
-  }
+  try { recognition.start(); } catch(e) {}
 
   // Auto-stop after 2 minutes
   setTimeout(() => { if (isRecording) stopVoice(); }, 120000);
@@ -844,29 +848,21 @@ function startVoice() {
 
 function stopVoice() {
   isRecording = false;
-
-  if (recognition) {
-    try { recognition.stop(); } catch(e) {}
-  }
-
+  try { recognition.stop(); } catch(e) {}
   clearInterval(voiceTimerInterval);
 
-  const btn = document.getElementById('voiceBtn');
-  btn.classList.remove('recording');
-  btn.textContent = '🎙️';
-
+  document.getElementById('voiceBtn').classList.remove('recording');
+  document.getElementById('voiceBtn').textContent = '🎙️';
   document.getElementById('voiceText').textContent = 'Tap to speak';
   document.getElementById('voiceHint').textContent = 'Your words will appear in the text box';
   document.getElementById('voiceWave').style.display = 'none';
   document.getElementById('voiceTimer').style.display = 'none';
 
-  // Clean up pre-voice data
-  const ta = document.getElementById('jText');
-  delete ta.dataset.preVoice;
+  // Set final text
+  document.getElementById('jText').value = preVoiceText;
+  updateCount();
 
-  if (voiceSeconds > 0) {
-    toast(`🎙️ ${voiceSeconds}s recorded`);
-  }
+  if (voiceSeconds > 0) toast(`🎙️ ${voiceSeconds}s recorded`);
 }
 
 // ═══ INSTALL ═══
