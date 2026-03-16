@@ -218,6 +218,89 @@ def api_quick_mood(user_id, mood_score):
 
 
 # ══════════════════════════════════════════════
+# NOTES API FUNCTIONS
+# ══════════════════════════════════════════════
+def api_create_note(user_id, title, body="", color="#f59e0b"):
+    """Create a new note."""
+    if _api_db is None:
+        return None
+    import uuid
+    now = datetime.now(EAT_ZONE)
+    note_id = str(uuid.uuid4())[:12]
+    note = {
+        "user_id": str(user_id),
+        "note_id": note_id,
+        "title": title,
+        "body": body,
+        "color": color,
+        "created_at": now,
+        "updated_at": now,
+        "created_str": now.strftime("%b %d, %I:%M %p"),
+        "updated_str": now.strftime("%b %d, %I:%M %p"),
+    }
+    _api_db["notes"].insert_one(note)
+    note.pop("_id", None)
+    note["_id"] = note_id
+    note["created_at"] = now.isoformat()
+    note["updated_at"] = now.isoformat()
+    return note
+
+
+def api_get_notes(user_id):
+    """Get all notes for a user, newest first."""
+    if _api_db is None:
+        return []
+    notes = list(_api_db["notes"].find(
+        {"user_id": str(user_id)}
+    ).sort("updated_at", -1))
+    for n in notes:
+        n["_id"] = n.get("note_id", str(n["_id"]))
+        if isinstance(n.get("created_at"), datetime):
+            n["created_at"] = n["created_at"].isoformat()
+        if isinstance(n.get("updated_at"), datetime):
+            n["updated_at"] = n["updated_at"].isoformat()
+    return notes
+
+
+def api_update_note(user_id, note_id, title=None, body=None, color=None):
+    """Update an existing note."""
+    if _api_db is None:
+        return None
+    try:
+        update = {"updated_at": datetime.now(EAT_ZONE)}
+        update["updated_str"] = update["updated_at"].strftime("%b %d, %I:%M %p")
+        if title is not None:
+            update["title"] = title
+        if body is not None:
+            update["body"] = body
+        if color is not None:
+            update["color"] = color
+
+        result = _api_db["notes"].update_one(
+            {"note_id": note_id, "user_id": str(user_id)},
+            {"$set": update}
+        )
+        return {"updated": result.modified_count > 0}
+    except Exception as e:
+        logger.error(f"Update note error: {e}")
+        return None
+
+
+def api_delete_note(user_id, note_id):
+    """Delete a note."""
+    if _api_db is None:
+        return False
+    try:
+        result = _api_db["notes"].delete_one(
+            {"note_id": note_id, "user_id": str(user_id)}
+        )
+        return result.deleted_count > 0
+    except Exception as e:
+        logger.error(f"Delete note error: {e}")
+        return False
+
+
+# ══════════════════════════════════════════════
 # HTTP API HANDLER
 # ══════════════════════════════════════════════
 class EmilyAPIHandler(BaseHTTPRequestHandler):
@@ -299,6 +382,11 @@ class EmilyAPIHandler(BaseHTTPRequestHandler):
             stats = api_get_stats(user_id, days=days)
             self._send_json({"stats": stats or {}})
 
+        # Get notes
+        elif path == "/api/notes":
+            notes = api_get_notes(user_id)
+            self._send_json({"notes": notes})
+
         else:
             self._send_error("Not found", 404)
 
@@ -343,6 +431,40 @@ class EmilyAPIHandler(BaseHTTPRequestHandler):
                 self._send_json({"entry": entry}, 201)
             else:
                 self._send_error("Failed to save", 500)
+
+        # Create note
+        elif path == "/api/notes":
+            title = body.get("title", "Untitled")
+            note_body = body.get("body", "")
+            color = body.get("color", "#f59e0b")
+            note = api_create_note(user_id, title, note_body, color)
+            if note:
+                self._send_json({"note": note}, 201)
+            else:
+                self._send_error("Failed to create note", 500)
+
+        # Update note
+        elif path == "/api/notes/update":
+            note_id = body.get("id")
+            if not note_id:
+                self._send_error("Note id required")
+                return
+            note = api_update_note(user_id, note_id, body.get("title"), body.get("body"), body.get("color"))
+            if note:
+                self._send_json({"note": note})
+            else:
+                self._send_error("Failed to update", 500)
+
+        # Delete note
+        elif path == "/api/notes/delete":
+            note_id = body.get("id")
+            if not note_id:
+                self._send_error("Note id required")
+                return
+            if api_delete_note(user_id, note_id):
+                self._send_json({"deleted": True})
+            else:
+                self._send_error("Failed to delete", 500)
 
         else:
             self._send_error("Not found", 404)

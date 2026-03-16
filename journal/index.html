@@ -197,7 +197,35 @@ textarea.journal-input::placeholder{color:var(--text-muted)}
 
 /* ═══ NAVBAR ═══ */
 .navbar{position:fixed;bottom:0;left:0;right:0;background:rgba(15,20,25,0.92);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);border-top:1px solid var(--border);display:flex;justify-content:space-around;align-items:center;padding:6px 0 calc(6px + var(--safe-bottom));z-index:100}
-.nav-btn{display:flex;flex-direction:column;align-items:center;gap:2px;color:var(--text-muted);font-size:10px;font-weight:500;cursor:pointer;padding:8px 14px;background:none;border:none;font-family:'Outfit',sans-serif;transition:color .2s}
+.nav-btn{display:flex;flex-direction:column;align-items:center;gap:2px;color:var(--text-muted);font-size:10px;font-weight:500;cursor:pointer;padding:8px 10px;background:none;border:none;font-family:'Outfit',sans-serif;transition:color .2s}
+
+/* ═══ NOTES ═══ */
+.notes-toolbar{display:flex;gap:8px;margin-bottom:14px}
+.notes-toolbar button{flex:1;background:var(--card);border:1px solid var(--border);border-radius:12px;padding:10px;font-size:13px;font-weight:600;color:var(--text);cursor:pointer;font-family:'Outfit',sans-serif;transition:all .2s}
+.notes-toolbar button:active{transform:scale(0.96)}
+.notes-toolbar button.accent{background:var(--accent);color:#000;border-color:var(--accent)}
+.note-card{background:var(--card);border-radius:var(--r);padding:16px;margin-bottom:10px;border:1px solid var(--border);cursor:pointer;transition:border .2s;position:relative}
+.note-card:active{border-color:var(--accent)}
+.note-card .note-title{font-weight:700;font-size:15px;margin-bottom:4px;display:flex;justify-content:space-between;align-items:center}
+.note-card .note-preview{font-size:13px;color:var(--text-dim);line-height:1.5;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
+.note-card .note-meta{display:flex;justify-content:space-between;align-items:center;margin-top:8px;font-size:11px;color:var(--text-muted)}
+.note-color{width:8px;height:8px;border-radius:50%;flex-shrink:0}
+.note-editor{display:none}
+.note-editor.active{display:block}
+.note-title-input{width:100%;background:transparent;border:none;color:var(--text);font-size:20px;font-weight:700;font-family:'Fraunces',serif;outline:none;padding:0;margin-bottom:12px}
+.note-title-input::placeholder{color:var(--text-muted)}
+.note-body-input{width:100%;min-height:300px;background:transparent;border:none;color:var(--text);font-size:15px;font-family:'Outfit',sans-serif;line-height:1.8;outline:none;resize:none;padding:0}
+.note-body-input::placeholder{color:var(--text-muted)}
+.note-editor-bar{display:flex;justify-content:space-between;align-items:center;padding:12px 0;margin-bottom:8px}
+.note-editor-bar button{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:8px 14px;font-size:13px;font-weight:600;color:var(--text);cursor:pointer;font-family:'Outfit',sans-serif}
+.note-editor-bar button.save{background:var(--accent);color:#000;border-color:var(--accent)}
+.note-editor-bar button.del{color:var(--danger);border-color:var(--danger)}
+.note-colors{display:flex;gap:8px;margin:10px 0}
+.note-colors span{width:24px;height:24px;border-radius:50%;cursor:pointer;border:2px solid transparent;transition:all .2s}
+.note-colors span:active,.note-colors span.sel{border-color:var(--text);transform:scale(1.15)}
+.notes-search{width:100%;background:var(--card);border:1px solid var(--border);border-radius:12px;padding:12px 14px;color:var(--text);font-size:14px;font-family:'Outfit',sans-serif;outline:none;margin-bottom:14px;transition:border .2s}
+.notes-search:focus{border-color:var(--accent)}
+.notes-search::placeholder{color:var(--text-muted)}
 .nav-btn.active{color:var(--accent)}
 .nav-btn .ni{font-size:22px;transition:transform .2s}
 .nav-btn.active .ni{transform:scale(1.1)}
@@ -365,13 +393,44 @@ textarea.journal-input::placeholder{color:var(--text-muted)}
   </div>
 </div>
 
+<!-- NOTES -->
+<div id="notesScreen" class="screen">
+  <div class="header anim-1">
+    <div class="greeting" style="font-size:24px">Notes 📝</div>
+    <div class="header-icon" onclick="newNote()">➕</div>
+  </div>
+  <input class="notes-search anim-2" id="noteSearch" type="text" placeholder="Search notes..." oninput="filterNotes()">
+  <div id="notesList" class="anim-3"></div>
+
+  <!-- Editor (shown when editing a note) -->
+  <div class="note-editor" id="noteEditor">
+    <div class="note-editor-bar">
+      <button onclick="closeEditor()">← Back</button>
+      <div>
+        <button class="del" onclick="deleteNote()">🗑️</button>
+        <button class="save" onclick="saveNote()">Save</button>
+      </div>
+    </div>
+    <div class="note-colors">
+      <span style="background:#f59e0b" class="sel" onclick="pickColor('#f59e0b',this)"></span>
+      <span style="background:#34d399" onclick="pickColor('#34d399',this)"></span>
+      <span style="background:#a78bfa" onclick="pickColor('#a78bfa',this)"></span>
+      <span style="background:#f87171" onclick="pickColor('#f87171',this)"></span>
+      <span style="background:#60a5fa" onclick="pickColor('#60a5fa',this)"></span>
+      <span style="background:#7a8da0" onclick="pickColor('#7a8da0',this)"></span>
+    </div>
+    <input class="note-title-input" id="noteTitleInput" placeholder="Title" maxlength="100">
+    <textarea class="note-body-input" id="noteBodyInput" placeholder="Start writing..."></textarea>
+  </div>
+</div>
+
 <!-- NAVBAR -->
 <nav class="navbar">
   <button class="nav-btn active" onclick="go('home',this)"><span class="ni">🏠</span>Home</button>
   <button class="nav-btn" onclick="go('diary',this)"><span class="ni">📖</span>Diary</button>
   <button class="nav-plus" onclick="go('write')">✍️</button>
+  <button class="nav-btn" onclick="go('notes',this)"><span class="ni">📝</span>Notes</button>
   <button class="nav-btn" onclick="go('mood',this)"><span class="ni">📊</span>Mood</button>
-  <button class="nav-btn" onclick="logout()"><span class="ni">🚪</span>Exit</button>
 </nav>
 
 </div>
@@ -427,6 +486,7 @@ function go(name,btn){
   if(name==='home')loadHome();
   else if(name==='diary')loadDiary();
   else if(name==='mood')loadMood();
+  else if(name==='notes')loadNotes();
 }
 
 // ═══ GREETING ═══
@@ -556,6 +616,131 @@ async function loadMood(){
     dh+='</div>';
     document.getElementById('moodDistChart').innerHTML=dh;
   }catch(e){console.error(e)}
+}
+
+// ═══ NOTES ═══
+let allNotes = [];
+let editingNoteId = null;
+let noteColor = '#f59e0b';
+
+async function loadNotes() {
+  const el = document.getElementById('notesList');
+  const editor = document.getElementById('noteEditor');
+  editor.classList.remove('active');
+  el.style.display = 'block';
+  document.getElementById('noteSearch').style.display = 'block';
+  document.querySelector('#notesScreen .header').style.display = 'flex';
+
+  el.innerHTML = '<div class="spin-wrap"><div class="spin"></div></div>';
+  try {
+    const data = await api('GET', '/api/notes');
+    allNotes = data.notes || [];
+    renderNotes(allNotes);
+  } catch(e) {
+    el.innerHTML = '<div class="empty"><div class="empty-i">📝</div><div class="empty-t">Failed to load notes</div></div>';
+  }
+}
+
+function renderNotes(notes) {
+  const el = document.getElementById('notesList');
+  if (!notes.length) {
+    el.innerHTML = '<div class="empty"><div class="empty-i">📝</div><div class="empty-t">No notes yet.<br>Tap + to create one!</div></div>';
+    return;
+  }
+  el.innerHTML = notes.map(n => {
+    const preview = (n.body || '').slice(0, 120);
+    const date = n.updated_str || n.created_str || '';
+    const color = n.color || '#f59e0b';
+    return `<div class="note-card" onclick="openNote('${n._id}')">
+      <div class="note-title"><span>${esc(n.title || 'Untitled')}</span><div class="note-color" style="background:${color}"></div></div>
+      <div class="note-preview">${esc(preview)}</div>
+      <div class="note-meta"><span>${date}</span><span>${(n.body||'').length} chars</span></div>
+    </div>`;
+  }).join('');
+}
+
+function filterNotes() {
+  const q = document.getElementById('noteSearch').value.toLowerCase();
+  if (!q) { renderNotes(allNotes); return; }
+  const filtered = allNotes.filter(n =>
+    (n.title || '').toLowerCase().includes(q) || (n.body || '').toLowerCase().includes(q)
+  );
+  renderNotes(filtered);
+}
+
+function newNote() {
+  editingNoteId = null;
+  noteColor = '#f59e0b';
+  document.getElementById('noteTitleInput').value = '';
+  document.getElementById('noteBodyInput').value = '';
+  document.querySelectorAll('.note-colors span').forEach(s => s.classList.toggle('sel', s.style.background === 'rgb(245, 158, 11)'));
+  showEditor();
+}
+
+function openNote(id) {
+  const note = allNotes.find(n => n._id === id);
+  if (!note) return;
+  editingNoteId = id;
+  noteColor = note.color || '#f59e0b';
+  document.getElementById('noteTitleInput').value = note.title || '';
+  document.getElementById('noteBodyInput').value = note.body || '';
+  // Highlight correct color
+  document.querySelectorAll('.note-colors span').forEach(s => {
+    s.classList.toggle('sel', s.style.backgroundColor === noteColor || s.style.background === noteColor);
+  });
+  showEditor();
+}
+
+function showEditor() {
+  document.getElementById('notesList').style.display = 'none';
+  document.getElementById('noteSearch').style.display = 'none';
+  document.querySelector('#notesScreen .header').style.display = 'none';
+  document.getElementById('noteEditor').classList.add('active');
+  document.getElementById('noteTitleInput').focus();
+}
+
+function closeEditor() {
+  document.getElementById('noteEditor').classList.remove('active');
+  document.getElementById('notesList').style.display = 'block';
+  document.getElementById('noteSearch').style.display = 'block';
+  document.querySelector('#notesScreen .header').style.display = 'flex';
+  loadNotes();
+}
+
+function pickColor(c, el) {
+  noteColor = c;
+  document.querySelectorAll('.note-colors span').forEach(s => s.classList.remove('sel'));
+  el.classList.add('sel');
+}
+
+async function saveNote() {
+  const title = document.getElementById('noteTitleInput').value.trim();
+  const body = document.getElementById('noteBodyInput').value.trim();
+  if (!title && !body) { toast('Write something first'); return; }
+
+  try {
+    if (editingNoteId) {
+      await api('POST', '/api/notes/update', { id: editingNoteId, title, body, color: noteColor });
+    } else {
+      await api('POST', '/api/notes', { title: title || 'Untitled', body, color: noteColor });
+    }
+    toast('📝 Note saved!');
+    closeEditor();
+  } catch(e) {
+    toast('Failed to save');
+  }
+}
+
+async function deleteNote() {
+  if (!editingNoteId) { closeEditor(); return; }
+  if (!confirm('Delete this note?')) return;
+  try {
+    await api('POST', '/api/notes/delete', { id: editingNoteId });
+    toast('🗑️ Note deleted');
+    closeEditor();
+  } catch(e) {
+    toast('Failed to delete');
+  }
 }
 
 // ═══ VOICE RECORDING ═══
