@@ -2990,7 +2990,7 @@ async def cmd_help(ctx):
 `!suggest` · `!setmovienight` · `!addmovie` · `!watchlist`
 `!vote` · `!watchparty` · `!join` · `!endparty`
 
-**🎵 Spotify:** `!song <query>` · `!vibes <mood>` · `!mytaste <artists>` · `!myrec`
+**🎵 Spotify:** `!song <query>` · `!vibes <mood>` · `!mytaste <artists>` · `!addtaste <artists>` · `!myrec`
 
 **⏰ Reminders:** `!remind 5pm call mum` · `!reminders`"""
 
@@ -5104,7 +5104,8 @@ async def cmd_mytaste(ctx, *, artists_text: str = ""):
             await ctx.reply(
                 f"🎵 Your music taste: **{artist_list}**\n"
                 f"I'll send recommendations based on these every Monday!\n"
-                f"_Update anytime with `!mytaste artist1, artist2, artist3`_"
+                f"_Add more: `!addtaste Coldplay, Sauti Sol`_\n"
+                f"_Replace all: `!mytaste artist1, artist2, artist3`_"
             )
         else:
             await ctx.reply(
@@ -5132,10 +5133,62 @@ async def cmd_mytaste(ctx, *, artists_text: str = ""):
         await ctx.reply(
             f"✅ Saved your taste: **{', '.join(artists)}**\n\n"
             f"Every Monday at 10am, I'll post recommendations right here in <#{ctx.channel.id}>! 🎵\n"
+            f"_Add more artists: `!addtaste Coldplay, Sauti Sol`_\n"
             f"_Want a preview now? Try `!myrec`_"
         )
     else:
         await ctx.reply("Eish, couldn't save that. Try again?")
+
+
+@bot.command(name="addtaste")
+async def cmd_addtaste(ctx, *, artists_text: str = ""):
+    """Add more artists to your taste without replacing. Usage: !addtaste Coldplay, Sauti Sol"""
+    if not spotify_configured():
+        await ctx.reply("Spotify isn't set up yet.")
+        return
+
+    if not artists_text:
+        await ctx.reply("Which artists? `!addtaste Coldplay, Sauti Sol`")
+        return
+
+    new_artists = [a.strip() for a in artists_text.split(",") if a.strip()]
+    if not new_artists:
+        await ctx.reply("Use commas to separate artists: `!addtaste Coldplay, Sauti Sol`")
+        return
+
+    # Get existing
+    saved = get_user_artists(str(ctx.author.id))
+    existing = saved.get("artists", []) if saved else []
+
+    # Merge (avoid duplicates, case-insensitive)
+    existing_lower = [a.lower() for a in existing]
+    added = []
+    for a in new_artists:
+        if a.lower() not in existing_lower:
+            existing.append(a)
+            existing_lower.append(a.lower())
+            added.append(a)
+
+    if len(existing) > 15:
+        existing = existing[:15]
+        await ctx.send("_Capping at 15 artists — too many cooks spoil the playlist!_")
+
+    if not added:
+        await ctx.reply(f"Those artists are already in your list! Your taste: **{', '.join(existing)}**")
+        return
+
+    if save_user_artists(
+        str(ctx.author.id), existing,
+        guild_id=str(ctx.guild.id) if ctx.guild else None,
+        channel_id=str(ctx.channel.id),
+    ):
+        await ctx.reply(
+            f"✅ Added **{', '.join(added)}** to your taste!\n"
+            f"🎵 Full list ({len(existing)}): **{', '.join(existing)}**\n"
+            f"_Remove artists: `!mytaste` to replace the whole list_"
+        )
+    else:
+        await ctx.reply("Couldn't save. Try again?")
 
 
 @bot.command(name="myrec")
