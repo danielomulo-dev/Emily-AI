@@ -217,6 +217,48 @@ def api_quick_mood(user_id, mood_score):
     return api_add_entry(user_id, f"Quick check-in: feeling {label}", mood_score)
 
 
+def api_update_entry(user_id, entry_id, text=None, mood_score=None):
+    """Update a journal entry."""
+    if _api_db is None:
+        return None
+    try:
+        from bson import ObjectId
+        update = {}
+        if text is not None:
+            update["text"] = text
+        if mood_score is not None:
+            mood_score = max(1, min(5, int(mood_score)))
+            emoji, label = MOOD_SCALE.get(mood_score, ("😐", "okay"))
+            update["mood_score"] = mood_score
+            update["mood_emoji"] = emoji
+            update["mood_label"] = label
+        if not update:
+            return None
+        result = _api_db["journal"].update_one(
+            {"_id": ObjectId(entry_id), "user_id": str(user_id)},
+            {"$set": update}
+        )
+        return result.modified_count > 0
+    except Exception as e:
+        logger.error(f"Update entry error: {e}")
+        return None
+
+
+def api_delete_entry(user_id, entry_id):
+    """Delete a journal entry."""
+    if _api_db is None:
+        return False
+    try:
+        from bson import ObjectId
+        result = _api_db["journal"].delete_one(
+            {"_id": ObjectId(entry_id), "user_id": str(user_id)}
+        )
+        return result.deleted_count > 0
+    except Exception as e:
+        logger.error(f"Delete entry error: {e}")
+        return False
+
+
 # ══════════════════════════════════════════════
 # NOTES API FUNCTIONS
 # ══════════════════════════════════════════════
@@ -431,6 +473,29 @@ class EmilyAPIHandler(BaseHTTPRequestHandler):
                 self._send_json({"entry": entry}, 201)
             else:
                 self._send_error("Failed to save", 500)
+
+        # Update journal entry
+        elif path == "/api/journal/entry/update":
+            entry_id = body.get("id")
+            if not entry_id:
+                self._send_error("Entry id required")
+                return
+            result = api_update_entry(user_id, entry_id, body.get("text"), body.get("mood_score"))
+            if result:
+                self._send_json({"updated": True})
+            else:
+                self._send_error("Failed to update", 500)
+
+        # Delete journal entry
+        elif path == "/api/journal/entry/delete":
+            entry_id = body.get("id")
+            if not entry_id:
+                self._send_error("Entry id required")
+                return
+            if api_delete_entry(user_id, entry_id):
+                self._send_json({"deleted": True})
+            else:
+                self._send_error("Failed to delete", 500)
 
         # Create note
         elif path == "/api/notes":

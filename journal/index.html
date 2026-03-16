@@ -166,6 +166,29 @@ textarea.journal-input::placeholder{color:var(--text-muted)}
 .entry-tags{display:flex;gap:6px;flex-wrap:wrap}
 .entry-tag{font-size:10px;padding:3px 8px;border-radius:8px;background:var(--bg);color:var(--text-dim);border:1px solid var(--border)}
 .entry-source{font-size:10px;color:var(--text-muted);display:flex;align-items:center;gap:4px}
+.entry-actions{display:flex;gap:6px;margin-top:10px;justify-content:flex-end}
+.entry-actions button{background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:6px 12px;font-size:11px;font-weight:600;color:var(--text-dim);cursor:pointer;font-family:'Outfit',sans-serif;transition:all .2s;display:flex;align-items:center;gap:4px}
+.entry-actions button:active{transform:scale(0.95)}
+.entry-actions button.del-btn{color:var(--danger);border-color:rgba(248,113,113,0.3)}
+.entry-actions button.del-btn:active{background:rgba(248,113,113,0.1)}
+.entry-actions button.edit-btn:active{background:var(--accent-soft);border-color:var(--accent)}
+
+/* ═══ EDIT MODAL ═══ */
+.modal-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:200;animation:fadeIn .2s ease}
+.modal-overlay.active{display:flex;align-items:flex-end;justify-content:center}
+.modal{background:var(--bg2);border-radius:24px 24px 0 0;width:100%;max-width:500px;max-height:85vh;padding:20px 16px calc(20px + var(--safe-bottom));animation:slideUp .3s ease;overflow-y:auto}
+.modal-handle{width:40px;height:4px;background:var(--border);border-radius:4px;margin:0 auto 16px}
+.modal-title{font-family:'Fraunces',serif;font-size:20px;font-weight:700;margin-bottom:16px}
+.modal-mood-row{display:flex;gap:8px;margin-bottom:14px}
+.modal-mood-btn{width:40px;height:40px;border-radius:12px;border:2px solid var(--border);background:var(--card);display:flex;align-items:center;justify-content:center;font-size:20px;cursor:pointer;transition:all .2s}
+.modal-mood-btn.sel{border-color:var(--accent);background:var(--accent-soft)}
+.modal-textarea{width:100%;min-height:120px;background:var(--card);border:1.5px solid var(--border);border-radius:14px;padding:14px;color:var(--text);font-size:15px;font-family:'Outfit',sans-serif;line-height:1.6;resize:none;outline:none;transition:border .2s}
+.modal-textarea:focus{border-color:var(--accent)}
+.modal-actions{display:flex;gap:10px;margin-top:14px}
+.modal-actions button{flex:1;padding:14px;border-radius:12px;font-size:15px;font-weight:700;font-family:'Outfit',sans-serif;cursor:pointer;border:none;transition:transform .1s}
+.modal-actions button:active{transform:scale(0.97)}
+.modal-actions .modal-cancel{background:var(--card);color:var(--text);border:1px solid var(--border)}
+.modal-actions .modal-save{background:var(--accent);color:#000}
 
 /* ═══ MOOD SCREEN ═══ */
 .mood-overview{background:var(--card);border-radius:var(--r);padding:20px;border:1px solid var(--border);text-align:center;margin-bottom:16px}
@@ -435,6 +458,26 @@ textarea.journal-input::placeholder{color:var(--text-muted)}
 
 </div>
 
+<!-- EDIT ENTRY MODAL -->
+<div class="modal-overlay" id="editModal">
+  <div class="modal">
+    <div class="modal-handle"></div>
+    <div class="modal-title">Edit Entry</div>
+    <div class="modal-mood-row" id="editMoodRow">
+      <button class="modal-mood-btn" data-em="1" onclick="editPickMood(1)">😢</button>
+      <button class="modal-mood-btn" data-em="2" onclick="editPickMood(2)">😔</button>
+      <button class="modal-mood-btn" data-em="3" onclick="editPickMood(3)">😐</button>
+      <button class="modal-mood-btn" data-em="4" onclick="editPickMood(4)">😊</button>
+      <button class="modal-mood-btn" data-em="5" onclick="editPickMood(5)">🤩</button>
+    </div>
+    <textarea class="modal-textarea" id="editText" placeholder="What happened..."></textarea>
+    <div class="modal-actions">
+      <button class="modal-cancel" onclick="closeEditModal()">Cancel</button>
+      <button class="modal-save" onclick="saveEditEntry()">Save Changes</button>
+    </div>
+  </div>
+</div>
+
 <div class="toast" id="toast"></div>
 
 <script>
@@ -583,12 +626,17 @@ async function loadDiary(){
       if(e.date_str!==curDate){curDate=e.date_str;html+=`<div class="day-header">${e.day_name||''}, ${curDate}</div>`}
       const src=e.source==='app'?'📱 App':'💬 Discord';
       const mood=e.mood_score||3;
-      html+=`<div class="entry">
+      const eid=e._id||'';
+      html+=`<div class="entry" id="entry-${eid}">
         <div class="entry-top">
           <div class="entry-mood-badge"><span class="face">${e.mood_emoji||M[mood]}</span>${ML[mood]}</div>
           <div class="entry-meta"><span>${e.time_str||''}</span></div>
         </div>
         <div class="entry-text">${esc(e.text||'')}</div>
+        <div class="entry-actions">
+          <button class="edit-btn" onclick="openEditModal('${eid}',${mood},\`${esc(e.text||'').replace(/`/g,'')}\`)">✏️ Edit</button>
+          <button class="del-btn" onclick="deleteEntry('${eid}')">🗑️ Delete</button>
+        </div>
         <div class="entry-source">${src}</div>
       </div>`;
     }
@@ -617,6 +665,77 @@ async function loadMood(){
     document.getElementById('moodDistChart').innerHTML=dh;
   }catch(e){console.error(e)}
 }
+
+// ═══ EDIT / DELETE ENTRIES ═══
+let editingEntryId = null;
+let editMoodVal = null;
+
+function openEditModal(id, mood, text) {
+  editingEntryId = id;
+  editMoodVal = mood;
+  document.getElementById('editText').value = text;
+  document.querySelectorAll('#editMoodRow .modal-mood-btn').forEach(b => {
+    b.classList.toggle('sel', parseInt(b.dataset.em) === mood);
+  });
+  document.getElementById('editModal').classList.add('active');
+}
+
+function closeEditModal() {
+  document.getElementById('editModal').classList.remove('active');
+  editingEntryId = null;
+  editMoodVal = null;
+}
+
+function editPickMood(score) {
+  editMoodVal = score;
+  document.querySelectorAll('#editMoodRow .modal-mood-btn').forEach(b => {
+    b.classList.toggle('sel', parseInt(b.dataset.em) === score);
+  });
+}
+
+async function saveEditEntry() {
+  if (!editingEntryId) return;
+  const text = document.getElementById('editText').value.trim();
+  if (!text) { toast('Entry cannot be empty'); return; }
+
+  try {
+    await api('POST', '/api/journal/entry/update', {
+      id: editingEntryId,
+      text: text,
+      mood_score: editMoodVal
+    });
+    toast('✅ Entry updated!');
+    closeEditModal();
+    loadDiary();
+  } catch(e) {
+    toast('Failed to update');
+  }
+}
+
+async function deleteEntry(id) {
+  if (!confirm('Delete this entry?')) return;
+  try {
+    await api('POST', '/api/journal/entry/delete', { id: id });
+    toast('🗑️ Entry deleted');
+    // Animate removal
+    const el = document.getElementById('entry-' + id);
+    if (el) {
+      el.style.transition = 'all 0.3s ease';
+      el.style.opacity = '0';
+      el.style.transform = 'translateX(60px)';
+      setTimeout(() => loadDiary(), 300);
+    } else {
+      loadDiary();
+    }
+  } catch(e) {
+    toast('Failed to delete');
+  }
+}
+
+// Close modal on overlay tap
+document.addEventListener('click', (e) => {
+  if (e.target.classList.contains('modal-overlay')) closeEditModal();
+});
 
 // ═══ NOTES ═══
 let allNotes = [];
