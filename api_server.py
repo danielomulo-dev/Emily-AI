@@ -265,6 +265,83 @@ def api_delete_entry(user_id, entry_id):
 
 
 # ══════════════════════════════════════════════
+# GRATITUDE API
+# ══════════════════════════════════════════════
+def api_save_gratitude(user_id, items):
+    """Save today's gratitude list."""
+    if _api_db is None:
+        return None
+    now = datetime.now(EAT_ZONE)
+    today = now.strftime("%Y-%m-%d")
+    doc = {
+        "user_id": str(user_id),
+        "items": items[:3],
+        "date_str": today,
+        "date": now,
+    }
+    _api_db["gratitude"].update_one(
+        {"user_id": str(user_id), "date_str": today},
+        {"$set": doc},
+        upsert=True,
+    )
+    return doc
+
+
+def api_get_gratitude(user_id):
+    """Get today's gratitude entry."""
+    if _api_db is None:
+        return None
+    today = datetime.now(EAT_ZONE).strftime("%Y-%m-%d")
+    doc = _api_db["gratitude"].find_one(
+        {"user_id": str(user_id), "date_str": today},
+        {"_id": 0}
+    )
+    if doc and isinstance(doc.get("date"), datetime):
+        doc["date"] = doc["date"].isoformat()
+    return doc
+
+
+# ══════════════════════════════════════════════
+# SLEEP API
+# ══════════════════════════════════════════════
+def api_save_sleep(user_id, quality, hours):
+    """Save sleep data for today."""
+    if _api_db is None:
+        return None
+    now = datetime.now(EAT_ZONE)
+    today = now.strftime("%Y-%m-%d")
+    doc = {
+        "user_id": str(user_id),
+        "quality": max(1, min(5, int(quality))),
+        "hours": round(float(hours), 1),
+        "date_str": today,
+        "date": now,
+    }
+    _api_db["sleep"].update_one(
+        {"user_id": str(user_id), "date_str": today},
+        {"$set": doc},
+        upsert=True,
+    )
+    return doc
+
+
+def api_get_sleep(user_id, days=7):
+    """Get sleep data for recent days."""
+    if _api_db is None:
+        return []
+    from datetime import timedelta
+    cutoff = datetime.now(EAT_ZONE) - timedelta(days=days)
+    entries = list(_api_db["sleep"].find(
+        {"user_id": str(user_id), "date": {"$gte": cutoff}},
+        {"_id": 0}
+    ).sort("date", -1))
+    for e in entries:
+        if isinstance(e.get("date"), datetime):
+            e["date"] = e["date"].isoformat()
+    return entries
+
+
+# ══════════════════════════════════════════════
 # NOTES API FUNCTIONS
 # ══════════════════════════════════════════════
 def api_create_note(user_id, title, body="", color="#f59e0b"):
@@ -434,6 +511,17 @@ class EmilyAPIHandler(BaseHTTPRequestHandler):
             notes = api_get_notes(user_id)
             self._send_json({"notes": notes})
 
+        # Get gratitude
+        elif path == "/api/journal/gratitude":
+            doc = api_get_gratitude(user_id)
+            self._send_json({"gratitude": doc})
+
+        # Get sleep
+        elif path == "/api/journal/sleep":
+            days = int(params.get("days", [7])[0])
+            entries = api_get_sleep(user_id, days=days)
+            self._send_json({"sleep": entries})
+
         else:
             self._send_error("Not found", 404)
 
@@ -507,6 +595,31 @@ class EmilyAPIHandler(BaseHTTPRequestHandler):
                 self._send_json({"deleted": True})
             else:
                 self._send_error("Failed to delete", 500)
+
+        # Save gratitude
+        elif path == "/api/journal/gratitude":
+            items = body.get("items", [])
+            if not items:
+                self._send_error("items required")
+                return
+            doc = api_save_gratitude(user_id, items)
+            if doc:
+                self._send_json({"gratitude": doc}, 201)
+            else:
+                self._send_error("Failed to save", 500)
+
+        # Save sleep
+        elif path == "/api/journal/sleep":
+            quality = body.get("quality")
+            hours = body.get("hours", 7)
+            if not quality:
+                self._send_error("quality required")
+                return
+            doc = api_save_sleep(user_id, int(quality), float(hours))
+            if doc:
+                self._send_json({"sleep": doc}, 201)
+            else:
+                self._send_error("Failed to save", 500)
 
         # Create note
         elif path == "/api/notes":

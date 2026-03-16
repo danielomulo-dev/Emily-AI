@@ -316,6 +316,52 @@ textarea.journal-input::placeholder{color:var(--text-muted)}
 
 /* ═══ SKELETON ═══ */
 .skeleton{background:linear-gradient(90deg,var(--card) 25%,var(--card2) 50%,var(--card) 75%);background-size:200% 100%;animation:shimmer 1.5s infinite;border-radius:12px}
+
+/* ═══ DAILY PROMPT ═══ */
+.daily-prompt{background:linear-gradient(135deg,#2a1f0f,#1a1508);border:1px solid #3d2f14;border-radius:var(--r);padding:18px;position:relative;overflow:hidden}
+.daily-prompt::before{content:'💭';position:absolute;right:12px;top:10px;font-size:32px;opacity:.2}
+.daily-prompt .dp-label{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:var(--accent);margin-bottom:6px}
+.daily-prompt .dp-text{font-family:'Lora',serif;font-size:17px;font-weight:600;line-height:1.5;padding-right:30px}
+.daily-prompt .dp-btn{display:inline-block;margin-top:12px;padding:8px 16px;background:var(--accent);color:#000;border-radius:10px;font-size:12px;font-weight:700;cursor:pointer;border:none;font-family:'Plus Jakarta Sans',sans-serif}
+.daily-prompt .dp-btn:active{transform:scale(0.95)}
+
+/* ═══ GRATITUDE ═══ */
+.gratitude-card{background:var(--card);border-radius:var(--r);padding:18px;border:1px solid var(--border)}
+.gratitude-card h3{font-size:14px;font-weight:600;margin-bottom:12px;display:flex;align-items:center;gap:8px}
+.grat-row{display:flex;align-items:center;gap:10px;margin-bottom:8px}
+.grat-num{width:24px;height:24px;border-radius:50%;background:var(--accent-soft);color:var(--accent);font-size:12px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.grat-input{flex:1;background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:10px 12px;color:var(--text);font-size:13px;font-family:'Plus Jakarta Sans',sans-serif;outline:none;transition:border .2s}
+.grat-input:focus{border-color:var(--accent)}
+.grat-input::placeholder{color:var(--text-muted)}
+.grat-save{width:100%;background:var(--accent);color:#000;border:none;border-radius:10px;padding:10px;font-size:13px;font-weight:700;cursor:pointer;margin-top:8px;font-family:'Plus Jakarta Sans',sans-serif;transition:transform .1s}
+.grat-save:active{transform:scale(0.97)}
+.grat-save:disabled{opacity:.4}
+.grat-saved{text-align:center;padding:12px;color:var(--success);font-size:13px;font-weight:600}
+
+/* ═══ SLEEP TRACKER ═══ */
+.sleep-card{background:var(--card);border-radius:var(--r);padding:18px;border:1px solid var(--border)}
+.sleep-card h3{font-size:14px;font-weight:600;margin-bottom:12px;display:flex;align-items:center;gap:8px}
+.sleep-quality{display:flex;gap:6px;margin-bottom:14px}
+.sleep-btn{flex:1;padding:10px 4px;border-radius:12px;border:2px solid var(--border);background:var(--bg);cursor:pointer;text-align:center;transition:all .2s;font-family:'Plus Jakarta Sans',sans-serif}
+.sleep-btn:active,.sleep-btn.sel{border-color:var(--accent);background:var(--accent-soft)}
+.sleep-btn .se{font-size:20px;display:block}
+.sleep-btn .sl{font-size:9px;color:var(--text-dim);margin-top:2px;display:block}
+.sleep-hours{display:flex;align-items:center;gap:12px;margin-bottom:12px}
+.sleep-hours label{font-size:13px;color:var(--text-dim);flex-shrink:0}
+.sleep-range{flex:1;-webkit-appearance:none;appearance:none;height:6px;background:var(--border);border-radius:3px;outline:none}
+.sleep-range::-webkit-slider-thumb{-webkit-appearance:none;width:22px;height:22px;border-radius:50%;background:var(--accent);cursor:pointer;box-shadow:0 2px 8px rgba(245,158,11,0.3)}
+.sleep-hrs-val{font-size:18px;font-weight:700;font-family:'Lora',serif;width:40px;text-align:center}
+.sleep-save{width:100%;background:var(--accent);color:#000;border:none;border-radius:10px;padding:10px;font-size:13px;font-weight:700;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif;transition:transform .1s}
+.sleep-save:active{transform:scale(0.97)}
+.sleep-save:disabled{opacity:.4}
+.sleep-saved{text-align:center;padding:8px;color:var(--success);font-size:13px;font-weight:600}
+.sleep-trend{margin-top:14px}
+.sleep-bar-row{display:flex;align-items:center;gap:8px;margin-bottom:6px}
+.sleep-bar-date{font-size:10px;color:var(--text-dim);width:36px}
+.sleep-bar-track{flex:1;height:18px;background:var(--bg);border-radius:9px;overflow:hidden}
+.sleep-bar-fill{height:100%;border-radius:9px;display:flex;align-items:center;padding:0 8px;justify-content:flex-end}
+.sleep-bar-fill span{font-size:9px;font-weight:700;color:#000}
+.sleep-bar-hrs{font-size:11px;color:var(--text-dim);width:32px;text-align:right}
 </style>
 </head>
 <body>
@@ -346,6 +392,13 @@ textarea.journal-input::placeholder{color:var(--text-muted)}
   </div>
 
   <div class="cal-strip anim-2" id="calStrip"></div>
+
+  <!-- Daily Prompt -->
+  <div class="daily-prompt anim-2" id="dailyPromptCard">
+    <div class="dp-label">Today's Prompt</div>
+    <div class="dp-text" id="dailyPromptText">Loading...</div>
+    <button class="dp-btn" onclick="answerDailyPrompt()">Reflect on this ✍️</button>
+  </div>
 
   <div class="sec anim-2"><h2>Quick Journal</h2></div>
   <div class="prompts anim-3">
@@ -383,6 +436,38 @@ textarea.journal-input::placeholder{color:var(--text-muted)}
   <div class="trend-card anim-5">
     <h3>📊 This Week</h3>
     <div id="homeTrend"></div>
+  </div>
+
+  <!-- Gratitude List -->
+  <div class="gratitude-card anim-5" id="gratitudeCard">
+    <h3>🙏 Today's Gratitude</h3>
+    <div id="gratitudeContent">
+      <div class="grat-row"><div class="grat-num">1</div><input class="grat-input" id="grat1" placeholder="I'm grateful for..."></div>
+      <div class="grat-row"><div class="grat-num">2</div><input class="grat-input" id="grat2" placeholder="I'm thankful for..."></div>
+      <div class="grat-row"><div class="grat-num">3</div><input class="grat-input" id="grat3" placeholder="I appreciate..."></div>
+      <button class="grat-save" id="gratSaveBtn" onclick="saveGratitude()">Save Gratitude 🌟</button>
+    </div>
+  </div>
+
+  <!-- Sleep Tracker -->
+  <div class="sleep-card anim-5" id="sleepCard">
+    <h3>😴 Last Night's Sleep</h3>
+    <div id="sleepContent">
+      <div class="sleep-quality">
+        <button class="sleep-btn" onclick="pickSleep(1)"><span class="se">😫</span><span class="sl">Terrible</span></button>
+        <button class="sleep-btn" onclick="pickSleep(2)"><span class="se">😪</span><span class="sl">Poor</span></button>
+        <button class="sleep-btn" onclick="pickSleep(3)"><span class="se">😐</span><span class="sl">Okay</span></button>
+        <button class="sleep-btn" onclick="pickSleep(4)"><span class="se">😊</span><span class="sl">Good</span></button>
+        <button class="sleep-btn" onclick="pickSleep(5)"><span class="se">😴</span><span class="sl">Great</span></button>
+      </div>
+      <div class="sleep-hours">
+        <label>Hours slept:</label>
+        <input type="range" class="sleep-range" id="sleepHours" min="0" max="12" step="0.5" value="7" oninput="updateSleepVal()">
+        <div class="sleep-hrs-val" id="sleepHrsVal">7</div>
+      </div>
+      <button class="sleep-save" id="sleepSaveBtn" onclick="saveSleep()">Log Sleep 🌙</button>
+    </div>
+    <div class="sleep-trend" id="sleepTrend"></div>
   </div>
 
   <div class="install-bar anim-5" id="installBanner">
@@ -638,6 +723,167 @@ async function loadHome(){
     document.getElementById('sEntries').textContent=s.total_entries||0;
     renderTrend(tr.trend||[],'homeTrend');
   }catch(e){console.error(e)}
+
+  // Load daily prompt
+  loadDailyPrompt();
+
+  // Check if gratitude already saved today
+  loadGratitudeStatus();
+
+  // Load sleep data
+  loadSleepStatus();
+}
+
+// ═══ DAILY PROMPTS ═══
+const DAILY_PROMPTS=[
+  "What moment today made you smile, even just a little?",
+  "What's one thing you're proud of this week?",
+  "If you could tell your younger self one thing, what would it be?",
+  "What challenge are you facing, and what's one small step forward?",
+  "Who made a positive impact on your life recently?",
+  "What are you looking forward to this week?",
+  "What's a lesson life taught you recently?",
+  "If today had a title, what would it be?",
+  "What does your ideal tomorrow look like?",
+  "What's something you've been putting off? Why?",
+  "Describe your current mood in three words.",
+  "What's one kind thing someone did for you recently?",
+  "What would you do today if you had no fear?",
+  "What's a memory that always makes you feel warm?",
+  "How have you grown in the last month?",
+  "What's draining your energy right now? How can you fix it?",
+  "Write a letter to yourself one year from now.",
+  "What's something small that brought you joy today?",
+  "If you could change one thing about today, what would it be?",
+  "What are three things that make your life beautiful right now?",
+  "What's weighing on your mind? Write it out.",
+  "Describe a person who inspires you and why.",
+  "What boundaries do you need to set or maintain?",
+  "What did God teach you today?",
+  "How did you take care of yourself today?",
+  "What's a prayer that's been on your heart?",
+  "What are you currently working towards?",
+  "What made today different from yesterday?",
+  "Who do you need to forgive, including yourself?",
+  "What are you holding onto that you need to release?",
+  "What's the best advice you've ever received?",
+];
+
+function loadDailyPrompt(){
+  // Pick prompt based on day of year (rotates daily)
+  const now=new Date();
+  const dayOfYear=Math.floor((now-new Date(now.getFullYear(),0,0))/(1000*60*60*24));
+  const prompt=DAILY_PROMPTS[dayOfYear%DAILY_PROMPTS.length];
+  document.getElementById('dailyPromptText').textContent=prompt;
+}
+
+function answerDailyPrompt(){
+  const prompt=document.getElementById('dailyPromptText').textContent;
+  go('write');
+  document.getElementById('jText').value=prompt+'\n\n';
+  document.getElementById('jText').focus();
+  updateCount();
+  // Auto-select faith tag if it's a spiritual prompt
+  if(prompt.toLowerCase().includes('god')||prompt.toLowerCase().includes('pray')){
+    const faithChip=document.querySelector('#writeTagRow [data-tag="faith"]');
+    if(faithChip&&!faithChip.classList.contains('sel'))toggleWriteTag(faithChip);
+  }
+}
+
+// ═══ GRATITUDE LIST ═══
+let gratitudeSavedToday=false;
+
+async function loadGratitudeStatus(){
+  try{
+    const data=await api('GET','/api/journal/gratitude');
+    if(data.gratitude&&data.gratitude.date_str===new Date().toISOString().slice(0,10)){
+      gratitudeSavedToday=true;
+      const g=data.gratitude;
+      const el=document.getElementById('gratitudeContent');
+      el.innerHTML=`<div class="grat-saved">✅ Today's gratitude saved!</div>
+        <div style="padding:4px 0;font-size:13px;line-height:1.8;color:var(--text-dim)">
+          <div>1. ${esc(g.items[0]||'')}</div>
+          <div>2. ${esc(g.items[1]||'')}</div>
+          <div>3. ${esc(g.items[2]||'')}</div>
+        </div>`;
+    }
+  }catch(e){}
+}
+
+async function saveGratitude(){
+  const items=[
+    document.getElementById('grat1').value.trim(),
+    document.getElementById('grat2').value.trim(),
+    document.getElementById('grat3').value.trim()
+  ];
+  if(!items[0]&&!items[1]&&!items[2]){toast('Write at least one thing you\'re grateful for');return}
+  const btn=document.getElementById('gratSaveBtn');
+  btn.disabled=true;btn.textContent='Saving...';
+  try{
+    await api('POST','/api/journal/gratitude',{items:items.filter(i=>i)});
+    toast('🙏 Gratitude saved!');
+    gratitudeSavedToday=true;
+    loadGratitudeStatus();
+  }catch(e){toast('Failed to save')}
+  btn.disabled=false;btn.textContent='Save Gratitude 🌟';
+}
+
+// ═══ SLEEP TRACKER ═══
+let sleepQuality=null;
+let sleepSavedToday=false;
+
+function pickSleep(q){
+  sleepQuality=q;
+  document.querySelectorAll('#sleepCard .sleep-btn').forEach((b,i)=>b.classList.toggle('sel',i+1===q));
+}
+function updateSleepVal(){
+  document.getElementById('sleepHrsVal').textContent=document.getElementById('sleepHours').value;
+}
+
+async function loadSleepStatus(){
+  try{
+    const data=await api('GET','/api/journal/sleep?days=7');
+    const entries=data.sleep||[];
+    // Check if today already logged
+    const today=new Date().toISOString().slice(0,10);
+    const todayEntry=entries.find(e=>e.date_str===today);
+    if(todayEntry){
+      sleepSavedToday=true;
+      const el=document.getElementById('sleepContent');
+      const emojis={1:'😫',2:'😪',3:'😐',4:'😊',5:'😴'};
+      el.innerHTML=`<div class="sleep-saved">${emojis[todayEntry.quality]||'😴'} Logged: ${todayEntry.hours}hrs (${todayEntry.quality}/5)</div>`;
+    }
+    // Render trend
+    if(entries.length>1){
+      renderSleepTrend(entries);
+    }
+  }catch(e){}
+}
+
+function renderSleepTrend(entries){
+  const el=document.getElementById('sleepTrend');
+  const colors={1:'var(--mood-1)',2:'var(--mood-2)',3:'var(--mood-3)',4:'var(--mood-4)',5:'var(--mood-5)'};
+  el.innerHTML='<div style="font-size:12px;font-weight:600;color:var(--text-dim);margin-bottom:8px">Sleep This Week</div>'+
+    entries.slice(0,7).reverse().map(e=>{
+      const pct=(e.hours/12)*100;
+      const c=colors[e.quality]||'var(--mood-3)';
+      const d=e.date_str.slice(5);
+      return`<div class="sleep-bar-row"><div class="sleep-bar-date">${d}</div><div class="sleep-bar-track"><div class="sleep-bar-fill" style="width:${pct}%;background:${c}"><span>${e.quality}/5</span></div></div><div class="sleep-bar-hrs">${e.hours}h</div></div>`;
+    }).join('');
+}
+
+async function saveSleep(){
+  if(!sleepQuality){toast('Rate your sleep quality first');return}
+  const hours=parseFloat(document.getElementById('sleepHours').value);
+  const btn=document.getElementById('sleepSaveBtn');
+  btn.disabled=true;btn.textContent='Saving...';
+  try{
+    await api('POST','/api/journal/sleep',{quality:sleepQuality,hours:hours});
+    toast('😴 Sleep logged!');
+    sleepSavedToday=true;
+    loadSleepStatus();
+  }catch(e){toast('Failed to save')}
+  btn.disabled=false;btn.textContent='Log Sleep 🌙';
 }
 
 function renderTrend(trend,elId){
