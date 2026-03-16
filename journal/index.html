@@ -362,6 +362,30 @@ textarea.journal-input::placeholder{color:var(--text-muted)}
 .sleep-bar-fill{height:100%;border-radius:9px;display:flex;align-items:center;padding:0 8px;justify-content:flex-end}
 .sleep-bar-fill span{font-size:9px;font-weight:700;color:#000}
 .sleep-bar-hrs{font-size:11px;color:var(--text-dim);width:32px;text-align:right}
+
+/* ═══ BADGES & STREAKS ═══ */
+.badges-card{background:var(--card);border-radius:var(--r);padding:18px;border:1px solid var(--border)}
+.badges-card h3{font-size:14px;font-weight:600;margin-bottom:14px;display:flex;align-items:center;gap:8px}
+.badges-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+.badge{text-align:center;padding:14px 6px;border-radius:16px;background:var(--bg);border:1.5px solid var(--border);transition:all .3s;position:relative}
+.badge.earned{border-color:var(--accent);background:var(--accent-soft)}
+.badge.earned .badge-icon{filter:none;opacity:1}
+.badge .badge-icon{font-size:30px;display:block;margin-bottom:4px;opacity:.25;filter:grayscale(1)}
+.badge .badge-name{font-size:10px;font-weight:600;color:var(--text-dim);line-height:1.3}
+.badge.earned .badge-name{color:var(--text)}
+.badge .badge-desc{font-size:8px;color:var(--text-muted);margin-top:2px}
+.badge.earned::after{content:'✓';position:absolute;top:6px;right:6px;font-size:10px;color:var(--accent);font-weight:700}
+.badge-new{animation:badgePop .5s ease both}
+@keyframes badgePop{0%{transform:scale(0.5);opacity:0}60%{transform:scale(1.15)}100%{transform:scale(1);opacity:1}}
+.streak-display{display:flex;align-items:center;gap:12px;background:linear-gradient(135deg,#2a1f0f,#1a1508);border:1px solid #3d2f14;border-radius:var(--r);padding:16px;margin-bottom:14px}
+.streak-fire{font-size:36px}
+.streak-info h4{font-size:22px;font-weight:700;font-family:'Lora',serif;line-height:1}
+.streak-info p{font-size:12px;color:var(--text-dim);margin-top:2px}
+.streak-next{font-size:11px;color:var(--accent);margin-top:4px}
+.milestone-bar{display:flex;align-items:center;gap:4px;margin-top:8px}
+.ms-dot{width:10px;height:10px;border-radius:50%;background:var(--border);transition:background .3s}
+.ms-dot.filled{background:var(--accent)}
+.ms-dot.current{background:var(--accent);box-shadow:0 0 8px var(--accent)}
 </style>
 </head>
 <body>
@@ -431,6 +455,23 @@ textarea.journal-input::placeholder{color:var(--text-muted)}
     <div class="stat-box"><div class="stat-num" id="sStreak">-</div><div class="stat-lbl">🔥 Streak</div></div>
     <div class="stat-box"><div class="stat-num" id="sAvg">-</div><div class="stat-lbl">📈 Avg Mood</div></div>
     <div class="stat-box"><div class="stat-num" id="sEntries">-</div><div class="stat-lbl">📝 Entries</div></div>
+  </div>
+
+  <!-- Streak Progress -->
+  <div class="streak-display anim-4" id="streakDisplay" style="display:none">
+    <div class="streak-fire" id="streakEmoji">🔥</div>
+    <div class="streak-info">
+      <h4 id="streakCount">0 days</h4>
+      <p id="streakLabel">journaling streak</p>
+      <div class="streak-next" id="streakNext"></div>
+      <div class="milestone-bar" id="milestoneBar"></div>
+    </div>
+  </div>
+
+  <!-- Badges -->
+  <div class="badges-card anim-5" id="badgesCard">
+    <h3>🏆 Your Badges</h3>
+    <div class="badges-grid" id="badgesGrid"></div>
   </div>
 
   <div class="trend-card anim-5">
@@ -718,20 +759,108 @@ async function loadHome(){
   try{
     const [st,tr]=await Promise.all([api('GET','/api/journal/stats?days=30'),api('GET','/api/journal/mood-trend?days=7')]);
     const s=st.stats||{};
-    document.getElementById('sStreak').textContent=s.streak||0;
-    document.getElementById('sAvg').textContent=s.avg_mood||'-';
-    document.getElementById('sEntries').textContent=s.total_entries||0;
+    const streak=s.streak||0;
+    const totalEntries=s.total_entries||0;
+    const avgMood=s.avg_mood||0;
+
+    document.getElementById('sStreak').textContent=streak;
+    document.getElementById('sAvg').textContent=avgMood||'-';
+    document.getElementById('sEntries').textContent=totalEntries;
     renderTrend(tr.trend||[],'homeTrend');
+
+    // Streak display
+    renderStreak(streak);
+
+    // Badges
+    renderBadges(streak,totalEntries,avgMood);
   }catch(e){console.error(e)}
 
-  // Load daily prompt
   loadDailyPrompt();
-
-  // Check if gratitude already saved today
   loadGratitudeStatus();
-
-  // Load sleep data
   loadSleepStatus();
+}
+
+// ═══ STREAK DISPLAY ═══
+const STREAK_MILESTONES=[3,7,14,21,30,60,90,180,365];
+
+function renderStreak(streak){
+  const el=document.getElementById('streakDisplay');
+  if(streak<1){el.style.display='none';return}
+  el.style.display='flex';
+
+  // Emoji escalation
+  let emoji='🔥';
+  if(streak>=365)emoji='👑';
+  else if(streak>=90)emoji='💎';
+  else if(streak>=30)emoji='⭐';
+  else if(streak>=14)emoji='🔥';
+  else if(streak>=7)emoji='✨';
+  else if(streak>=3)emoji='🌱';
+  document.getElementById('streakEmoji').textContent=emoji;
+  document.getElementById('streakCount').textContent=`${streak} day${streak!==1?'s':''}`;
+
+  // Next milestone
+  const next=STREAK_MILESTONES.find(m=>m>streak);
+  if(next){
+    document.getElementById('streakNext').textContent=`${next-streak} more to ${next}-day milestone!`;
+  }else{
+    document.getElementById('streakNext').textContent='🏆 Legendary streak!';
+  }
+
+  // Milestone dots
+  const bar=document.getElementById('milestoneBar');
+  bar.innerHTML=STREAK_MILESTONES.slice(0,7).map(m=>{
+    const cls=streak>=m?'filled':m===next?'current':'';
+    return`<div class="ms-dot ${cls}" title="${m} days"></div>`;
+  }).join('');
+}
+
+// ═══ BADGES ═══
+const BADGES=[
+  {id:'first',icon:'📝',name:'First Entry',desc:'Write your first entry',check:(s,e,m)=>e>=1},
+  {id:'week1',icon:'🌱',name:'Seedling',desc:'3-day streak',check:(s,e,m)=>s>=3},
+  {id:'week',icon:'✨',name:'One Week',desc:'7-day streak',check:(s,e,m)=>s>=7},
+  {id:'twoweek',icon:'🔥',name:'On Fire',desc:'14-day streak',check:(s,e,m)=>s>=14},
+  {id:'month',icon:'⭐',name:'Monthly',desc:'30-day streak',check:(s,e,m)=>s>=30},
+  {id:'diamond',icon:'💎',name:'Diamond',desc:'90-day streak',check:(s,e,m)=>s>=90},
+  {id:'ten',icon:'📚',name:'10 Entries',desc:'Write 10 entries',check:(s,e,m)=>e>=10},
+  {id:'fifty',icon:'🎯',name:'50 Entries',desc:'Write 50 entries',check:(s,e,m)=>e>=50},
+  {id:'hundred',icon:'💯',name:'Centurion',desc:'100 entries',check:(s,e,m)=>e>=100},
+  {id:'happy',icon:'😊',name:'Optimist',desc:'Avg mood above 4',check:(s,e,m)=>m>=4&&e>=5},
+  {id:'balanced',icon:'⚖️',name:'Balanced',desc:'Avg mood 2.5-3.5',check:(s,e,m)=>m>=2.5&&m<=3.5&&e>=5},
+  {id:'prolific',icon:'✍️',name:'Prolific',desc:'25+ entries',check:(s,e,m)=>e>=25},
+];
+
+function renderBadges(streak,entries,avgMood){
+  const grid=document.getElementById('badgesGrid');
+  const earned=JSON.parse(localStorage.getItem('ej_badges')||'[]');
+  const newlyEarned=[];
+
+  let html='';
+  for(const b of BADGES){
+    const isEarned=b.check(streak,entries,avgMood);
+    const wasEarned=earned.includes(b.id);
+    const isNew=isEarned&&!wasEarned;
+    if(isNew)newlyEarned.push(b.id);
+
+    html+=`<div class="badge ${isEarned?'earned':''} ${isNew?'badge-new':''}">
+      <span class="badge-icon">${b.icon}</span>
+      <div class="badge-name">${b.name}</div>
+      <div class="badge-desc">${b.desc}</div>
+    </div>`;
+  }
+  grid.innerHTML=html;
+
+  // Save earned badges
+  if(newlyEarned.length){
+    const allEarned=[...new Set([...earned,...newlyEarned])];
+    localStorage.setItem('ej_badges',JSON.stringify(allEarned));
+    // Celebrate new badges
+    for(const id of newlyEarned){
+      const b=BADGES.find(x=>x.id===id);
+      if(b)setTimeout(()=>toast(`🏆 Badge unlocked: ${b.icon} ${b.name}!`),500);
+    }
+  }
 }
 
 // ═══ DAILY PROMPTS ═══
