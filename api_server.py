@@ -99,7 +99,7 @@ def _detect_mood(text):
     return 3
 
 
-def api_add_entry(user_id, text, mood_score=None):
+def api_add_entry(user_id, text, mood_score=None, tags=None):
     """Add journal entry via API."""
     if _api_db is None:
         return None
@@ -115,7 +115,8 @@ def api_add_entry(user_id, text, mood_score=None):
         "mood_score": mood_score,
         "mood_emoji": emoji,
         "mood_label": label,
-        "tags": [],
+        "tags": tags or [],
+        "pinned": False,
         "date": now,
         "date_str": now.strftime("%Y-%m-%d"),
         "time_str": now.strftime("%I:%M %p"),
@@ -217,7 +218,7 @@ def api_quick_mood(user_id, mood_score):
     return api_add_entry(user_id, f"Quick check-in: feeling {label}", mood_score)
 
 
-def api_update_entry(user_id, entry_id, text=None, mood_score=None):
+def api_update_entry(user_id, entry_id, text=None, mood_score=None, tags=None, pinned=None):
     """Update a journal entry."""
     if _api_db is None:
         return None
@@ -232,6 +233,10 @@ def api_update_entry(user_id, entry_id, text=None, mood_score=None):
             update["mood_score"] = mood_score
             update["mood_emoji"] = emoji
             update["mood_label"] = label
+        if tags is not None:
+            update["tags"] = tags
+        if pinned is not None:
+            update["pinned"] = bool(pinned)
         if not update:
             return None
         result = _api_db["journal"].update_one(
@@ -448,11 +453,11 @@ class EmilyAPIHandler(BaseHTTPRequestHandler):
         if path == "/api/journal/entry":
             text = body.get("text", "").strip()
             mood = body.get("mood_score")
+            tags = body.get("tags", [])
             if not text and mood:
-                # Quick mood check-in
                 entry = api_quick_mood(user_id, int(mood))
             elif text:
-                entry = api_add_entry(user_id, text, int(mood) if mood else None)
+                entry = api_add_entry(user_id, text, int(mood) if mood else None, tags=tags)
             else:
                 self._send_error("Text or mood_score required")
                 return
@@ -480,8 +485,14 @@ class EmilyAPIHandler(BaseHTTPRequestHandler):
             if not entry_id:
                 self._send_error("Entry id required")
                 return
-            result = api_update_entry(user_id, entry_id, body.get("text"), body.get("mood_score"))
-            if result:
+            result = api_update_entry(
+                user_id, entry_id,
+                text=body.get("text"),
+                mood_score=body.get("mood_score"),
+                tags=body.get("tags"),
+                pinned=body.get("pinned"),
+            )
+            if result is not None:
                 self._send_json({"updated": True})
             else:
                 self._send_error("Failed to update", 500)

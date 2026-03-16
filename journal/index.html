@@ -166,6 +166,42 @@ textarea.journal-input::placeholder{color:var(--text-muted)}
 .entry-tags{display:flex;gap:6px;flex-wrap:wrap}
 .entry-tag{font-size:10px;padding:3px 8px;border-radius:8px;background:var(--bg);color:var(--text-dim);border:1px solid var(--border)}
 .entry-source{font-size:10px;color:var(--text-muted);display:flex;align-items:center;gap:4px}
+
+/* ═══ TAGS ═══ */
+.tag-row{display:flex;flex-wrap:wrap;gap:6px;margin:10px 0}
+.tag-chip{padding:6px 12px;border-radius:20px;font-size:11px;font-weight:600;cursor:pointer;border:1.5px solid var(--border);background:var(--bg);color:var(--text-dim);transition:all .2s;font-family:'Plus Jakarta Sans',sans-serif}
+.tag-chip:active{transform:scale(0.95)}
+.tag-chip.sel{color:#000;border-color:transparent}
+.tag-chip[data-tag="personal"].sel{background:#f59e0b}
+.tag-chip[data-tag="work"].sel{background:#60a5fa}
+.tag-chip[data-tag="health"].sel{background:#34d399}
+.tag-chip[data-tag="faith"].sel{background:#a78bfa}
+.tag-chip[data-tag="family"].sel{background:#fb923c}
+.tag-chip[data-tag="finance"].sel{background:#fbbf24}
+.tag-chip[data-tag="learning"].sel{background:#2dd4bf}
+.tag-chip[data-tag="travel"].sel{background:#f472b6}
+.entry-tags{display:flex;gap:4px;flex-wrap:wrap;margin-top:8px}
+.entry-tag{font-size:9px;padding:2px 8px;border-radius:10px;font-weight:600;color:#000}
+.entry-tag.t-personal{background:rgba(245,158,11,0.8)}
+.entry-tag.t-work{background:rgba(96,165,250,0.8)}
+.entry-tag.t-health{background:rgba(52,211,153,0.8)}
+.entry-tag.t-faith{background:rgba(167,139,250,0.8)}
+.entry-tag.t-family{background:rgba(251,146,60,0.8)}
+.entry-tag.t-finance{background:rgba(251,191,36,0.8)}
+.entry-tag.t-learning{background:rgba(45,212,191,0.8)}
+.entry-tag.t-travel{background:rgba(244,114,182,0.8)}
+
+/* ═══ PIN ═══ */
+.pin-btn{background:none;border:none;font-size:16px;cursor:pointer;opacity:0.4;transition:all .2s;padding:4px}
+.pin-btn:active{transform:scale(1.2)}
+.pin-btn.pinned{opacity:1}
+.entry.pinned-entry{border-color:var(--accent-mid);background:linear-gradient(135deg,var(--card),rgba(245,158,11,0.05))}
+
+/* ═══ TAG FILTER BAR ═══ */
+.filter-bar{display:flex;gap:6px;overflow-x:auto;padding:8px 0 12px;scrollbar-width:none}
+.filter-bar::-webkit-scrollbar{display:none}
+.filter-chip{padding:5px 12px;border-radius:16px;font-size:11px;font-weight:600;cursor:pointer;border:1px solid var(--border);background:var(--card);color:var(--text-dim);white-space:nowrap;transition:all .2s;font-family:'Plus Jakarta Sans',sans-serif}
+.filter-chip.active{background:var(--accent);color:#000;border-color:var(--accent)}
 .entry-actions{display:flex;gap:6px;margin-top:10px;justify-content:flex-end}
 .entry-actions button{background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:6px 12px;font-size:11px;font-weight:600;color:var(--text-dim);cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif;transition:all .2s;display:flex;align-items:center;gap:4px}
 .entry-actions button:active{transform:scale(0.95)}
@@ -385,6 +421,17 @@ textarea.journal-input::placeholder{color:var(--text-muted)}
   </div>
   <div class="voice-unsupported" id="voiceUnsupported">🎙️ Voice not supported in this browser. Try Chrome.</div>
 
+  <div class="tag-row anim-3" id="writeTagRow">
+    <span class="tag-chip" data-tag="personal" onclick="toggleWriteTag(this)">🧡 Personal</span>
+    <span class="tag-chip" data-tag="work" onclick="toggleWriteTag(this)">💼 Work</span>
+    <span class="tag-chip" data-tag="health" onclick="toggleWriteTag(this)">💪 Health</span>
+    <span class="tag-chip" data-tag="faith" onclick="toggleWriteTag(this)">🙏 Faith</span>
+    <span class="tag-chip" data-tag="family" onclick="toggleWriteTag(this)">👨‍👩‍👧 Family</span>
+    <span class="tag-chip" data-tag="finance" onclick="toggleWriteTag(this)">💰 Finance</span>
+    <span class="tag-chip" data-tag="learning" onclick="toggleWriteTag(this)">📚 Learning</span>
+    <span class="tag-chip" data-tag="travel" onclick="toggleWriteTag(this)">✈️ Travel</span>
+  </div>
+
   <textarea class="journal-input anim-3" id="jText" placeholder="Today I..." oninput="updateCount()"></textarea>
   <div class="char-count"><span id="charCnt">0</span> characters</div>
   <button class="write-btn anim-4" id="saveBtn" onclick="submitEntry()">Save Entry ✨</button>
@@ -393,6 +440,18 @@ textarea.journal-input::placeholder{color:var(--text-muted)}
 <!-- DIARY -->
 <div id="diaryScreen" class="screen">
   <div class="header anim-1"><div class="greeting" style="font-size:24px">Your Diary 📖</div></div>
+  <div class="filter-bar anim-2" id="diaryFilters">
+    <span class="filter-chip active" onclick="filterDiary('all',this)">All</span>
+    <span class="filter-chip" onclick="filterDiary('pinned',this)">📌 Pinned</span>
+    <span class="filter-chip" onclick="filterDiary('personal',this)">🧡 Personal</span>
+    <span class="filter-chip" onclick="filterDiary('work',this)">💼 Work</span>
+    <span class="filter-chip" onclick="filterDiary('health',this)">💪 Health</span>
+    <span class="filter-chip" onclick="filterDiary('faith',this)">🙏 Faith</span>
+    <span class="filter-chip" onclick="filterDiary('family',this)">👨‍👩‍👧 Family</span>
+    <span class="filter-chip" onclick="filterDiary('finance',this)">💰 Finance</span>
+    <span class="filter-chip" onclick="filterDiary('learning',this)">📚 Learning</span>
+    <span class="filter-chip" onclick="filterDiary('travel',this)">✈️ Travel</span>
+  </div>
   <div id="diaryList"><div class="spin-wrap"><div class="spin"></div></div></div>
 </div>
 
@@ -471,6 +530,16 @@ textarea.journal-input::placeholder{color:var(--text-muted)}
       <button class="modal-mood-btn" data-em="5" onclick="editPickMood(5)">🤩</button>
     </div>
     <textarea class="modal-textarea" id="editText" placeholder="What happened..."></textarea>
+    <div class="tag-row" id="editTagRow">
+      <span class="tag-chip" data-tag="personal" onclick="toggleEditTag(this)">🧡 Personal</span>
+      <span class="tag-chip" data-tag="work" onclick="toggleEditTag(this)">💼 Work</span>
+      <span class="tag-chip" data-tag="health" onclick="toggleEditTag(this)">💪 Health</span>
+      <span class="tag-chip" data-tag="faith" onclick="toggleEditTag(this)">🙏 Faith</span>
+      <span class="tag-chip" data-tag="family" onclick="toggleEditTag(this)">👨‍👩‍👧 Family</span>
+      <span class="tag-chip" data-tag="finance" onclick="toggleEditTag(this)">💰 Finance</span>
+      <span class="tag-chip" data-tag="learning" onclick="toggleEditTag(this)">📚 Learning</span>
+      <span class="tag-chip" data-tag="travel" onclick="toggleEditTag(this)">✈️ Travel</span>
+    </div>
     <div class="modal-actions">
       <button class="modal-cancel" onclick="closeEditModal()">Cancel</button>
       <button class="modal-save" onclick="saveEditEntry()">Save Changes</button>
@@ -489,6 +558,10 @@ const DAYS=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
 let TOKEN=localStorage.getItem('ej_token')||'';
 let API=localStorage.getItem('ej_api')||'';
 let selMoodVal=null;
+let selectedWriteTags=[];
+let selectedEditTags=[];
+let allDiaryEntries=[];
+let currentFilter='all';
 
 // ═══ API ═══
 async function api(m,p,b=null){
@@ -605,10 +678,12 @@ async function submitEntry(){
   btn.disabled=true;btn.textContent='Saving...';
   try{
     const body={};if(text)body.text=text;if(selMoodVal)body.mood_score=selMoodVal;
+    if(selectedWriteTags.length)body.tags=selectedWriteTags;
     await api('POST','/api/journal/entry',body);
     toast('📓 Entry saved!');
-    document.getElementById('jText').value='';selMoodVal=null;updateCount();
+    document.getElementById('jText').value='';selMoodVal=null;selectedWriteTags=[];updateCount();
     document.querySelectorAll('#writeScreen .mood-btn').forEach(b=>b.classList.remove('sel'));
+    document.querySelectorAll('#writeTagRow .tag-chip').forEach(c=>c.classList.remove('sel'));
   }catch(e){toast('Failed to save')}
   btn.disabled=false;btn.textContent='Save Entry ✨';
 }
@@ -618,30 +693,79 @@ async function loadDiary(){
   const el=document.getElementById('diaryList');
   el.innerHTML='<div class="spin-wrap"><div class="spin"></div></div>';
   try{
-    const d=await api('GET','/api/journal/entries?days=30&limit=30');
-    const entries=d.entries||[];
-    if(!entries.length){el.innerHTML='<div class="empty"><div class="empty-i">📖</div><div class="empty-t">No entries yet.<br>Start writing!</div></div>';return}
-    let curDate='',html='';
-    for(const e of entries){
-      if(e.date_str!==curDate){curDate=e.date_str;html+=`<div class="day-header">${e.day_name||''}, ${curDate}</div>`}
-      const src=e.source==='app'?'📱 App':'💬 Discord';
-      const mood=e.mood_score||3;
-      const eid=e._id||'';
-      html+=`<div class="entry" id="entry-${eid}">
-        <div class="entry-top">
-          <div class="entry-mood-badge"><span class="face">${e.mood_emoji||M[mood]}</span>${ML[mood]}</div>
+    const d=await api('GET','/api/journal/entries?days=30&limit=50');
+    allDiaryEntries=d.entries||[];
+    renderDiaryEntries(allDiaryEntries);
+  }catch(e){el.innerHTML='<div class="empty"><div class="empty-t">Failed to load.</div></div>'}
+}
+
+function renderDiaryEntries(entries){
+  const el=document.getElementById('diaryList');
+  if(!entries.length){el.innerHTML='<div class="empty"><div class="empty-i">📖</div><div class="empty-t">No entries match.<br>Try a different filter!</div></div>';return}
+
+  // Sort: pinned first, then by date
+  const sorted=[...entries].sort((a,b)=>{
+    if(a.pinned&&!b.pinned)return -1;
+    if(!a.pinned&&b.pinned)return 1;
+    return 0;
+  });
+
+  let curDate='',html='';
+  for(const e of sorted){
+    if(e.date_str!==curDate){curDate=e.date_str;html+=`<div class="day-header">${e.day_name||''}, ${curDate}</div>`}
+    const src=e.source==='app'?'📱 App':'💬 Discord';
+    const mood=e.mood_score||3;
+    const eid=e._id||'';
+    const isPinned=e.pinned?true:false;
+    const tags=e.tags||[];
+    const tagsHtml=tags.map(t=>`<span class="entry-tag t-${t}">${t}</span>`).join('');
+    const entryTags=tags.length?tags.map(t=>`'${t}'`).join(','):'';
+
+    html+=`<div class="entry ${isPinned?'pinned-entry':''}" id="entry-${eid}">
+      <div class="entry-top">
+        <div class="entry-mood-badge"><span class="face">${e.mood_emoji||M[mood]}</span>${ML[mood]}</div>
+        <div style="display:flex;align-items:center;gap:6px">
+          <button class="pin-btn ${isPinned?'pinned':''}" onclick="togglePin('${eid}',${!isPinned})" title="${isPinned?'Unpin':'Pin'}">${isPinned?'📌':'📍'}</button>
           <div class="entry-meta"><span>${e.time_str||''}</span></div>
         </div>
-        <div class="entry-text">${esc(e.text||'')}</div>
-        <div class="entry-actions">
-          <button class="edit-btn" onclick="openEditModal('${eid}',${mood},\`${esc(e.text||'').replace(/`/g,'')}\`)">✏️ Edit</button>
-          <button class="del-btn" onclick="deleteEntry('${eid}')">🗑️ Delete</button>
-        </div>
-        <div class="entry-source">${src}</div>
-      </div>`;
-    }
-    el.innerHTML=html;
-  }catch(e){el.innerHTML='<div class="empty"><div class="empty-t">Failed to load.</div></div>'}
+      </div>
+      <div class="entry-text">${esc(e.text||'')}</div>
+      ${tagsHtml?`<div class="entry-tags">${tagsHtml}</div>`:''}
+      <div class="entry-actions">
+        <button class="edit-btn" onclick="openEditModal('${eid}',${mood},\`${esc(e.text||'').replace(/`/g,'')}\`,[${entryTags}])">✏️ Edit</button>
+        <button class="del-btn" onclick="deleteEntry('${eid}')">🗑️ Delete</button>
+      </div>
+      <div class="entry-source">${src}</div>
+    </div>`;
+  }
+  el.innerHTML=html;
+}
+
+function filterDiary(filter, chipEl){
+  currentFilter=filter;
+  document.querySelectorAll('#diaryFilters .filter-chip').forEach(c=>c.classList.remove('active'));
+  if(chipEl)chipEl.classList.add('active');
+
+  if(filter==='all'){
+    renderDiaryEntries(allDiaryEntries);
+  } else if(filter==='pinned'){
+    renderDiaryEntries(allDiaryEntries.filter(e=>e.pinned));
+  } else {
+    renderDiaryEntries(allDiaryEntries.filter(e=>(e.tags||[]).includes(filter)));
+  }
+}
+
+async function togglePin(id, pin){
+  try{
+    await api('POST','/api/journal/entry/update',{id:id,pinned:pin});
+    // Update local data
+    const entry=allDiaryEntries.find(e=>e._id===id);
+    if(entry)entry.pinned=pin;
+    toast(pin?'📌 Pinned!':'Unpinned');
+    renderDiaryEntries(currentFilter==='all'?allDiaryEntries:
+      currentFilter==='pinned'?allDiaryEntries.filter(e=>e.pinned):
+      allDiaryEntries.filter(e=>(e.tags||[]).includes(currentFilter)));
+  }catch(e){toast('Failed')}
 }
 
 // ═══ MOOD ═══
@@ -666,16 +790,41 @@ async function loadMood(){
   }catch(e){console.error(e)}
 }
 
+// ═══ TAGS ═══
+function toggleWriteTag(el){
+  const tag=el.dataset.tag;
+  el.classList.toggle('sel');
+  if(selectedWriteTags.includes(tag)){
+    selectedWriteTags=selectedWriteTags.filter(t=>t!==tag);
+  }else{
+    selectedWriteTags.push(tag);
+  }
+}
+function toggleEditTag(el){
+  const tag=el.dataset.tag;
+  el.classList.toggle('sel');
+  if(selectedEditTags.includes(tag)){
+    selectedEditTags=selectedEditTags.filter(t=>t!==tag);
+  }else{
+    selectedEditTags.push(tag);
+  }
+}
+
 // ═══ EDIT / DELETE ENTRIES ═══
 let editingEntryId = null;
 let editMoodVal = null;
 
-function openEditModal(id, mood, text) {
+function openEditModal(id, mood, text, tags) {
   editingEntryId = id;
   editMoodVal = mood;
+  selectedEditTags = tags || [];
   document.getElementById('editText').value = text;
   document.querySelectorAll('#editMoodRow .modal-mood-btn').forEach(b => {
     b.classList.toggle('sel', parseInt(b.dataset.em) === mood);
+  });
+  // Set tag selections
+  document.querySelectorAll('#editTagRow .tag-chip').forEach(c => {
+    c.classList.toggle('sel', selectedEditTags.includes(c.dataset.tag));
   });
   document.getElementById('editModal').classList.add('active');
 }
@@ -702,7 +851,8 @@ async function saveEditEntry() {
     await api('POST', '/api/journal/entry/update', {
       id: editingEntryId,
       text: text,
-      mood_score: editMoodVal
+      mood_score: editMoodVal,
+      tags: selectedEditTags
     });
     toast('✅ Entry updated!');
     closeEditModal();
