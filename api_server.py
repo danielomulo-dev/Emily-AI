@@ -99,7 +99,7 @@ def _detect_mood(text):
     return 3
 
 
-def api_add_entry(user_id, text, mood_score=None, tags=None):
+def api_add_entry(user_id, text, mood_score=None, tags=None, photos=None):
     """Add journal entry via API."""
     if _api_db is None:
         return None
@@ -116,6 +116,7 @@ def api_add_entry(user_id, text, mood_score=None, tags=None):
         "mood_emoji": emoji,
         "mood_label": label,
         "tags": tags or [],
+        "photos": (photos or [])[:4],  # Max 4 photos
         "pinned": False,
         "date": now,
         "date_str": now.strftime("%Y-%m-%d"),
@@ -542,10 +543,11 @@ class EmilyAPIHandler(BaseHTTPRequestHandler):
             text = body.get("text", "").strip()
             mood = body.get("mood_score")
             tags = body.get("tags", [])
+            photos = body.get("photos", [])
             if not text and mood:
                 entry = api_quick_mood(user_id, int(mood))
-            elif text:
-                entry = api_add_entry(user_id, text, int(mood) if mood else None, tags=tags)
+            elif text or photos:
+                entry = api_add_entry(user_id, text or "📷 Photo entry", int(mood) if mood else None, tags=tags, photos=photos)
             else:
                 self._send_error("Text or mood_score required")
                 return

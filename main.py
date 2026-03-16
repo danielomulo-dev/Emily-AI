@@ -1409,6 +1409,8 @@ async def on_ready():
         watchparty_sms_reminders.start()
     if not nightly_scripture.is_running():
         nightly_scripture.start()
+    if not weekly_journal_digest.is_running():
+        weekly_journal_digest.start()
     if not weekly_playlist_recs.is_running():
         weekly_playlist_recs.start()
 
@@ -2660,6 +2662,177 @@ async def nightly_scripture():
 
 @nightly_scripture.before_loop
 async def before_nightly_scripture():
+    await bot.wait_until_ready()
+
+
+# ══════════════════════════════════════════════
+# WEEKLY JOURNAL DIGEST (Sunday 8 PM EAT)
+# ══════════════════════════════════════════════
+@tasks.loop(minutes=1)
+async def weekly_journal_digest():
+    """Send weekly journal summary via DM every Sunday at 8 PM EAT."""
+    try:
+        now = datetime.now(pytz.timezone('Africa/Nairobi'))
+        if now.strftime("%A") != "Sunday" or now.strftime("%H:%M") != "20:00":
+            return
+
+        if not hasattr(weekly_journal_digest, '_db'):
+            import certifi
+            from pymongo import MongoClient as _MC
+            _client = _MC(os.getenv("MONGO_URI"), tlsCAFile=certifi.where(), serverSelectionTimeoutMS=5000)
+            weekly_journal_digest._db = _client["emily_brain_db"]
+
+        db = weekly_journal_digest._db
+        week_ago = now - timedelta(days=7)
+
+        # Find users with journal entries this week
+        pipeline = [
+            {"$match": {"date": {"$gte": week_ago}}},
+            {"$group": {
+                "_id": "$user_id",
+                "entries": {"$push": "$$ROOT"},
+                "count": {"$sum": 1},
+                "avg_mood": {"$avg": "$mood_score"},
+            }},
+        ]
+        user_groups = list(db["journal"].aggregate(pipeline))
+
+        for group in user_groups:
+            user_id = group["_id"]
+            entries = group["entries"]
+            count = group["count"]
+            avg_mood = round(group["avg_mood"], 1)
+
+            if count < 2:
+                continue  # Need at least 2 entries for a digest
+
+            # Check if already sent this week
+            today = now.strftime("%Y-%W")
+            already = db.get_collection("digest_log").find_one({"user_id": user_id, "week": today})
+            if already:
+                continue
+
+            # Build the digest
+            mood_emojis = {1: "😢", 2: "😔", 3: "😐", 4: "😊", 5: "🤩"}
+            avg_emoji = mood_emojis.get(round(avg_mood), "😐")
+
+            # Count moods
+            mood_counts = {}
+            for e in entries:
+                ms = e.get("mood_score", 3)
+                mood_counts[ms] = mood_counts.get(ms, 0) + 1
+
+            # Most common tags
+            tag_counts = {}
+            for e in entries:
+                for t in e.get("tags", []):
+                    tag_counts[t] = tag_counts.get(t, 0) + 1
+            top_tags = sorted(tag_counts.items(), key=lambda x: -x[1])[:3]
+
+            # Best and lowest days
+            best = max(entries, key=lambda e: e.get("mood_score", 0))
+            worst = min(entries, key=lambda e: e.get("mood_score", 5))
+
+            # Get gratitude count
+            grat_count = db["gratitude"].count_documents({
+                "user_id": user_id, "date": {"$gte": week_ago}
+            })
+
+            # Get sleep data
+            sleep_entries = list(db["sleep"].find({
+                "user_id": user_id, "date": {"$gte": week_ago}
+            }))
+            avg_sleep = round(sum(s.get("hours", 0) for s in sleep_entries) / max(len(sleep_entries), 1), 1) if sleep_entries else None
+
+            # Build journal summary for AI
+            journal_summary = "\n".join([
+                f"- {e.get('date_str', '')} ({e.get('mood_emoji', '😐')}): {e.get('text', '')[:80]}"
+                for e in sorted(entries, key=lambda x: x.get("date", ""))[-7:]
+            ])
+
+            # Generate AI commentary
+            try:
+                response = await asyncio.wait_for(
+                    claude_client.messages.create(
+                        model=MODEL_CLAUDE,
+                        max_tokens=400,
+                        messages=[{"role": "user", "content": (
+                            f"{EMILY_MINI_PERSONA}\n\n"
+                            f"Write a warm weekly journal recap for someone. Their week:\n"
+                            f"- {count} journal entries, avg mood: {avg_mood}/5\n"
+                            f"- Best day: {best.get('date_str', '')} ({best.get('text', '')[:60]})\n"
+                            f"- Toughest day: {worst.get('date_str', '')} ({worst.get('text', '')[:60]})\n"
+                            f"Entries:\n{journal_summary}\n\n"
+                            f"Write 3-4 sentences highlighting patterns, celebrating wins, "
+                            f"and gently acknowledging struggles. End with encouragement for next week. "
+                            f"Keep it warm, personal, Kenyan style."
+                        )}],
+                    ),
+                    timeout=30,
+                )
+                commentary = ""
+                for block in response.content:
+                    if block.type == "text":
+                        commentary += block.text
+                commentary = commentary.strip()
+            except Exception:
+                commentary = None
+
+            # Build the digest message
+            digest = f"📬 **Your Weekly Journal Digest** {avg_emoji}\n"
+            digest += f"*Week of {week_ago.strftime('%b %d')} — {now.strftime('%b %d, %Y')}*\n\n"
+
+            # Stats
+            digest += f"📝 **{count}** entries this week\n"
+            digest += f"📊 Avg mood: **{avg_emoji} {avg_mood}/5**\n"
+            if grat_count:
+                digest += f"🙏 **{grat_count}** gratitude entries\n"
+            if avg_sleep:
+                digest += f"😴 Avg sleep: **{avg_sleep}hrs**\n"
+            if top_tags:
+                tags_str = ", ".join(f"{t}" for t, c in top_tags)
+                digest += f"🏷️ Top tags: **{tags_str}**\n"
+
+            # Mood distribution
+            digest += "\n**Mood this week:**\n"
+            for score in [5, 4, 3, 2, 1]:
+                c = mood_counts.get(score, 0)
+                if c > 0:
+                    bar = "█" * c
+                    digest += f"{mood_emojis[score]} {bar} ({c})\n"
+
+            # AI commentary
+            if commentary:
+                digest += f"\n**Emily's reflection:**\n*{commentary}*\n"
+
+            # Scripture
+            theme = detect_scripture_theme(entries)
+            ref, verse = get_scripture_for_theme(theme)
+            digest += f"\n📖 **{ref}**\n*\"{verse}\"*\n"
+
+            digest += f"\n_Keep journaling, manze! You're doing great. 🌟_"
+
+            # Send DM
+            try:
+                for guild in bot.guilds:
+                    member = guild.get_member(int(user_id))
+                    if member:
+                        dm = await member.create_dm()
+                        await dm.send(digest)
+                        break
+            except Exception as e:
+                logger.warning(f"Weekly digest DM failed for {user_id}: {e}")
+
+            # Log
+            db["digest_log"].insert_one({"user_id": user_id, "week": today, "sent_at": now})
+            logger.info(f"Weekly digest sent to {user_id}")
+
+    except Exception as e:
+        logger.error(f"Weekly digest error: {e}")
+
+
+@weekly_journal_digest.before_loop
+async def before_weekly_digest():
     await bot.wait_until_ready()
 
 
