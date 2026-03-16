@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<meta name="theme-color" content="#0f1419">
+<title>Emily Widget</title>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@500;600;700;800&display=swap" rel="stylesheet">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:'Plus Jakarta Sans',sans-serif;background:#0f1419;color:#e8ecf1;padding:12px;overflow:hidden;border-radius:24px;min-height:100vh}
+
+.head{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px}
+.head h1{font-size:14px;font-weight:700;display:flex;align-items:center;gap:6px}
+.head .streak{background:rgba(245,158,11,0.15);color:#f59e0b;padding:3px 8px;border-radius:8px;font-size:11px;font-weight:700}
+
+.stats{display:flex;gap:6px;margin-bottom:10px}
+.st{flex:1;background:#1a2332;border-radius:12px;padding:8px;text-align:center;border:1px solid #2a3a4e}
+.st .n{font-size:18px;font-weight:800}
+.st .l{font-size:8px;color:#7a8da0;margin-top:1px;text-transform:uppercase;letter-spacing:.5px}
+
+.prompt{background:linear-gradient(135deg,#2a1f0f,#1a1508);border:1px solid #3d2f14;border-radius:12px;padding:10px;margin-bottom:10px;cursor:pointer}
+.prompt .pl{font-size:8px;color:#f59e0b;font-weight:700;text-transform:uppercase;letter-spacing:.8px}
+.prompt .pt{font-size:12px;font-weight:600;margin-top:3px;line-height:1.4}
+
+.mood{display:flex;gap:4px;margin-bottom:10px}
+.mood button{flex:1;background:#1a2332;border:1.5px solid #2a3a4e;border-radius:10px;padding:6px 2px;font-size:20px;cursor:pointer;text-align:center;transition:all .15s}
+.mood button:active,.mood button.done{border-color:#f59e0b;background:rgba(245,158,11,0.12);transform:scale(1.05)}
+
+.qw{display:flex;gap:6px}
+.qw input{flex:1;background:#1a2332;border:1px solid #2a3a4e;border-radius:10px;padding:8px 10px;color:#e8ecf1;font-size:12px;font-family:'Plus Jakarta Sans',sans-serif;outline:none}
+.qw input:focus{border-color:#f59e0b}
+.qw input::placeholder{color:#4a5b6e}
+.qw button{width:36px;height:36px;background:#f59e0b;border:none;border-radius:10px;font-size:14px;cursor:pointer;display:flex;align-items:center;justify-content:center}
+
+.toast{position:fixed;top:8px;left:50%;transform:translateX(-50%) translateY(-20px);background:#1a2332;border:1px solid #f59e0b;border-radius:10px;padding:6px 14px;font-size:11px;z-index:10;opacity:0;transition:all .2s;pointer-events:none}
+.toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+
+.loading{text-align:center;padding:30px;color:#4a5b6e;font-size:12px}
+</style>
+</head>
+<body>
+
+<div id="widget">
+  <div class="loading" id="loadMsg">Connecting to Emily...</div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const P=["What moment today made you smile?","What's one thing you're proud of?","If today had a title, what would it be?","What are you looking forward to?","What lesson did life teach you recently?","Who made a positive impact on you?","Three things that make life beautiful?","How did you take care of yourself?","What challenge are you facing?","What does your ideal tomorrow look like?","Describe your mood in three words.","What would you do with no fear?","Something small that brought joy today?","What's weighing on your mind?","What are you working towards?","What did God teach you today?","What are you holding onto?","How have you grown recently?","What prayer is on your heart?","What's the best advice you've received?"];
+
+let T=localStorage.getItem('ej_token')||'';
+let A=localStorage.getItem('ej_api')||'';
+
+async function api(m,p,b=null){
+  const o={method:m,headers:{'Content-Type':'application/json','Authorization':`Bearer ${T}`}};
+  if(b)o.body=JSON.stringify(b);
+  return(await fetch(`${A}${p}`,o)).json();
+}
+
+async function init(){
+  const el=document.getElementById('widget');
+
+  if(!T||!A){
+    el.innerHTML=`<div style="text-align:center;padding:20px">
+      <div style="font-size:28px;margin-bottom:8px">📓</div>
+      <div style="font-size:13px;font-weight:600;margin-bottom:10px">Emily Journal Widget</div>
+      <div style="font-size:11px;color:#7a8da0;margin-bottom:12px">Open the full Journal app first to log in, then refresh this widget.</div>
+    </div>`;
+    return;
+  }
+
+  // Prompt
+  const d=new Date();
+  const doy=Math.floor((d-new Date(d.getFullYear(),0,0))/(864e5));
+  const prompt=P[doy%P.length];
+
+  // Stats
+  let streak=0,avg='-',entries=0;
+  try{
+    const s=(await api('GET','/api/journal/stats?days=30')).stats||{};
+    streak=s.streak||0;avg=s.avg_mood||'-';entries=s.total_entries||0;
+  }catch(e){}
+
+  el.innerHTML=`
+    <div class="head">
+      <h1>📓 Emily Journal</h1>
+      ${streak>0?`<span class="streak">🔥 ${streak}d</span>`:''}
+    </div>
+    <div class="stats">
+      <div class="st"><div class="n">${avg}</div><div class="l">Mood</div></div>
+      <div class="st"><div class="n">${entries}</div><div class="l">Entries</div></div>
+      <div class="st"><div class="n">${streak}</div><div class="l">Streak</div></div>
+    </div>
+    <div class="prompt" onclick="useP()">
+      <div class="pl">Today's Prompt</div>
+      <div class="pt" id="pTxt">${prompt}</div>
+    </div>
+    <div class="mood" id="moodRow">
+      <button onclick="mLog(1)">😢</button>
+      <button onclick="mLog(2)">😔</button>
+      <button onclick="mLog(3)">😐</button>
+      <button onclick="mLog(4)">😊</button>
+      <button onclick="mLog(5)">🤩</button>
+    </div>
+    <div class="qw">
+      <input id="qi" placeholder="Quick thought..." onkeydown="if(event.key==='Enter')qSend()">
+      <button onclick="qSend()">📓</button>
+    </div>`;
+}
+
+async function mLog(s){
+  const btns=document.querySelectorAll('#moodRow button');
+  btns.forEach(b=>b.classList.remove('done'));
+  btns[s-1].classList.add('done');
+  try{await api('POST','/api/journal/quick-mood',{mood_score:s});toast(['😢','😔','😐','😊','🤩'][s-1]+' Logged!')}catch(e){toast('Failed')}
+}
+
+async function qSend(){
+  const el=document.getElementById('qi');
+  const t=el.value.trim();
+  if(!t)return;
+  try{await api('POST','/api/journal/entry',{text:t});toast('📓 Saved!');el.value=''}catch(e){toast('Failed')}
+}
+
+function useP(){
+  const p=document.getElementById('pTxt').textContent;
+  const el=document.getElementById('qi');
+  el.value=p+' ';el.focus();
+}
+
+function toast(m){const t=document.getElementById('toast');t.textContent=m;t.classList.add('show');setTimeout(()=>t.classList.remove('show'),1800)}
+
+init();
+// Auto-refresh every 5 min
+setInterval(init,300000);
+</script>
+</body>
+</html>
