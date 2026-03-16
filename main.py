@@ -7,6 +7,7 @@ import io
 import random
 from collections import defaultdict
 from api_server import run_api_server, generate_app_token
+from scripture_tools import detect_scripture_theme, get_scripture_for_theme, SCRIPTURES
 from datetime import datetime, timedelta
 import pytz
 import dateparser
@@ -1406,6 +1407,8 @@ async def on_ready():
         investment_alerts.start()
     if not watchparty_sms_reminders.is_running():
         watchparty_sms_reminders.start()
+    if not nightly_scripture.is_running():
+        nightly_scripture.start()
     if not weekly_playlist_recs.is_running():
         weekly_playlist_recs.start()
 
@@ -2525,6 +2528,142 @@ async def before_watchparty_sms_reminders():
 
 
 # ══════════════════════════════════════════════
+# NIGHTLY SCRIPTURE REFLECTION (9 PM EAT)
+# ══════════════════════════════════════════════
+@tasks.loop(minutes=1)
+async def nightly_scripture():
+    """Send a personalized Bible scripture based on today's journal entries at 9 PM EAT."""
+    try:
+        now = datetime.now(pytz.timezone('Africa/Nairobi'))
+        if now.strftime("%H:%M") != "21:00":
+            return
+
+        # Check all users who journaled today
+        if not hasattr(nightly_scripture, '_db'):
+            import certifi
+            from pymongo import MongoClient as _MC
+            _client = _MC(os.getenv("MONGO_URI"), tlsCAFile=certifi.where(), serverSelectionTimeoutMS=5000)
+            nightly_scripture._db = _client["emily_brain_db"]
+
+        db = nightly_scripture._db
+        today = now.strftime("%Y-%m-%d")
+
+        # Find all users who journaled today
+        pipeline = [
+            {"$match": {"date_str": today}},
+            {"$group": {"_id": "$user_id", "entries": {"$push": "$$ROOT"}}},
+        ]
+        user_groups = list(db["journal"].aggregate(pipeline))
+
+        for group in user_groups:
+            user_id = group["_id"]
+            entries = group["entries"]
+
+            if not entries:
+                continue
+
+            # Check if we already sent scripture today for this user
+            already_sent = db.get_collection("scripture_log").find_one({
+                "user_id": user_id,
+                "date_str": today,
+            })
+            if already_sent:
+                continue
+
+            # Detect theme from today's entries
+            theme = detect_scripture_theme(entries)
+            ref, verse = get_scripture_for_theme(theme)
+
+            # Get mood summary
+            scores = [e.get("mood_score", 3) for e in entries]
+            avg_mood = sum(scores) / len(scores)
+            entry_count = len(entries)
+
+            # Build journal summary for Claude
+            journal_summary = "\n".join([
+                f"- ({e.get('mood_emoji', '😐')}) {e.get('text', '')[:100]}"
+                for e in entries[:5]
+            ])
+
+            # Generate personalized reflection with scripture
+            try:
+                response = await asyncio.wait_for(
+                    claude_client.messages.create(
+                        model=MODEL_CLAUDE,
+                        max_tokens=300,
+                        messages=[{"role": "user", "content": (
+                            f"{EMILY_MINI_PERSONA}\n\n"
+                            f"Someone journaled {entry_count} time(s) today. Their entries:\n{journal_summary}\n\n"
+                            f"Their average mood today: {avg_mood:.1f}/5\n"
+                            f"Theme detected: {theme}\n"
+                            f"Bible scripture chosen: {ref} — \"{verse}\"\n\n"
+                            f"Write a short, warm end-of-day reflection (3-4 sentences). "
+                            f"Connect their day's experiences to the scripture naturally. "
+                            f"Don't just quote the verse — weave it into your message. "
+                            f"End with a gentle goodnight. Be personal, not preachy. "
+                            f"Kenyan warmth, like a caring friend."
+                        )}],
+                    ),
+                    timeout=20,
+                )
+                reflection = ""
+                for block in response.content:
+                    if block.type == "text":
+                        reflection += block.text
+                reflection = reflection.strip()
+            except Exception:
+                reflection = None
+
+            # Build the message
+            mood_emojis = {1: "😢", 2: "😔", 3: "😐", 4: "😊", 5: "🤩"}
+            avg_emoji = mood_emojis.get(round(avg_mood), "😐")
+
+            message = f"🌙✨ **Evening Reflection** {avg_emoji}\n\n"
+
+            if reflection:
+                message += f"{reflection}\n\n"
+
+            message += f"📖 **{ref}**\n"
+            message += f"*\"{verse}\"*\n\n"
+            message += f"🕊️ _Goodnight. You journaled {entry_count} time(s) today. Keep it up._"
+
+            # Find a channel to send it — try DM first
+            try:
+                for guild in bot.guilds:
+                    member = guild.get_member(int(user_id))
+                    if member:
+                        dm = await member.create_dm()
+                        await dm.send(message)
+                        break
+            except discord.Forbidden:
+                # Can't DM — try the last channel they used
+                logger.warning(f"Can't DM scripture to {user_id}")
+            except Exception as e:
+                logger.error(f"Scripture send error for {user_id}: {e}")
+
+            # Log that we sent it
+            db["scripture_log"].insert_one({
+                "user_id": user_id,
+                "date_str": today,
+                "theme": theme,
+                "reference": ref,
+                "verse": verse,
+                "mood_avg": avg_mood,
+                "sent_at": now,
+            })
+
+            logger.info(f"Nightly scripture sent to {user_id}: {ref} (theme: {theme})")
+
+    except Exception as e:
+        logger.error(f"Nightly scripture error: {e}")
+
+
+@nightly_scripture.before_loop
+async def before_nightly_scripture():
+    await bot.wait_until_ready()
+
+
+# ══════════════════════════════════════════════
 # WEEKLY MUSIC RECOMMENDATIONS (every Monday)
 # ══════════════════════════════════════════════
 @tasks.loop(minutes=1)
@@ -2707,7 +2846,7 @@ async def cmd_help(ctx):
 
 **⏰ Reminders:** `!remind 5pm call mum` · `!reminders` · `!cancelremind 1`
 
-**📓 Journal:** `!journal <entry>` · `!diary` · `!mood` · `!reflect` · `!apptoken`
+**📓 Journal:** `!journal <entry>` · `!diary` · `!mood` · `!reflect` · `!scripture` · `!apptoken`
 
 _Or just @ mention me to chat!_ 😊"""
 
@@ -3159,6 +3298,11 @@ async def cmd_journal(ctx, *, entry_text: str = ""):
         elif streak == 1:
             reply += f"\n✨ First entry today — start of a streak!"
 
+        # Add a relevant scripture
+        theme = detect_scripture_theme([entry])
+        ref, verse = get_scripture_for_theme(theme)
+        reply += f"\n\n📖 **{ref}**\n*\"{verse}\"*"
+
         await ctx.reply(reply)
 
 
@@ -3259,6 +3403,35 @@ async def cmd_reflect(ctx):
                     output += "\n\n💛 *Your mood has dipped a bit lately. Be kind to yourself.*"
 
         await send_chunked_reply(ctx.message, output)
+
+
+@bot.command(name="scripture")
+async def cmd_scripture(ctx, *, theme: str = ""):
+    """Get a Bible scripture. Usage: !scripture | !scripture comfort | !scripture anxiety"""
+    user_id = str(ctx.author.id)
+
+    if theme and theme.lower() in SCRIPTURES:
+        # Specific theme requested
+        ref, verse = get_scripture_for_theme(theme.lower())
+    else:
+        # Auto-detect from recent journal entries
+        entries = get_journal_entries(user_id, days=3, limit=5)
+        if entries:
+            detected_theme = detect_scripture_theme(entries)
+            ref, verse = get_scripture_for_theme(detected_theme)
+            theme = detected_theme
+        else:
+            ref, verse = get_scripture_for_theme("general")
+            theme = "general"
+
+    reply = f"📖 **{ref}**\n*\"{verse}\"*\n\n"
+    reply += f"_Theme: {theme.title()}_\n"
+
+    # List available themes
+    themes = ", ".join(sorted(SCRIPTURES.keys()))
+    reply += f"_Try: `!scripture {themes.split(', ')[0]}` or any of: {themes}_"
+
+    await ctx.reply(reply)
 
 
 @bot.command(name="news")
