@@ -300,6 +300,45 @@ textarea.journal-input::placeholder{color:var(--text-muted)}
 .install-bar .it p{font-size:11px;color:var(--text-dim)}
 .install-bar button{background:var(--accent);color:#000;border:none;border-radius:10px;padding:9px 16px;font-size:12px;font-weight:700;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif}
 
+/* ═══ DIARY SEARCH & EXPORT ═══ */
+.diary-toolbar{display:flex;gap:8px;margin-bottom:8px}
+.diary-search{flex:1;background:var(--card);border:1.5px solid var(--border);border-radius:14px;padding:12px 14px 12px 40px;color:var(--text);font-size:14px;font-family:'Plus Jakarta Sans',sans-serif;outline:none;transition:border .25s;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' fill='%234a5b6e' viewBox='0 0 16 16'%3E%3Cpath d='M11.742 10.344a6.5 6.5 0 1 0-1.397 1.398h-.001l3.85 3.85a1 1 0 0 0 1.415-1.414l-3.85-3.85zm-5.242.656a5 5 0 1 1 0-10 5 5 0 0 1 0 10z'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:14px center}
+.diary-search:focus{border-color:var(--accent)}
+.diary-search::placeholder{color:var(--text-muted)}
+.export-btn{background:var(--card);border:1.5px solid var(--border);border-radius:14px;padding:10px 14px;color:var(--text-dim);font-size:13px;font-weight:600;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif;white-space:nowrap;display:flex;align-items:center;gap:6px;transition:all .2s}
+.export-btn:active{transform:scale(0.95);border-color:var(--accent);color:var(--accent)}
+.export-menu{position:absolute;right:16px;top:100%;margin-top:6px;background:var(--card);border:1px solid var(--border);border-radius:14px;padding:6px;z-index:150;min-width:160px;box-shadow:0 8px 30px rgba(0,0,0,0.5);animation:scaleIn .15s ease}
+.export-menu button{display:flex;align-items:center;gap:10px;width:100%;background:none;border:none;padding:12px 14px;color:var(--text);font-size:13px;font-weight:500;cursor:pointer;border-radius:10px;font-family:'Plus Jakarta Sans',sans-serif;transition:background .15s}
+.export-menu button:active{background:var(--accent-soft)}
+.export-menu button .em-icon{font-size:16px;width:22px;text-align:center}
+.diary-toolbar-wrap{position:relative}
+.search-count{font-size:11px;color:var(--text-muted);padding:2px 0 6px 4px;min-height:18px}
+
+/* ═══ AI REFLECTION ═══ */
+.reflect-btn{background:linear-gradient(135deg,rgba(167,139,250,0.15),rgba(245,158,11,0.1));border:1px solid rgba(167,139,250,0.3);color:var(--mood-5);display:flex;align-items:center;gap:4px}
+.reflect-btn:active{background:rgba(167,139,250,0.2) !important;border-color:var(--mood-5) !important}
+.reflection-card{background:linear-gradient(135deg,rgba(167,139,250,0.08),rgba(245,158,11,0.04));border:1px solid rgba(167,139,250,0.2);border-radius:16px;padding:16px;margin-top:10px;animation:fadeUp .4s ease both}
+.reflection-card .ref-header{display:flex;align-items:center;gap:8px;margin-bottom:8px;font-size:12px;font-weight:600;color:var(--mood-5)}
+.reflection-card .ref-body{font-size:13px;line-height:1.7;color:var(--text-dim)}
+.reflection-card .ref-loading{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--text-dim)}
+.reflection-card .ref-loading .spin{width:16px;height:16px;border-width:2px}
+.reflection-card .ref-dismiss{background:none;border:none;color:var(--text-muted);font-size:11px;cursor:pointer;padding:4px 0;margin-top:8px;font-family:'Plus Jakarta Sans',sans-serif}
+.reflection-card .ref-dismiss:active{color:var(--text)}
+
+/* ═══ INSIGHTS PANEL ═══ */
+.insights-card{background:var(--card);border-radius:var(--r);padding:20px;border:1px solid var(--border);margin-top:14px}
+.insights-card h3{font-size:14px;font-weight:600;margin-bottom:14px;display:flex;align-items:center;gap:8px}
+.insight-item{padding:14px;background:linear-gradient(135deg,rgba(167,139,250,0.06),rgba(245,158,11,0.03));border:1px solid rgba(167,139,250,0.12);border-radius:14px;margin-bottom:10px}
+.insight-item:last-child{margin-bottom:0}
+.insight-item .ins-label{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--mood-5);margin-bottom:4px;display:flex;align-items:center;gap:6px}
+.insight-item .ins-text{font-size:13px;line-height:1.7;color:var(--text-dim)}
+.insights-loading{text-align:center;padding:20px;color:var(--text-dim);font-size:13px}
+.insights-loading .spin{margin:0 auto 8px}
+.insight-refresh{display:flex;align-items:center;justify-content:center;gap:6px;width:100%;background:var(--bg);border:1px solid var(--border);border-radius:12px;padding:12px;font-size:13px;font-weight:600;color:var(--text-dim);cursor:pointer;margin-top:12px;font-family:'Plus Jakarta Sans',sans-serif;transition:all .2s}
+.insight-refresh:active{transform:scale(0.97);border-color:var(--accent);color:var(--accent)}
+.insight-error{text-align:center;padding:16px;color:var(--text-muted);font-size:13px;line-height:1.6}
+.insight-error button{background:var(--accent);color:#000;border:none;border-radius:10px;padding:8px 16px;font-size:12px;font-weight:700;cursor:pointer;margin-top:8px;font-family:'Plus Jakarta Sans',sans-serif}
+
 /* ═══ TOAST ═══ */
 .toast{position:fixed;top:20px;left:50%;transform:translateX(-50%) translateY(-20px);background:var(--card);border:1px solid var(--accent);border-radius:14px;padding:12px 22px;font-size:14px;font-weight:500;z-index:300;opacity:0;transition:all .3s;pointer-events:none;box-shadow:0 8px 30px rgba(0,0,0,0.4)}
 .toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
@@ -597,7 +636,23 @@ textarea.journal-input::placeholder{color:var(--text-muted)}
 
 <!-- DIARY -->
 <div id="diaryScreen" class="screen">
-  <div class="header anim-1"><div class="greeting" style="font-size:24px">Your Diary 📖</div></div>
+  <div class="header anim-1">
+    <div class="greeting" style="font-size:24px">Your Diary 📖</div>
+    <div style="display:flex;gap:8px;align-items:center">
+      <div class="header-icon" onclick="toggleExportMenu()" id="exportToggle" title="Export">📤</div>
+    </div>
+  </div>
+  <div class="diary-toolbar-wrap anim-2">
+    <div class="diary-toolbar">
+      <input class="diary-search" id="diarySearch" type="text" placeholder="Search entries..." oninput="searchDiary()">
+    </div>
+    <div class="search-count" id="searchCount"></div>
+    <div class="export-menu" id="exportMenu" style="display:none">
+      <button onclick="exportEntries('json')"><span class="em-icon">📋</span> Export as JSON</button>
+      <button onclick="exportEntries('txt')"><span class="em-icon">📄</span> Export as Text</button>
+      <button onclick="exportEntries('csv')"><span class="em-icon">📊</span> Export as CSV</button>
+    </div>
+  </div>
   <div class="filter-bar anim-2" id="diaryFilters">
     <span class="filter-chip active" onclick="filterDiary('all',this)">All</span>
     <span class="filter-chip" onclick="filterDiary('pinned',this)">📌 Pinned</span>
@@ -630,6 +685,14 @@ textarea.journal-input::placeholder{color:var(--text-muted)}
   <div class="trend-card anim-4" style="margin-top:14px">
     <h3>🎭 Emotions</h3>
     <div id="moodDistChart"></div>
+  </div>
+
+  <div class="insights-card anim-5">
+    <h3>🤖 AI Insights</h3>
+    <div id="insightsContent">
+      <div class="insights-loading"><div class="spin"></div>Analyzing your journal...</div>
+    </div>
+    <button class="insight-refresh" onclick="loadInsights(true)">🔄 Refresh Insights</button>
   </div>
 </div>
 
@@ -1211,9 +1274,11 @@ function renderDiaryEntries(entries){
       ${photosHtml}
       ${tagsHtml?`<div class="entry-tags">${tagsHtml}</div>`:''}
       <div class="entry-actions">
+        <button class="edit-btn reflect-btn" onclick="reflectOnEntry('${eid}',\`${esc(e.text||'').replace(/`/g,'')}\`,${mood})">✨ Reflect</button>
         <button class="edit-btn" onclick="openEditModal('${eid}',${mood},\`${esc(e.text||'').replace(/`/g,'')}\`,[${entryTags}])">✏️ Edit</button>
         <button class="del-btn" onclick="deleteEntry('${eid}')">🗑️ Delete</button>
       </div>
+      <div id="reflect-${eid}"></div>
       <div class="entry-source">${src}</div>
     </div>`;
   }
@@ -1224,14 +1289,8 @@ function filterDiary(filter, chipEl){
   currentFilter=filter;
   document.querySelectorAll('#diaryFilters .filter-chip').forEach(c=>c.classList.remove('active'));
   if(chipEl)chipEl.classList.add('active');
-
-  if(filter==='all'){
-    renderDiaryEntries(allDiaryEntries);
-  } else if(filter==='pinned'){
-    renderDiaryEntries(allDiaryEntries.filter(e=>e.pinned));
-  } else {
-    renderDiaryEntries(allDiaryEntries.filter(e=>(e.tags||[]).includes(filter)));
-  }
+  // Re-apply search with new filter
+  searchDiary();
 }
 
 async function togglePin(id, pin){
@@ -1267,6 +1326,7 @@ async function loadMood(){
     dh+='</div>';
     document.getElementById('moodDistChart').innerHTML=dh;
   }catch(e){console.error(e)}
+  loadInsights();
 }
 
 // ═══ TAGS ═══
@@ -1611,6 +1671,318 @@ function stopVoice() {
   updateCount();
 
   if (voiceSeconds > 0) toast(`🎙️ ${voiceSeconds}s recorded`);
+}
+
+// ═══ DIARY SEARCH ═══
+function searchDiary(){
+  const q=document.getElementById('diarySearch').value.toLowerCase().trim();
+  const countEl=document.getElementById('searchCount');
+  
+  let filtered=allDiaryEntries;
+  
+  // Apply tag filter first
+  if(currentFilter==='pinned'){
+    filtered=filtered.filter(e=>e.pinned);
+  }else if(currentFilter!=='all'){
+    filtered=filtered.filter(e=>(e.tags||[]).includes(currentFilter));
+  }
+  
+  // Apply text search
+  if(q){
+    filtered=filtered.filter(e=>{
+      const text=(e.text||'').toLowerCase();
+      const mood=(e.mood_label||'').toLowerCase();
+      const tags=(e.tags||[]).join(' ').toLowerCase();
+      const date=(e.date_str||'')+' '+(e.day_name||'').toLowerCase();
+      return text.includes(q)||mood.includes(q)||tags.includes(q)||date.includes(q);
+    });
+    countEl.textContent=`${filtered.length} result${filtered.length!==1?'s':''} found`;
+  }else{
+    countEl.textContent='';
+  }
+  
+  renderDiaryEntries(filtered);
+}
+
+// ═══ EXPORT ═══
+let exportMenuOpen=false;
+
+function toggleExportMenu(){
+  exportMenuOpen=!exportMenuOpen;
+  document.getElementById('exportMenu').style.display=exportMenuOpen?'block':'none';
+}
+
+// Close export menu on outside click
+document.addEventListener('click',(e)=>{
+  if(exportMenuOpen&&!e.target.closest('#exportToggle')&&!e.target.closest('#exportMenu')){
+    exportMenuOpen=false;
+    document.getElementById('exportMenu').style.display='none';
+  }
+});
+
+function exportEntries(format){
+  toggleExportMenu();
+  if(!allDiaryEntries.length){toast('No entries to export');return}
+  
+  const q=document.getElementById('diarySearch').value.toLowerCase().trim();
+  let entries=allDiaryEntries;
+  
+  // Export filtered results if searching
+  if(q){
+    entries=entries.filter(e=>(e.text||'').toLowerCase().includes(q)||(e.tags||[]).join(' ').toLowerCase().includes(q));
+  }
+  
+  let content='',filename='',type='';
+  const dateStr=new Date().toISOString().slice(0,10);
+  
+  if(format==='json'){
+    const clean=entries.map(e=>({
+      date:e.date_str,time:e.time_str,day:e.day_name,
+      mood_score:e.mood_score,mood_label:e.mood_label,
+      text:e.text,tags:e.tags||[],pinned:!!e.pinned,source:e.source||'app'
+    }));
+    content=JSON.stringify({exported:new Date().toISOString(),entries:clean},null,2);
+    filename=`emily-journal-${dateStr}.json`;
+    type='application/json';
+  }else if(format==='txt'){
+    content=`Emily Journal Export — ${dateStr}\n${'═'.repeat(40)}\n\n`;
+    let curDate='';
+    for(const e of entries){
+      if(e.date_str!==curDate){curDate=e.date_str;content+=`\n── ${e.day_name||''}, ${curDate} ──\n\n`}
+      const mood=`${M[e.mood_score]||'😐'} ${ML[e.mood_score]||'Okay'}`;
+      const tags=(e.tags||[]).length?`  [${e.tags.join(', ')}]`:'';
+      const pin=e.pinned?'  📌':'';
+      content+=`${e.time_str||''} | ${mood}${tags}${pin}\n`;
+      if(e.text)content+=`${e.text}\n`;
+      content+='\n';
+    }
+    content+=`\n${'═'.repeat(40)}\n${entries.length} entries exported\n`;
+    filename=`emily-journal-${dateStr}.txt`;
+    type='text/plain';
+  }else if(format==='csv'){
+    content='Date,Time,Day,Mood Score,Mood Label,Tags,Pinned,Source,Text\n';
+    for(const e of entries){
+      const text=(e.text||'').replace(/"/g,'""').replace(/\n/g,' ');
+      const tags=(e.tags||[]).join(';');
+      content+=`"${e.date_str}","${e.time_str||''}","${e.day_name||''}",${e.mood_score||3},"${e.mood_label||''}","${tags}",${!!e.pinned},"${e.source||'app'}","${text}"\n`;
+    }
+    filename=`emily-journal-${dateStr}.csv`;
+    type='text/csv';
+  }
+  
+  // Download
+  const blob=new Blob([content],{type:type+';charset=utf-8'});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement('a');
+  a.href=url;a.download=filename;
+  document.body.appendChild(a);a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+  toast(`📤 Exported ${entries.length} entries as ${format.toUpperCase()}`);
+}
+
+// ═══ AI REFLECTIONS ═══
+const reflectionCache={};
+
+async function reflectOnEntry(id,text,mood){
+  const el=document.getElementById('reflect-'+id);
+  if(!el)return;
+  
+  // Toggle off if already shown
+  if(el.innerHTML&&!el.querySelector('.ref-loading')){
+    el.innerHTML='';
+    return;
+  }
+  
+  // Check cache
+  if(reflectionCache[id]){
+    showReflection(el,reflectionCache[id],id);
+    return;
+  }
+  
+  // Show loading
+  el.innerHTML=`<div class="reflection-card"><div class="ref-loading"><div class="spin"></div>Emily is reflecting...</div></div>`;
+  
+  try{
+    const res=await api('POST','/api/journal/reflect',{
+      entry_id:id,
+      text:text,
+      mood_score:mood
+    });
+    const reflection=res.reflection||res.text||res.message||'';
+    if(reflection){
+      reflectionCache[id]=reflection;
+      showReflection(el,reflection,id);
+    }else{
+      // Fallback: generate client-side reflection
+      const fallback=generateLocalReflection(text,mood);
+      reflectionCache[id]=fallback;
+      showReflection(el,fallback,id);
+    }
+  }catch(e){
+    // Fallback to client-side reflection if API endpoint doesn't exist
+    const fallback=generateLocalReflection(text,mood);
+    reflectionCache[id]=fallback;
+    showReflection(el,fallback,id);
+  }
+}
+
+function showReflection(el,text,id){
+  el.innerHTML=`<div class="reflection-card">
+    <div class="ref-header">✨ Emily's Reflection</div>
+    <div class="ref-body">${esc(text)}</div>
+    <button class="ref-dismiss" onclick="document.getElementById('reflect-${id}').innerHTML=''">Dismiss</button>
+  </div>`;
+}
+
+function generateLocalReflection(text,mood){
+  const t=(text||'').toLowerCase();
+  const len=t.length;
+  
+  // Mood-based reflections
+  const moodReflections={
+    1:[
+      "It takes courage to sit with difficult emotions. Acknowledging how you feel is the first step toward healing.",
+      "Rough days are temporary. You've gotten through hard days before, and you'll get through this one too.",
+      "Be gentle with yourself today. It's okay to not be okay sometimes."
+    ],
+    2:[
+      "It sounds like today had its challenges. Remember that growth often comes from the hard moments.",
+      "Even in difficult times, you showed up and wrote about it — that's strength.",
+      "Tomorrow is a fresh start. What's one small thing that could make it a little brighter?"
+    ],
+    3:[
+      "Steady days have their own quiet power. Not every day needs to be extraordinary.",
+      "Sometimes 'okay' is perfectly fine. Take a moment to appreciate the calm.",
+      "Consider what one small thing could shift this from okay to good tomorrow."
+    ],
+    4:[
+      "It's wonderful to see a good day captured here. What made the difference today?",
+      "Good energy is worth holding onto. Can you carry this feeling forward?",
+      "Notice what contributed to today's positivity — those are clues to your happiness."
+    ],
+    5:[
+      "What a beautiful day! Hold onto this feeling and remember it when things get tough.",
+      "Your joy is contagious even through words. Celebrate this moment!",
+      "Amazing days like this are worth journaling about. Your future self will love reading this back."
+    ]
+  };
+  
+  // Topic-specific additions
+  let extra='';
+  if(t.includes('grateful')||t.includes('thankful')||t.includes('blessed'))extra=' Practicing gratitude is scientifically proven to improve wellbeing — keep it up.';
+  else if(t.includes('work')||t.includes('job')||t.includes('meeting')||t.includes('project'))extra=' Reflecting on your professional life helps create healthy boundaries between work and rest.';
+  else if(t.includes('family')||t.includes('friend')||t.includes('love'))extra=' Relationships are the cornerstone of a meaningful life. Nurture the ones that matter.';
+  else if(t.includes('pray')||t.includes('god')||t.includes('faith')||t.includes('church'))extra=' Your spiritual practice is a source of strength. Keep leaning into it.';
+  else if(t.includes('exercise')||t.includes('run')||t.includes('gym')||t.includes('walk'))extra=' Taking care of your body is taking care of your mind. Great work staying active.';
+  else if(t.includes('learn')||t.includes('read')||t.includes('study')||t.includes('course'))extra=' A curious mind is a growing mind. Every bit of learning compounds over time.';
+  else if(len>200)extra=' You had a lot to share today — that depth of reflection is valuable for self-awareness.';
+  
+  const pool=moodReflections[mood]||moodReflections[3];
+  const base=pool[Math.floor(Math.random()*pool.length)];
+  return base+extra;
+}
+
+// ═══ AI INSIGHTS ═══
+let insightsCache=null;
+let insightsCacheTime=0;
+
+async function loadInsights(force=false){
+  const el=document.getElementById('insightsContent');
+  
+  // Use cache if less than 10 mins old
+  if(!force&&insightsCache&&(Date.now()-insightsCacheTime)<600000){
+    el.innerHTML=insightsCache;
+    return;
+  }
+  
+  el.innerHTML='<div class="insights-loading"><div class="spin"></div>Analyzing your journal...</div>';
+  
+  try{
+    const res=await api('POST','/api/journal/insights',{days:14});
+    const insights=res.insights||[];
+    if(insights.length){
+      renderInsights(el,insights);
+    }else{
+      // Fallback: generate client-side insights from stats
+      await generateLocalInsights(el);
+    }
+  }catch(e){
+    // Fallback to local insights
+    await generateLocalInsights(el);
+  }
+}
+
+function renderInsights(el,insights){
+  const icons=['💡','📈','🎯','💭','🌟'];
+  let html='';
+  for(let i=0;i<insights.length;i++){
+    const ins=typeof insights[i]==='string'?{label:'Insight',text:insights[i]}:insights[i];
+    html+=`<div class="insight-item">
+      <div class="ins-label">${icons[i%icons.length]} ${esc(ins.label||ins.title||'Insight')}</div>
+      <div class="ins-text">${esc(ins.text||ins.content||ins.message||'')}</div>
+    </div>`;
+  }
+  el.innerHTML=html;
+  insightsCache=html;
+  insightsCacheTime=Date.now();
+}
+
+async function generateLocalInsights(el){
+  try{
+    const [st,tr]=await Promise.all([
+      api('GET','/api/journal/stats?days=14'),
+      api('GET','/api/journal/mood-trend?days=14')
+    ]);
+    const s=st.stats||{};
+    const trend=tr.trend||[];
+    const insights=[];
+    
+    const avg=s.avg_mood||0;
+    const total=s.total_entries||0;
+    const streak=s.streak||0;
+    const dist=s.mood_distribution||{};
+    
+    // Mood trend analysis
+    if(trend.length>=3){
+      const recent=trend.slice(-3);
+      const older=trend.slice(0,Math.max(1,trend.length-3));
+      const recentAvg=recent.reduce((a,d)=>a+d.avg_mood,0)/recent.length;
+      const olderAvg=older.reduce((a,d)=>a+d.avg_mood,0)/older.length;
+      const diff=recentAvg-olderAvg;
+      
+      if(diff>0.5)insights.push({label:'Mood Trending Up',text:`Your mood has been improving recently — your last few days averaged ${recentAvg.toFixed(1)} compared to ${olderAvg.toFixed(1)} earlier. Whatever you're doing, it seems to be working. Keep it up!`});
+      else if(diff<-0.5)insights.push({label:'Mood Dip Noticed',text:`Your mood has dipped a bit recently (${recentAvg.toFixed(1)} vs ${olderAvg.toFixed(1)} earlier). This is completely normal — consider what might be weighing on you and if there's a small change you can make.`});
+      else insights.push({label:'Steady Mood',text:`Your mood has been fairly consistent lately, averaging around ${avg.toFixed(1)}/5. Emotional stability is a sign of resilience.`});
+    }
+    
+    // Streak insight
+    if(streak>=7)insights.push({label:'Strong Habit',text:`${streak}-day journaling streak! Research shows it takes about 21 days to form a habit. You're ${streak>=21?'well past that milestone — journaling is part of who you are now.':'building strong momentum. Keep showing up!'}`});
+    else if(streak>=3)insights.push({label:'Building Momentum',text:`${streak} days in a row — you're building a real habit here. Try to keep the streak going; even a one-sentence entry counts.`});
+    else if(total>0)insights.push({label:'Consistency Tip',text:`Try journaling at the same time each day to build a streak. Even a quick mood check-in counts — the key is showing up consistently.`});
+    
+    // Mood distribution insight
+    const total_moods=Object.values(dist).reduce((a,b)=>a+b,0);
+    if(total_moods>=5){
+      const happyPct=Math.round(((dist[4]||0)+(dist[5]||0))/total_moods*100);
+      const toughPct=Math.round(((dist[1]||0)+(dist[2]||0))/total_moods*100);
+      if(happyPct>60)insights.push({label:'Positivity Pattern',text:`${happyPct}% of your entries logged good or great moods. You have a strong baseline of positivity. On tougher days, look back at these entries for a boost.`});
+      else if(toughPct>40)insights.push({label:'Processing Emotions',text:`${toughPct}% of your entries reflected difficult emotions. Journaling through hard times is healthy and productive — you're processing rather than suppressing.`});
+      else insights.push({label:'Emotional Range',text:`Your mood entries show a healthy mix of emotions. Experiencing the full range — not just the highs — is a sign of genuine emotional awareness.`});
+    }
+    
+    // Entry volume insight
+    if(total>=20)insights.push({label:'Prolific Writer',text:`${total} entries so far — you've built a meaningful record of your journey. Consider re-reading older entries to see how far you've come.`});
+    else if(total>=5)insights.push({label:'Growing Archive',text:`You have ${total} entries building up. Each one is a snapshot of who you were in that moment. This archive will become more valuable over time.`});
+    
+    if(!insights.length){
+      insights.push({label:'Getting Started',text:'Keep journaling to unlock personalized insights! Emily needs at least a few entries to spot patterns in your mood and writing.'});
+    }
+    
+    renderInsights(el,insights);
+  }catch(e){
+    el.innerHTML='<div class="insight-error">Write a few more entries to unlock AI insights.<br><button onclick="loadInsights(true)">Try Again</button></div>';
+  }
 }
 
 // ═══ INSTALL ═══
