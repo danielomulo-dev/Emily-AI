@@ -1,0 +1,637 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<meta name="theme-color" content="#f59e0b">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>Emily Journal</title>
+<link rel="manifest" href="manifest.json">
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;700&family=Playfair+Display:wght@600;700&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg: #0f1419;
+  --card: #1a2029;
+  --card-hover: #212b38;
+  --border: #2a3544;
+  --text: #e7e9ea;
+  --text-dim: #8b98a5;
+  --accent: #f59e0b;
+  --accent-glow: rgba(245,158,11,0.15);
+  --success: #22c55e;
+  --danger: #ef4444;
+  --mood-1: #ef4444;
+  --mood-2: #f97316;
+  --mood-3: #eab308;
+  --mood-4: #22c55e;
+  --mood-5: #8b5cf6;
+  --radius: 16px;
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+* { margin:0; padding:0; box-sizing:border-box; }
+body {
+  font-family: 'DM Sans', sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  min-height: 100vh;
+  min-height: 100dvh;
+  overflow-x: hidden;
+}
+
+/* ── SCREENS ── */
+.screen { display:none; padding:20px 16px 100px; animation: fadeIn 0.3s ease; }
+.screen.active { display:block; }
+@keyframes fadeIn { from{opacity:0;transform:translateY(8px)} to{opacity:1;transform:translateY(0)} }
+
+/* ── LOGIN SCREEN ── */
+#loginScreen {
+  display:flex; flex-direction:column; align-items:center; justify-content:center;
+  min-height:100vh; min-height:100dvh; padding:24px; text-align:center;
+}
+.login-logo { font-size:64px; margin-bottom:8px; }
+.login-title { font-family:'Playfair Display',serif; font-size:28px; font-weight:700; margin-bottom:4px; }
+.login-sub { color:var(--text-dim); margin-bottom:32px; font-size:14px; }
+.login-input {
+  width:100%; max-width:340px; background:var(--card); border:1px solid var(--border);
+  border-radius:12px; padding:14px 16px; color:var(--text); font-size:15px;
+  font-family:monospace; margin-bottom:12px; outline:none; transition:border 0.2s;
+}
+.login-input:focus { border-color:var(--accent); }
+.login-input::placeholder { color:var(--text-dim); font-family:'DM Sans',sans-serif; }
+.login-btn {
+  width:100%; max-width:340px; background:var(--accent); color:#000; border:none;
+  border-radius:12px; padding:14px; font-size:16px; font-weight:700; cursor:pointer;
+  transition: transform 0.1s, opacity 0.2s;
+}
+.login-btn:active { transform:scale(0.97); }
+.login-btn:disabled { opacity:0.5; }
+.login-hint { color:var(--text-dim); font-size:12px; margin-top:16px; line-height:1.5; max-width:300px; }
+.login-error { color:var(--danger); font-size:13px; margin-top:8px; }
+.api-config { margin-top:24px; width:100%; max-width:340px; }
+.api-config summary { color:var(--text-dim); font-size:12px; cursor:pointer; }
+.api-config input { width:100%; background:var(--card); border:1px solid var(--border); border-radius:8px; padding:10px; color:var(--text); font-size:13px; margin-top:8px; outline:none; }
+
+/* ── NAV BAR ── */
+.navbar {
+  position:fixed; bottom:0; left:0; right:0;
+  background:var(--card); border-top:1px solid var(--border);
+  display:flex; justify-content:space-around; align-items:center;
+  padding:8px 0 calc(8px + var(--safe-bottom));
+  z-index:100; backdrop-filter:blur(20px);
+}
+.nav-item {
+  display:flex; flex-direction:column; align-items:center; gap:2px;
+  color:var(--text-dim); font-size:10px; font-weight:500;
+  cursor:pointer; padding:4px 12px; transition:color 0.2s;
+  -webkit-tap-highlight-color:transparent; background:none; border:none;
+}
+.nav-item.active { color:var(--accent); }
+.nav-icon { font-size:22px; }
+
+/* ── HEADER ── */
+.page-header {
+  font-family:'Playfair Display',serif; font-size:26px; font-weight:700;
+  margin-bottom:20px;
+}
+.page-sub { color:var(--text-dim); font-size:13px; margin-top:-16px; margin-bottom:20px; }
+
+/* ── CARDS ── */
+.card {
+  background:var(--card); border-radius:var(--radius); padding:18px;
+  margin-bottom:14px; border:1px solid var(--border);
+}
+.card-title { font-weight:700; font-size:14px; margin-bottom:10px; display:flex; align-items:center; gap:8px; }
+.card-value { font-size:32px; font-weight:700; font-family:'Playfair Display',serif; }
+.card-label { font-size:12px; color:var(--text-dim); margin-top:2px; }
+
+/* ── MOOD EMOJI ROW ── */
+.mood-row {
+  display:flex; justify-content:space-between; gap:8px; margin:16px 0;
+}
+.mood-btn {
+  flex:1; aspect-ratio:1; display:flex; flex-direction:column; align-items:center;
+  justify-content:center; gap:4px; background:var(--card); border:2px solid var(--border);
+  border-radius:16px; font-size:28px; cursor:pointer; transition:all 0.2s;
+  -webkit-tap-highlight-color:transparent;
+}
+.mood-btn:active, .mood-btn.selected { transform:scale(1.1); border-color:var(--accent); background:var(--accent-glow); }
+.mood-btn .label { font-size:9px; color:var(--text-dim); font-family:'DM Sans',sans-serif; }
+
+/* ── WRITE AREA ── */
+.journal-textarea {
+  width:100%; min-height:140px; background:var(--card); border:1px solid var(--border);
+  border-radius:var(--radius); padding:16px; color:var(--text); font-size:15px;
+  font-family:'DM Sans',sans-serif; line-height:1.6; resize:none; outline:none;
+  transition:border 0.2s;
+}
+.journal-textarea:focus { border-color:var(--accent); }
+.journal-textarea::placeholder { color:var(--text-dim); }
+.submit-btn {
+  width:100%; background:var(--accent); color:#000; border:none; border-radius:12px;
+  padding:14px; font-size:16px; font-weight:700; cursor:pointer; margin-top:12px;
+  transition: transform 0.1s;
+}
+.submit-btn:active { transform:scale(0.97); }
+.submit-btn:disabled { opacity:0.4; }
+
+/* ── ENTRY CARD ── */
+.entry-card { padding:14px 16px; }
+.entry-header { display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; }
+.entry-mood { font-size:24px; }
+.entry-date { font-size:11px; color:var(--text-dim); }
+.entry-text { font-size:14px; line-height:1.6; color:var(--text); }
+.entry-source { font-size:10px; color:var(--text-dim); margin-top:6px; }
+
+/* ── MOOD CHART ── */
+.mood-bar-row { display:flex; align-items:center; gap:10px; margin-bottom:8px; }
+.mood-bar-date { font-size:11px; color:var(--text-dim); width:44px; flex-shrink:0; }
+.mood-bar-track { flex:1; height:22px; background:var(--border); border-radius:11px; overflow:hidden; position:relative; }
+.mood-bar-fill { height:100%; border-radius:11px; transition:width 0.6s ease; display:flex; align-items:center; justify-content:flex-end; padding-right:6px; }
+.mood-bar-fill span { font-size:10px; font-weight:700; color:#000; }
+.mood-bar-emoji { font-size:16px; width:24px; text-align:center; }
+
+/* ── STATS GRID ── */
+.stats-grid { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+.stat-card { text-align:center; }
+.stat-value { font-size:28px; font-weight:700; font-family:'Playfair Display',serif; }
+.stat-label { font-size:11px; color:var(--text-dim); }
+
+/* ── MOOD DIST ── */
+.mood-dist { display:flex; gap:4px; height:60px; align-items:flex-end; margin:12px 0; }
+.mood-dist-bar {
+  flex:1; border-radius:6px 6px 0 0; transition:height 0.6s ease;
+  display:flex; flex-direction:column; align-items:center; justify-content:flex-end;
+  padding-bottom:4px; min-height:8px;
+}
+.mood-dist-bar .count { font-size:10px; font-weight:700; color:#000; }
+.mood-dist-labels { display:flex; gap:4px; }
+.mood-dist-labels span { flex:1; text-align:center; font-size:14px; }
+
+/* ── TOAST ── */
+.toast {
+  position:fixed; top:20px; left:50%; transform:translateX(-50%); background:var(--card);
+  border:1px solid var(--accent); border-radius:12px; padding:12px 20px; font-size:14px;
+  z-index:200; opacity:0; transition:opacity 0.3s; pointer-events:none;
+}
+.toast.show { opacity:1; }
+
+/* ── LOADING ── */
+.spinner { display:inline-block; width:20px; height:20px; border:2px solid var(--border); border-top-color:var(--accent); border-radius:50%; animation:spin 0.6s linear infinite; }
+@keyframes spin { to{transform:rotate(360deg)} }
+.loading-center { display:flex; justify-content:center; padding:40px; }
+
+/* ── EMPTY STATE ── */
+.empty { text-align:center; padding:40px 20px; color:var(--text-dim); }
+.empty-icon { font-size:48px; margin-bottom:12px; }
+.empty-text { font-size:14px; line-height:1.5; }
+</style>
+</head>
+<body>
+
+<!-- ═══ LOGIN ═══ -->
+<div id="loginScreen">
+  <div class="login-logo">📓</div>
+  <div class="login-title">Emily Journal</div>
+  <div class="login-sub">Your personal mood journal</div>
+  <input type="password" class="login-input" id="tokenInput" placeholder="Paste your token here">
+  <button class="login-btn" id="loginBtn" onclick="login()">Connect to Emily</button>
+  <div class="login-error" id="loginError"></div>
+  <div class="login-hint">
+    Run <strong>!apptoken</strong> in Discord to get your token.<br>
+    Your journal syncs with Emily on Discord.
+  </div>
+  <details class="api-config">
+    <summary>Advanced: API URL</summary>
+    <input type="url" id="apiUrlInput" placeholder="https://your-app.koyeb.app">
+  </details>
+</div>
+
+<!-- ═══ APP ═══ -->
+<div id="app" style="display:none">
+
+  <!-- HOME -->
+  <div id="homeScreen" class="screen active">
+    <div class="page-header">Good <span id="timeGreeting">morning</span> ☀️</div>
+
+    <div class="card">
+      <div class="card-title">📊 Quick Mood Check-in</div>
+      <div class="mood-row">
+        <button class="mood-btn" onclick="quickMood(1)">😢<span class="label">Awful</span></button>
+        <button class="mood-btn" onclick="quickMood(2)">😔<span class="label">Rough</span></button>
+        <button class="mood-btn" onclick="quickMood(3)">😐<span class="label">Okay</span></button>
+        <button class="mood-btn" onclick="quickMood(4)">😊<span class="label">Good</span></button>
+        <button class="mood-btn" onclick="quickMood(5)">🤩<span class="label">Great</span></button>
+      </div>
+    </div>
+
+    <div class="stats-grid">
+      <div class="card stat-card">
+        <div class="stat-value" id="statStreak">-</div>
+        <div class="stat-label">🔥 Day Streak</div>
+      </div>
+      <div class="card stat-card">
+        <div class="stat-value" id="statAvgMood">-</div>
+        <div class="stat-label">📈 Avg Mood</div>
+      </div>
+      <div class="card stat-card">
+        <div class="stat-value" id="statEntries">-</div>
+        <div class="stat-label">📝 Entries</div>
+      </div>
+      <div class="card stat-card">
+        <div class="stat-value" id="statBestMood">-</div>
+        <div class="stat-label">🏆 Best Mood</div>
+      </div>
+    </div>
+
+    <div class="card" id="recentMoodCard">
+      <div class="card-title">📉 This Week</div>
+      <div id="homeMoodChart"></div>
+    </div>
+  </div>
+
+  <!-- WRITE -->
+  <div id="writeScreen" class="screen">
+    <div class="page-header">How are you? ✍️</div>
+
+    <div class="card">
+      <div class="card-title">Select your mood</div>
+      <div class="mood-row">
+        <button class="mood-btn" data-mood="1" onclick="selectWriteMood(1)">😢</button>
+        <button class="mood-btn" data-mood="2" onclick="selectWriteMood(2)">😔</button>
+        <button class="mood-btn" data-mood="3" onclick="selectWriteMood(3)">😐</button>
+        <button class="mood-btn" data-mood="4" onclick="selectWriteMood(4)">😊</button>
+        <button class="mood-btn" data-mood="5" onclick="selectWriteMood(5)">🤩</button>
+      </div>
+    </div>
+
+    <textarea class="journal-textarea" id="journalText" placeholder="What's on your mind today? Write freely — Emily won't judge..."></textarea>
+    <button class="submit-btn" id="submitBtn" onclick="submitEntry()">Save Entry 📓</button>
+  </div>
+
+  <!-- DIARY -->
+  <div id="diaryScreen" class="screen">
+    <div class="page-header">Your Diary 📖</div>
+    <div id="diaryEntries"><div class="loading-center"><div class="spinner"></div></div></div>
+  </div>
+
+  <!-- MOOD -->
+  <div id="moodScreen" class="screen">
+    <div class="page-header">Mood Trend 📊</div>
+    <div class="card">
+      <div class="card-title">Last 14 Days</div>
+      <div id="moodChart"><div class="loading-center"><div class="spinner"></div></div></div>
+    </div>
+    <div class="card" id="moodDistCard">
+      <div class="card-title">Mood Distribution</div>
+      <div id="moodDist"></div>
+    </div>
+  </div>
+
+  <!-- NAV -->
+  <nav class="navbar">
+    <button class="nav-item active" onclick="showScreen('home')">
+      <span class="nav-icon">🏠</span>Home
+    </button>
+    <button class="nav-item" onclick="showScreen('write')">
+      <span class="nav-icon">✍️</span>Write
+    </button>
+    <button class="nav-item" onclick="showScreen('diary')">
+      <span class="nav-icon">📖</span>Diary
+    </button>
+    <button class="nav-item" onclick="showScreen('mood')">
+      <span class="nav-icon">📊</span>Mood
+    </button>
+  </nav>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+// ══════════════════════════════════════════════
+// CONFIG
+// ══════════════════════════════════════════════
+const MOODS = {1:'😢',2:'😔',3:'😐',4:'😊',5:'🤩'};
+const MOOD_COLORS = {1:'#ef4444',2:'#f97316',3:'#eab308',4:'#22c55e',5:'#8b5cf6'};
+const MOOD_LABELS = {1:'Terrible',2:'Rough',3:'Okay',4:'Good',5:'Amazing'};
+
+let TOKEN = localStorage.getItem('emily_token') || '';
+let API_URL = localStorage.getItem('emily_api_url') || '';
+let selectedMood = null;
+
+// ══════════════════════════════════════════════
+// API
+// ══════════════════════════════════════════════
+async function api(method, path, body=null) {
+  const opts = {
+    method,
+    headers: { 'Content-Type':'application/json', 'Authorization':`Bearer ${TOKEN}` },
+  };
+  if (body) opts.body = JSON.stringify(body);
+  const res = await fetch(`${API_URL}${path}`, opts);
+  if (res.status === 401) { logout(); throw new Error('Unauthorized'); }
+  return res.json();
+}
+
+// ══════════════════════════════════════════════
+// AUTH
+// ══════════════════════════════════════════════
+async function login() {
+  const token = document.getElementById('tokenInput').value.trim();
+  const apiUrl = document.getElementById('apiUrlInput').value.trim();
+  const err = document.getElementById('loginError');
+  const btn = document.getElementById('loginBtn');
+
+  if (!token) { err.textContent = 'Paste your token from !apptoken'; return; }
+  if (!apiUrl && !API_URL) { err.textContent = 'Enter your API URL in Advanced settings'; return; }
+
+  btn.disabled = true;
+  btn.textContent = 'Connecting...';
+  err.textContent = '';
+
+  TOKEN = token;
+  if (apiUrl) API_URL = apiUrl;
+
+  try {
+    const data = await api('GET', '/api/journal/stats');
+    localStorage.setItem('emily_token', TOKEN);
+    localStorage.setItem('emily_api_url', API_URL);
+    showApp();
+  } catch(e) {
+    err.textContent = 'Connection failed. Check your token and API URL.';
+    TOKEN = '';
+  }
+  btn.disabled = false;
+  btn.textContent = 'Connect to Emily';
+}
+
+function logout() {
+  TOKEN = '';
+  localStorage.removeItem('emily_token');
+  document.getElementById('app').style.display = 'none';
+  document.getElementById('loginScreen').style.display = 'flex';
+}
+
+function showApp() {
+  document.getElementById('loginScreen').style.display = 'none';
+  document.getElementById('app').style.display = 'block';
+  updateGreeting();
+  loadHome();
+}
+
+// ══════════════════════════════════════════════
+// SCREENS
+// ══════════════════════════════════════════════
+function showScreen(name) {
+  document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+  document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+  document.getElementById(name+'Screen').classList.add('active');
+  event.currentTarget.classList.add('active');
+
+  if (name === 'home') loadHome();
+  else if (name === 'diary') loadDiary();
+  else if (name === 'mood') loadMoodTrend();
+}
+
+function updateGreeting() {
+  const h = new Date().getHours();
+  const el = document.getElementById('timeGreeting');
+  if (h < 12) el.textContent = 'morning';
+  else if (h < 17) el.textContent = 'afternoon';
+  else el.textContent = 'evening';
+}
+
+// ══════════════════════════════════════════════
+// HOME
+// ══════════════════════════════════════════════
+async function loadHome() {
+  try {
+    const [statsData, trendData] = await Promise.all([
+      api('GET', '/api/journal/stats?days=30'),
+      api('GET', '/api/journal/mood-trend?days=7'),
+    ]);
+
+    const s = statsData.stats || {};
+    document.getElementById('statStreak').textContent = s.streak || 0;
+    document.getElementById('statAvgMood').textContent = s.avg_mood ? `${s.avg_mood}` : '-';
+    document.getElementById('statEntries').textContent = s.total_entries || 0;
+
+    // Best mood emoji
+    const dist = s.mood_distribution || {};
+    let bestMood = 3;
+    for (let i = 5; i >= 1; i--) { if (dist[i] > 0) { bestMood = i; break; } }
+    document.getElementById('statBestMood').textContent = MOODS[bestMood];
+
+    // Mini chart
+    renderMiniChart(trendData.trend || []);
+  } catch(e) {
+    console.error('Home load error:', e);
+  }
+}
+
+function renderMiniChart(trend) {
+  const el = document.getElementById('homeMoodChart');
+  if (!trend.length) { el.innerHTML = '<div class="empty"><div class="empty-text">Start journaling to see your mood trend!</div></div>'; return; }
+
+  el.innerHTML = trend.map(d => {
+    const pct = (d.avg_mood / 5) * 100;
+    const color = MOOD_COLORS[Math.round(d.avg_mood)];
+    const short = d.date.slice(5); // MM-DD
+    return `<div class="mood-bar-row">
+      <div class="mood-bar-date">${short}</div>
+      <div class="mood-bar-track">
+        <div class="mood-bar-fill" style="width:${pct}%;background:${color}"><span>${d.avg_mood}</span></div>
+      </div>
+      <div class="mood-bar-emoji">${MOODS[Math.round(d.avg_mood)]}</div>
+    </div>`;
+  }).join('');
+}
+
+// ══════════════════════════════════════════════
+// QUICK MOOD
+// ══════════════════════════════════════════════
+async function quickMood(score) {
+  // Animate button
+  const btns = document.querySelectorAll('#homeScreen .mood-btn');
+  btns.forEach(b => b.classList.remove('selected'));
+  btns[score-1].classList.add('selected');
+
+  try {
+    await api('POST', '/api/journal/quick-mood', { mood_score: score });
+    showToast(`${MOODS[score]} Mood logged!`);
+    setTimeout(() => loadHome(), 500);
+  } catch(e) {
+    showToast('Failed to log mood');
+  }
+}
+
+// ══════════════════════════════════════════════
+// WRITE ENTRY
+// ══════════════════════════════════════════════
+function selectWriteMood(score) {
+  selectedMood = score;
+  document.querySelectorAll('#writeScreen .mood-btn').forEach(b => {
+    b.classList.toggle('selected', parseInt(b.dataset.mood) === score);
+  });
+}
+
+async function submitEntry() {
+  const text = document.getElementById('journalText').value.trim();
+  const btn = document.getElementById('submitBtn');
+
+  if (!text && !selectedMood) { showToast('Write something or select a mood'); return; }
+
+  btn.disabled = true;
+  btn.textContent = 'Saving...';
+
+  try {
+    const body = {};
+    if (text) body.text = text;
+    if (selectedMood) body.mood_score = selectedMood;
+
+    await api('POST', '/api/journal/entry', body);
+    showToast('📓 Entry saved!');
+
+    // Reset
+    document.getElementById('journalText').value = '';
+    selectedMood = null;
+    document.querySelectorAll('#writeScreen .mood-btn').forEach(b => b.classList.remove('selected'));
+  } catch(e) {
+    showToast('Failed to save');
+  }
+  btn.disabled = false;
+  btn.textContent = 'Save Entry 📓';
+}
+
+// ══════════════════════════════════════════════
+// DIARY
+// ══════════════════════════════════════════════
+async function loadDiary() {
+  const el = document.getElementById('diaryEntries');
+  el.innerHTML = '<div class="loading-center"><div class="spinner"></div></div>';
+
+  try {
+    const data = await api('GET', '/api/journal/entries?days=30&limit=30');
+    const entries = data.entries || [];
+
+    if (!entries.length) {
+      el.innerHTML = '<div class="empty"><div class="empty-icon">📖</div><div class="empty-text">No entries yet.<br>Start writing to fill your diary!</div></div>';
+      return;
+    }
+
+    let currentDate = '';
+    let html = '';
+
+    for (const e of entries) {
+      if (e.date_str !== currentDate) {
+        currentDate = e.date_str;
+        const dayName = e.day_name || '';
+        html += `<div style="color:var(--text-dim);font-size:12px;font-weight:700;margin:16px 0 8px;letter-spacing:0.5px;">${dayName}, ${currentDate}</div>`;
+      }
+      const source = e.source === 'app' ? '📱' : '💬';
+      html += `<div class="card entry-card">
+        <div class="entry-header">
+          <span class="entry-mood">${e.mood_emoji || '😐'}</span>
+          <span class="entry-date">${e.time_str || ''} ${source}</span>
+        </div>
+        <div class="entry-text">${escapeHtml(e.text || '')}</div>
+      </div>`;
+    }
+
+    el.innerHTML = html;
+  } catch(e) {
+    el.innerHTML = '<div class="empty"><div class="empty-text">Failed to load entries.</div></div>';
+  }
+}
+
+// ══════════════════════════════════════════════
+// MOOD TREND
+// ══════════════════════════════════════════════
+async function loadMoodTrend() {
+  try {
+    const [trendData, statsData] = await Promise.all([
+      api('GET', '/api/journal/mood-trend?days=14'),
+      api('GET', '/api/journal/stats?days=14'),
+    ]);
+
+    // Trend chart
+    const trend = trendData.trend || [];
+    const chartEl = document.getElementById('moodChart');
+    if (!trend.length) {
+      chartEl.innerHTML = '<div class="empty"><div class="empty-text">Journal for a few days to see your mood trend!</div></div>';
+    } else {
+      chartEl.innerHTML = trend.map(d => {
+        const pct = (d.avg_mood / 5) * 100;
+        const color = MOOD_COLORS[Math.round(d.avg_mood)];
+        const short = d.date.slice(5);
+        return `<div class="mood-bar-row">
+          <div class="mood-bar-date">${short}</div>
+          <div class="mood-bar-track">
+            <div class="mood-bar-fill" style="width:${pct}%;background:${color}"><span>${d.avg_mood}</span></div>
+          </div>
+          <div class="mood-bar-emoji">${MOODS[Math.round(d.avg_mood)]}</div>
+        </div>`;
+      }).join('');
+    }
+
+    // Distribution
+    const stats = statsData.stats || {};
+    const dist = stats.mood_distribution || {};
+    const maxCount = Math.max(...Object.values(dist), 1);
+
+    const distEl = document.getElementById('moodDist');
+    let distHtml = '<div class="mood-dist">';
+    for (let i = 1; i <= 5; i++) {
+      const count = dist[i] || 0;
+      const h = Math.max((count / maxCount) * 100, 8);
+      distHtml += `<div class="mood-dist-bar" style="height:${h}%;background:${MOOD_COLORS[i]}">
+        ${count > 0 ? `<span class="count">${count}</span>` : ''}
+      </div>`;
+    }
+    distHtml += '</div><div class="mood-dist-labels">';
+    for (let i = 1; i <= 5; i++) distHtml += `<span>${MOODS[i]}</span>`;
+    distHtml += '</div>';
+    distEl.innerHTML = distHtml;
+
+  } catch(e) {
+    console.error('Mood load error:', e);
+  }
+}
+
+// ══════════════════════════════════════════════
+// UTILS
+// ══════════════════════════════════════════════
+function showToast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 2500);
+}
+
+function escapeHtml(str) {
+  const div = document.createElement('div');
+  div.textContent = str;
+  return div.innerHTML;
+}
+
+// ══════════════════════════════════════════════
+// INIT
+// ══════════════════════════════════════════════
+window.addEventListener('DOMContentLoaded', () => {
+  // Pre-fill API URL if saved
+  if (API_URL) document.getElementById('apiUrlInput').value = API_URL;
+
+  // Auto-login if token exists
+  if (TOKEN && API_URL) {
+    showApp();
+  }
+
+  // Register service worker
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('sw.js').catch(() => {});
+  }
+});
+</script>
+</body>
+</html>

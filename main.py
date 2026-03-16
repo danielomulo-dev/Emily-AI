@@ -6,7 +6,7 @@ import threading
 import io
 import random
 from collections import defaultdict
-from http.server import BaseHTTPRequestHandler, HTTPServer
+from api_server import run_api_server, generate_app_token
 from datetime import datetime, timedelta
 import pytz
 import dateparser
@@ -585,32 +585,7 @@ def _sanitize_fact(fact):
 # ══════════════════════════════════════════════
 # HEALTH CHECK SERVER
 # ══════════════════════════════════════════════
-class HealthCheckHandler(BaseHTTPRequestHandler):
-    def do_GET(self):
-        if bot.is_ready():
-            self.send_response(200)
-        else:
-            self.send_response(503)
-        self.send_header('Content-type', 'text/plain')
-        self.send_header('Connection', 'close')
-        self.end_headers()
-        self.wfile.write(b"OK" if bot.is_ready() else b"Bot not ready")
-
-    def do_HEAD(self):
-        self.send_response(200 if bot.is_ready() else 503)
-        self.send_header('Content-type', 'text/plain')
-        self.send_header('Connection', 'close')
-        self.end_headers()
-
-    def log_message(self, format, *args):
-        return
-
-def run_health_server(ready_event):
-    port = int(os.getenv("PORT", 8000))
-    server = HTTPServer(('0.0.0.0', port), HealthCheckHandler)
-    logger.info(f"Health check server LIVE on port {port}")
-    ready_event.set()
-    server.serve_forever()
+# API server is in api_server.py (run_api_server)
 
 
 # ══════════════════════════════════════════════
@@ -2732,7 +2707,7 @@ async def cmd_help(ctx):
 
 **⏰ Reminders:** `!remind 5pm call mum` · `!reminders` · `!cancelremind 1`
 
-**📓 Journal:** `!journal <entry>` · `!diary` · `!mood` · `!reflect`
+**📓 Journal:** `!journal <entry>` · `!diary` · `!mood` · `!reflect` · `!apptoken`
 
 _Or just @ mention me to chat!_ 😊"""
 
@@ -3079,6 +3054,43 @@ async def cmd_cleartodos(ctx):
         await ctx.reply(f"🧹 Cleared {count} completed item{'s' if count != 1 else ''}!")
     else:
         await ctx.reply("No completed items to clear.")
+
+
+# ══════════════════════════════════════════════
+# JOURNAL APP TOKEN
+# ══════════════════════════════════════════════
+@bot.command(name="apptoken")
+async def cmd_apptoken(ctx):
+    """Generate a token to connect the Emily Journal app. Sent via DM for security."""
+    try:
+        user_id = str(ctx.author.id)
+        username = ctx.author.display_name
+        token = generate_app_token(user_id, username)
+
+        if not token:
+            await ctx.reply("Couldn't generate a token. Try again?")
+            return
+
+        # Send via DM for security
+        try:
+            app_url = os.getenv("JOURNAL_APP_URL", "https://danielomulo-dev.github.io/Emily-AI/journal")
+            dm = await ctx.author.create_dm()
+            await dm.send(
+                f"🔐 **Your Emily Journal App Token:**\n\n"
+                f"```{token}```\n\n"
+                f"📱 **How to connect:**\n"
+                f"1. Open the app: {app_url}\n"
+                f"2. Paste this token when asked\n"
+                f"3. Start journaling!\n\n"
+                f"⚠️ Keep this token private — it's your login.\n"
+                f"Run `!apptoken` again to generate a new one (old one stops working)."
+            )
+            await ctx.reply("🔐 Token sent to your DMs! Check your messages.")
+        except discord.Forbidden:
+            await ctx.reply("I can't DM you! Enable DMs from server members, then try again.")
+    except Exception as e:
+        logger.error(f"Apptoken error: {e}")
+        await ctx.reply(f"Something went wrong: {e}")
 
 
 # ══════════════════════════════════════════════
@@ -5926,7 +5938,7 @@ async def on_message(message):
 # ══════════════════════════════════════════════
 if __name__ == "__main__":
     health_ready = threading.Event()
-    threading.Thread(target=run_health_server, args=(health_ready,), daemon=True).start()
+    threading.Thread(target=run_api_server, args=(health_ready,), daemon=True).start()
     health_ready.wait(timeout=10)
 
     token = os.getenv("DISCORD_TOKEN")
