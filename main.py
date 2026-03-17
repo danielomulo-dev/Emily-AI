@@ -6200,11 +6200,23 @@ async def on_message(message):
                                     budget_note = f"\n💰 Monthly: KES {monthly['total']:,.2f} / KES {effective:,.2f} (KES {remaining:,.2f} left)"
                                 else:
                                     budget_note = f"\n⚠️ Monthly: KES {monthly['total']:,.2f} / KES {effective:,.2f} — **Over budget!**"
-                            log_reply = f"✅ Logged: **KES {amount:,.2f}** — {desc} ({category})\n📊 Today's total: **KES {today_total:,.2f}**{budget_note}"
+                            # Emily-style quip
+                            import random as _rnd
+                            if category == "food" and amount > 1000:
+                                quip = _rnd.choice(["Wueh, fine dining! 🍽️", "Manze, someone's eating good!", "Aki, that's a proper meal!"])
+                            elif category == "transport" and amount > 500:
+                                quip = _rnd.choice(["Uber life, eh? 😏", "Matatu would've been 70 bob, just saying", "Traffic must've been bad."])
+                            elif category == "shopping" and amount > 2000:
+                                quip = _rnd.choice(["Retail therapy? 🛍️", "Hope it was worth it!", "Treat yourself, manze."])
+                            elif amount > 5000:
+                                quip = _rnd.choice(["Wueh, heavy one! 💸", "Big spend — noted.", "That's a chunk!"])
+                            else:
+                                quip = _rnd.choice(["Sawa, noted! ✍️", "Fiti, logged!", "Got it!", "Noted! 📝"])
+                            log_reply = f"{quip}\n✅ **KES {amount:,.2f}** — {desc} ({category})\n📊 Today's total: **KES {today_total:,.2f}**{budget_note}"
                             await message.reply(log_reply)
                             add_message_to_history(user_id, "user", [{"text": clean_msg}])
                             add_message_to_history(user_id, "model", [{"text": log_reply}])
-                            # Don't return — still let Emily respond naturally about the spending
+                            return  # Expense logged — don't let AI process it again
                     except (ValueError, IndexError):
                         pass  # Not a valid spend, continue normally
 
