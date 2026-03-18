@@ -100,7 +100,10 @@ def _google_web_search(query, max_results=3):
 def _ddg_news_search(topic, max_results=5):
     """Fallback news search using DuckDuckGo."""
     try:
-        from duckduckgo_search import DDGS
+        try:
+            from ddgs import DDGS
+        except ImportError:
+            from duckduckgo_search import DDGS
         with DDGS() as ddgs:
             results = list(ddgs.news(
                 keywords=topic, region="wt-wt",
@@ -126,7 +129,10 @@ def _ddg_news_search(topic, max_results=5):
 def _ddg_web_search(query, max_results=3):
     """Fallback web search using DuckDuckGo."""
     try:
-        from duckduckgo_search import DDGS
+        try:
+            from ddgs import DDGS
+        except ImportError:
+            from duckduckgo_search import DDGS
         with DDGS() as ddgs:
             results = list(ddgs.text(
                 query, region="wt-wt",
@@ -141,7 +147,10 @@ def _ddg_web_search(query, max_results=3):
 def _ddg_video_search(query):
     """Fallback video search using DuckDuckGo."""
     try:
-        from duckduckgo_search import DDGS
+        try:
+            from ddgs import DDGS
+        except ImportError:
+            from duckduckgo_search import DDGS
         with DDGS() as ddgs:
             results = list(ddgs.videos(
                 keywords=f"site:youtube.com {query}", max_results=1

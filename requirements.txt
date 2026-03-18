@@ -13,10 +13,11 @@ certifi
 # === Web/Scraping ===
 requests
 beautifulsoup4
-duckduckgo-search
+ddgs
 
 # === Media & Voice ===
 elevenlabs
+PyNaCl
 
 # === Document Processing ===
 pypdf

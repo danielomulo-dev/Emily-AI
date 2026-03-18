@@ -172,7 +172,7 @@ def _fetch_nse_from_afx(symbol):
 def _fetch_nse_from_mystocks(symbol):
     """Fallback scraper using mystocks.co.ke."""
     try:
-        url = f"https://live.mystocks.co.ke/price/{symbol.upper()}"
+        url = f"https://live.mystocks.co.ke/stock={symbol.upper()}"
         resp = requests.get(url, headers=BROWSER_HEADERS, timeout=10)
         resp.raise_for_status()
 
