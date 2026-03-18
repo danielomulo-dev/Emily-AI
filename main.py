@@ -6035,8 +6035,16 @@ async def on_message(message):
             is_voice_input = False
 
             # ─── PROCESS ATTACHMENTS ───
-            attachment_parts, audio_bytes, audio_mime, warnings, attachment_types = \
-                await process_attachments(message)
+            try:
+                attachment_parts, audio_bytes, audio_mime, warnings, attachment_types = \
+                    await asyncio.wait_for(process_attachments(message), timeout=30)
+            except asyncio.TimeoutError:
+                logger.error(f"Attachment processing timed out for {user_id}")
+                await message.reply("That file is taking too long to process. Try a smaller one? 🙏")
+                return
+            except Exception as e:
+                logger.error(f"Attachment processing error for {user_id}: {e}")
+                attachment_parts, audio_bytes, audio_mime, warnings, attachment_types = [], None, None, [], []
 
             if warnings:
                 await message.reply("\n".join(warnings))
@@ -6416,10 +6424,22 @@ async def on_message(message):
             history = get_chat_history(user_id)
             history.append({"role": "user", "parts": user_parts})
 
-            response_text, source_links = await get_ai_response(
-                history, user_id, chosen_model, route_reason,
-                guild_id=str(message.guild.id) if message.guild else None
-            )
+            try:
+                response_text, source_links = await asyncio.wait_for(
+                    get_ai_response(
+                        history, user_id, chosen_model, route_reason,
+                        guild_id=str(message.guild.id) if message.guild else None
+                    ),
+                    timeout=90  # 90s hard cap — prevents infinite hangs
+                )
+            except asyncio.TimeoutError:
+                logger.error(f"AI response timed out for {user_id}")
+                await message.reply("Eish, that took too long. Try again? 🙏")
+                return
+            except Exception as e:
+                logger.error(f"AI response error for {user_id}: {e}")
+                await message.reply("Something went wrong on my end, manze. Try again in a sec 🙏")
+                return
             full_response = response_text + source_links
 
             if is_voice_input or wants_voice_reply or user_id in _voice_mode_users or is_voice_channel:
