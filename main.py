@@ -6105,9 +6105,15 @@ async def on_message(message):
                 # Skip if it's clearly a question, not an expense report
                 msg_lower = clean_msg.lower().strip()
                 is_question = msg_lower.startswith(("what", "how", "when", "where", "why", "who", "can", "could", "should", "will", "is there", "are there", "do you", "does"))
+                # Also skip if message contains a question mark or question phrases anywhere
+                has_question_mark = '?' in clean_msg
+                has_question_phrase = bool(re.search(
+                    r'\b(?:when is|when does|when will|when do|what is|what are|how much|how many|how long|how do|where is|where can|why did|why is|is it|are there|due date|deadline|expire|expiry)\b',
+                    msg_lower
+                ))
                 # Skip very long messages (probably conversation, not expense logging)
                 is_too_long = len(clean_msg.split()) > 20
-                skip_expense = is_question or is_too_long
+                skip_expense = is_question or has_question_mark or has_question_phrase or is_too_long
 
                 # Pattern 1: "spent/paid/bought 500 on/for lunch"
                 spend_match = None
