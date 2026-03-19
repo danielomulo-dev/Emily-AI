@@ -18,19 +18,39 @@ from pymongo import MongoClient
 logger = logging.getLogger(__name__)
 EAT_ZONE = pytz.timezone('Africa/Nairobi')
 
-# ── MongoDB (separate connection for API thread) ──
+# ── MongoDB (auto-reconnecting for API thread) ──
+_api_client = None
 _api_db = None
-try:
-    _api_client = MongoClient(
-        os.getenv("MONGO_URI"),
-        tlsCAFile=certifi.where(),
-        serverSelectionTimeoutMS=5000,
-    )
-    _api_client.admin.command('ping')
-    _api_db = _api_client["emily_brain_db"]
-    logger.info("API server connected to MongoDB")
-except Exception as e:
-    logger.error(f"API MongoDB error: {e}")
+
+def _get_db():
+    """Get MongoDB database, reconnecting if needed."""
+    global _api_client, _api_db
+    if _api_db is not None:
+        try:
+            _api_client.admin.command('ping')
+            return _api_db
+        except Exception:
+            logger.warning("API MongoDB connection lost, reconnecting...")
+            _api_client = None
+            _api_db = None
+
+    try:
+        _api_client = MongoClient(
+            os.getenv("MONGO_URI"),
+            tlsCAFile=certifi.where(),
+            serverSelectionTimeoutMS=10000,
+            retryWrites=True,
+            retryReads=True,
+        )
+        _api_client.admin.command('ping')
+        _api_db = _api_client["emily_brain_db"]
+        logger.info("API server connected to MongoDB")
+        return _api_db
+    except Exception as e:
+        logger.error(f"API MongoDB reconnect failed: {e}")
+        _api_client = None
+        _api_db = None
+        return None
 
 
 # ══════════════════════════════════════════════
@@ -38,11 +58,12 @@ except Exception as e:
 # ══════════════════════════════════════════════
 def generate_app_token(user_id, username):
     """Generate a token for PWA auth. Returns token string."""
-    if _api_db is None:
+    db = _get_db()
+    if db is None:
         return None
     token = secrets.token_urlsafe(32)
     token_hash = hashlib.sha256(token.encode()).hexdigest()
-    _api_db["app_tokens"].update_one(
+    db["app_tokens"].update_one(
         {"user_id": str(user_id)},
         {"$set": {
             "user_id": str(user_id),
@@ -57,10 +78,11 @@ def generate_app_token(user_id, username):
 
 def verify_token(token):
     """Verify a PWA token. Returns user_id or None."""
-    if _api_db is None or not token:
+    db = _get_db()
+    if db is None or not token:
         return None
     token_hash = hashlib.sha256(token.encode()).hexdigest()
-    doc = _api_db["app_tokens"].find_one({"token_hash": token_hash})
+    doc = db["app_tokens"].find_one({"token_hash": token_hash})
     if doc:
         return doc["user_id"]
     return None
@@ -101,7 +123,8 @@ def _detect_mood(text):
 
 def api_add_entry(user_id, text, mood_score=None, tags=None, photos=None):
     """Add journal entry via API."""
-    if _api_db is None:
+    db = _get_db()
+    if db is None:
         return None
     if mood_score is None:
         mood_score = _detect_mood(text)
@@ -124,7 +147,7 @@ def api_add_entry(user_id, text, mood_score=None, tags=None, photos=None):
         "day_name": now.strftime("%A"),
         "source": "app",
     }
-    _api_db["journal"].insert_one(entry)
+    db["journal"].insert_one(entry)
     entry.pop("_id", None)
     entry["date"] = entry["date"].isoformat()
     return entry
@@ -132,11 +155,12 @@ def api_add_entry(user_id, text, mood_score=None, tags=None, photos=None):
 
 def api_get_entries(user_id, days=14, limit=20):
     """Get journal entries via API."""
-    if _api_db is None:
+    db = _get_db()
+    if db is None:
         return []
     from datetime import timedelta
     cutoff = datetime.now(EAT_ZONE) - timedelta(days=days)
-    entries = list(_api_db["journal"].find({
+    entries = list(db["journal"].find({
         "user_id": str(user_id),
         "date": {"$gte": cutoff},
     }).sort("date", -1).limit(limit))
@@ -150,11 +174,12 @@ def api_get_entries(user_id, days=14, limit=20):
 
 def api_get_mood_trend(user_id, days=14):
     """Get mood trend data via API."""
-    if _api_db is None:
+    db = _get_db()
+    if db is None:
         return []
     from datetime import timedelta
     cutoff = datetime.now(EAT_ZONE) - timedelta(days=days)
-    entries = list(_api_db["journal"].find({
+    entries = list(db["journal"].find({
         "user_id": str(user_id),
         "date": {"$gte": cutoff},
     }).sort("date", 1))
@@ -174,11 +199,12 @@ def api_get_mood_trend(user_id, days=14):
 
 def api_get_stats(user_id, days=30):
     """Get mood stats via API."""
-    if _api_db is None:
+    db = _get_db()
+    if db is None:
         return None
     from datetime import timedelta
     cutoff = datetime.now(EAT_ZONE) - timedelta(days=days)
-    entries = list(_api_db["journal"].find({
+    entries = list(db["journal"].find({
         "user_id": str(user_id),
         "date": {"$gte": cutoff},
     }))
@@ -221,7 +247,8 @@ def api_quick_mood(user_id, mood_score):
 
 def api_update_entry(user_id, entry_id, text=None, mood_score=None, tags=None, pinned=None):
     """Update a journal entry."""
-    if _api_db is None:
+    db = _get_db()
+    if db is None:
         return None
     try:
         from bson import ObjectId
@@ -240,7 +267,7 @@ def api_update_entry(user_id, entry_id, text=None, mood_score=None, tags=None, p
             update["pinned"] = bool(pinned)
         if not update:
             return None
-        result = _api_db["journal"].update_one(
+        result = db["journal"].update_one(
             {"_id": ObjectId(entry_id), "user_id": str(user_id)},
             {"$set": update}
         )
@@ -252,11 +279,12 @@ def api_update_entry(user_id, entry_id, text=None, mood_score=None, tags=None, p
 
 def api_delete_entry(user_id, entry_id):
     """Delete a journal entry."""
-    if _api_db is None:
+    db = _get_db()
+    if db is None:
         return False
     try:
         from bson import ObjectId
-        result = _api_db["journal"].delete_one(
+        result = db["journal"].delete_one(
             {"_id": ObjectId(entry_id), "user_id": str(user_id)}
         )
         return result.deleted_count > 0
@@ -270,7 +298,8 @@ def api_delete_entry(user_id, entry_id):
 # ══════════════════════════════════════════════
 def api_save_gratitude(user_id, items):
     """Save today's gratitude list."""
-    if _api_db is None:
+    db = _get_db()
+    if db is None:
         return None
     now = datetime.now(EAT_ZONE)
     today = now.strftime("%Y-%m-%d")
@@ -280,7 +309,7 @@ def api_save_gratitude(user_id, items):
         "date_str": today,
         "date": now,
     }
-    _api_db["gratitude"].update_one(
+    db["gratitude"].update_one(
         {"user_id": str(user_id), "date_str": today},
         {"$set": doc},
         upsert=True,
@@ -290,10 +319,11 @@ def api_save_gratitude(user_id, items):
 
 def api_get_gratitude(user_id):
     """Get today's gratitude entry."""
-    if _api_db is None:
+    db = _get_db()
+    if db is None:
         return None
     today = datetime.now(EAT_ZONE).strftime("%Y-%m-%d")
-    doc = _api_db["gratitude"].find_one(
+    doc = db["gratitude"].find_one(
         {"user_id": str(user_id), "date_str": today},
         {"_id": 0}
     )
@@ -307,7 +337,8 @@ def api_get_gratitude(user_id):
 # ══════════════════════════════════════════════
 def api_save_sleep(user_id, quality, hours):
     """Save sleep data for today."""
-    if _api_db is None:
+    db = _get_db()
+    if db is None:
         return None
     now = datetime.now(EAT_ZONE)
     today = now.strftime("%Y-%m-%d")
@@ -318,7 +349,7 @@ def api_save_sleep(user_id, quality, hours):
         "date_str": today,
         "date": now,
     }
-    _api_db["sleep"].update_one(
+    db["sleep"].update_one(
         {"user_id": str(user_id), "date_str": today},
         {"$set": doc},
         upsert=True,
@@ -328,11 +359,12 @@ def api_save_sleep(user_id, quality, hours):
 
 def api_get_sleep(user_id, days=7):
     """Get sleep data for recent days."""
-    if _api_db is None:
+    db = _get_db()
+    if db is None:
         return []
     from datetime import timedelta
     cutoff = datetime.now(EAT_ZONE) - timedelta(days=days)
-    entries = list(_api_db["sleep"].find(
+    entries = list(db["sleep"].find(
         {"user_id": str(user_id), "date": {"$gte": cutoff}},
         {"_id": 0}
     ).sort("date", -1))
@@ -347,7 +379,8 @@ def api_get_sleep(user_id, days=7):
 # ══════════════════════════════════════════════
 def api_create_note(user_id, title, body="", color="#f59e0b"):
     """Create a new note."""
-    if _api_db is None:
+    db = _get_db()
+    if db is None:
         return None
     import uuid
     now = datetime.now(EAT_ZONE)
@@ -363,7 +396,7 @@ def api_create_note(user_id, title, body="", color="#f59e0b"):
         "created_str": now.strftime("%b %d, %I:%M %p"),
         "updated_str": now.strftime("%b %d, %I:%M %p"),
     }
-    _api_db["notes"].insert_one(note)
+    db["notes"].insert_one(note)
     note.pop("_id", None)
     note["_id"] = note_id
     note["created_at"] = now.isoformat()
@@ -373,9 +406,10 @@ def api_create_note(user_id, title, body="", color="#f59e0b"):
 
 def api_get_notes(user_id):
     """Get all notes for a user, newest first."""
-    if _api_db is None:
+    db = _get_db()
+    if db is None:
         return []
-    notes = list(_api_db["notes"].find(
+    notes = list(db["notes"].find(
         {"user_id": str(user_id)}
     ).sort("updated_at", -1))
     for n in notes:
@@ -389,7 +423,8 @@ def api_get_notes(user_id):
 
 def api_update_note(user_id, note_id, title=None, body=None, color=None):
     """Update an existing note."""
-    if _api_db is None:
+    db = _get_db()
+    if db is None:
         return None
     try:
         update = {"updated_at": datetime.now(EAT_ZONE)}
@@ -401,7 +436,7 @@ def api_update_note(user_id, note_id, title=None, body=None, color=None):
         if color is not None:
             update["color"] = color
 
-        result = _api_db["notes"].update_one(
+        result = db["notes"].update_one(
             {"note_id": note_id, "user_id": str(user_id)},
             {"$set": update}
         )
@@ -413,10 +448,11 @@ def api_update_note(user_id, note_id, title=None, body=None, color=None):
 
 def api_delete_note(user_id, note_id):
     """Delete a note."""
-    if _api_db is None:
+    db = _get_db()
+    if db is None:
         return False
     try:
-        result = _api_db["notes"].delete_one(
+        result = db["notes"].delete_one(
             {"note_id": note_id, "user_id": str(user_id)}
         )
         return result.deleted_count > 0
