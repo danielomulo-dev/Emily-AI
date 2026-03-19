@@ -3015,7 +3015,7 @@ async def cmd_help(ctx):
 
 **🔔 Alerts:** `!setalert 5` · `!stopalert`
 
-**📱 SMS:** `!addphone <n> <num>` · `!removephone <n>` · `!contacts` · `!notifywp <movie>`
+**📱 SMS:** `!addphone <n> <num>` · `!removephone <n>` · `!contacts` · `!notifywp movie | time | location`
 
 **📝 To-Do:** `!todo <task>` · `!todos` · `!done 1` · `!deltodo 1` · `!cleartodos`
 
@@ -5444,8 +5444,12 @@ async def cmd_contacts(ctx):
 
 
 @bot.command(name="notifywp")
-async def cmd_notifywp(ctx, *, movie_title: str = ""):
-    """Send watch party SMS to all contacts. Usage: !notifywp Inception"""
+async def cmd_notifywp(ctx, *, details: str = ""):
+    """Send watch party SMS to all contacts.
+    Usage: !notifywp Inception | Friday 8pm | Daniel's place
+           !notifywp Inception | Saturday 3pm
+           !notifywp Inception
+    """
     if not ctx.guild:
         await ctx.reply("This only works in a server!")
         return
@@ -5462,45 +5466,46 @@ async def cmd_notifywp(ctx, *, movie_title: str = ""):
 
     contacts = get_contacts(str(ctx.guild.id))
     if not contacts:
-        await ctx.reply("No contacts saved! Add some first with `!addphone <name> <number>`")
+        await ctx.reply("No contacts saved! Add some first with `!addphone <n> <number>`")
         return
 
-    # Get watch party details
-    next_party = get_next_watchparty(str(ctx.guild.id))
-    wp_title = movie_title
-    wp_date = ""
+    # Parse: movie title | time | location (pipe-separated)
+    parts = [p.strip() for p in details.split("|")]
+    wp_title = parts[0] if len(parts) >= 1 and parts[0] else ""
+    wp_time = parts[1] if len(parts) >= 2 and parts[1] else ""
+    wp_location = parts[2] if len(parts) >= 3 and parts[2] else ""
 
-    if next_party:
-        wp_title = wp_title or next_party.get("title", "Movie Night")
-        wp_time = next_party.get("time")
-        if wp_time:
-            wp_date = wp_time.strftime("%A, %b %d at %I:%M %p")
+    # Fallback: check scheduled watch party
+    if not wp_title:
+        next_party = get_next_watchparty(str(ctx.guild.id))
+        if next_party:
+            wp_title = next_party.get("title", "")
+            party_time = next_party.get("time")
+            if party_time and not wp_time:
+                wp_time = party_time.strftime("%A, %b %d at %I:%M %p")
 
     if not wp_title:
-        await ctx.reply("What movie? Try: `!notifywp Inception` or schedule one with `!watchparty`")
+        await ctx.reply("What movie? Try:\n`!notifywp Inception | Friday 8pm | Dan's place`\n`!notifywp Inception | Saturday 3pm`\n`!notifywp Inception`")
         return
-
-    # Search for YouTube trailer
-    trailer_link = ""
-    try:
-        trailer_link = await asyncio.to_thread(search_video_link, f"{wp_title} official trailer")
-    except Exception:
-        pass
 
     async with ctx.typing():
         # Generate unique messages using Claude
         async def generate_unique_message(name):
             try:
+                time_bit = f" on {wp_time}" if wp_time else ""
+                location_bit = f" at {wp_location}" if wp_location else ""
                 response = await asyncio.wait_for(
                     claude_client.messages.create(
                         model=MODEL_CLAUDE,
                         max_tokens=150,
                         messages=[{"role": "user", "content": (
-                            f"{EMILY_MINI_PERSONA} Write a short, fun SMS (max 140 chars) to {name} "
+                            f"{EMILY_MINI_PERSONA} Write a short, fun SMS (max 160 chars) to {name} "
                             f"about an upcoming watch party for '{wp_title}'"
-                            f"{' on ' + wp_date if wp_date else ''}. "
+                            f"{time_bit}{location_bit}. "
+                            f"Include the movie title{', time' if wp_time else ''}"
+                            f"{', and location' if wp_location else ''} naturally in the message. "
                             f"Make it personal and unique — like you're texting a friend. "
-                            f"Don't include hashtags. Just the message text, nothing else."
+                            f"Don't include hashtags or links. Just the message text, nothing else."
                         )}],
                     ),
                     timeout=15,
@@ -5511,7 +5516,13 @@ async def cmd_notifywp(ctx, *, movie_title: str = ""):
                         msg += block.text
                 return msg.strip().strip('"')
             except Exception:
-                return f"Hey {name}! Watch party alert — we're watching {wp_title}! Don't miss it, manze!"
+                msg_parts = [f"Hey {name}! Watch party alert — we're watching {wp_title}!"]
+                if wp_time:
+                    msg_parts.append(f"Time: {wp_time}.")
+                if wp_location:
+                    msg_parts.append(f"Location: {wp_location}.")
+                msg_parts.append("Don't miss it!")
+                return " ".join(msg_parts)
 
         # Send to each contact with a unique message
         results = {"sent": 0, "failed": 0, "errors": []}
@@ -5524,42 +5535,31 @@ async def cmd_notifywp(ctx, *, movie_title: str = ""):
                 results["failed"] += 1
                 continue
 
-            # Generate unique message
             personal_msg = await generate_unique_message(name)
 
-            # Add trailer if available
-            if trailer_link:
-                full_msg = f"{personal_msg}\n\nTrailer: {trailer_link}"
-            else:
-                full_msg = personal_msg
-
-            # Add date if available
-            if wp_date and wp_date not in full_msg:
-                full_msg = f"{full_msg}\n{wp_date}"
-
-            success, detail = await asyncio.to_thread(send_sms, phone, full_msg)
+            success, detail = await asyncio.to_thread(send_sms, phone, personal_msg)
             if success:
                 results["sent"] += 1
             else:
                 results["failed"] += 1
                 results["errors"].append(f"{name}: {detail}")
 
-            # Brief delay between messages
             await asyncio.sleep(1)
 
         # Report results
         report = f"📱 **Watch Party Notifications Sent!**\n\n"
         report += f"**Movie:** {wp_title}\n"
-        if wp_date:
-            report += f"**Date:** {wp_date}\n"
-        if trailer_link:
-            report += f"**Trailer:** {trailer_link}\n"
+        if wp_time:
+            report += f"**Time:** {wp_time}\n"
+        if wp_location:
+            report += f"**Location:** {wp_location}\n"
         report += f"\n✅ Sent: {results['sent']} | ❌ Failed: {results['failed']}"
 
         if results["errors"]:
             report += f"\n\n**Errors:**\n" + "\n".join(f"• {e}" for e in results["errors"][:5])
 
         await ctx.reply(report)
+
 
 
 # ══════════════════════════════════════════════
