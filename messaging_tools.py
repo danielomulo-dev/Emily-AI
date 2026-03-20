@@ -18,6 +18,11 @@ AT_API_KEY = os.getenv("AT_API_KEY")
 AT_SENDER_ID = os.getenv("AT_SENDER_ID", "")  # Optional: custom sender ID for live
 AT_ENVIRONMENT = os.getenv("AT_ENVIRONMENT", "sandbox")  # 'sandbox' or 'production'
 
+# --- META WHATSAPP CLOUD API CONFIG ---
+WA_PHONE_ID = os.getenv("WA_PHONE_NUMBER_ID")      # From Meta App Dashboard → WhatsApp → API Setup
+WA_ACCESS_TOKEN = os.getenv("WA_ACCESS_TOKEN")       # Permanent token from System User
+WA_API_VERSION = os.getenv("WA_API_VERSION", "v21.0")
+
 # --- MONGODB ---
 db = None
 contacts_col = None
@@ -129,19 +134,104 @@ def send_sms_batch(contacts, message_func):
 
 
 # ══════════════════════════════════════════════
-# SEND WHATSAPP (Africa's Talking — future)
+# SEND WHATSAPP (Meta Cloud API)
 # ══════════════════════════════════════════════
-def send_whatsapp(phone_number, message):
-    """Send a WhatsApp message via Africa's Talking.
-    Requires WhatsApp business approval from AT.
-    """
-    if not is_configured():
-        return False, "Africa's Talking not configured"
+def wa_configured():
+    """Check if Meta WhatsApp Cloud API is set up."""
+    return bool(WA_PHONE_ID and WA_ACCESS_TOKEN)
 
-    # TODO: Implement when WhatsApp is approved
-    # For now, fall back to SMS
-    logger.info(f"WhatsApp not yet available, falling back to SMS for {phone_number}")
-    return send_sms(phone_number, message)
+
+def send_whatsapp(phone_number, message):
+    """Send a WhatsApp text message via Meta Cloud API.
+    phone_number: format '+254712345678' or '254712345678'
+    message: text string (max ~4096 chars)
+    """
+    if not wa_configured():
+        logger.warning("WhatsApp not configured — falling back to SMS")
+        return send_sms(phone_number, message)
+
+    try:
+        import requests
+
+        # Strip + prefix — Meta API expects just digits
+        to_number = phone_number.lstrip("+")
+
+        url = f"https://graph.facebook.com/{WA_API_VERSION}/{WA_PHONE_ID}/messages"
+        headers = {
+            "Authorization": f"Bearer {WA_ACCESS_TOKEN}",
+            "Content-Type": "application/json",
+        }
+        payload = {
+            "messaging_product": "whatsapp",
+            "recipient_type": "individual",
+            "to": to_number,
+            "type": "text",
+            "text": {"body": message},
+        }
+
+        response = requests.post(url, headers=headers, json=payload, timeout=15)
+        data = response.json()
+
+        if response.status_code in (200, 201):
+            msg_id = data.get("messages", [{}])[0].get("id", "unknown")
+            logger.info(f"WhatsApp sent to {phone_number}: {msg_id}")
+            return True, "Sent"
+        else:
+            error = data.get("error", {})
+            error_msg = error.get("message", response.text[:200])
+            error_code = error.get("code", response.status_code)
+            logger.error(f"WhatsApp send failed [{error_code}]: {error_msg}")
+            return False, f"WhatsApp failed: {error_msg}"
+
+    except Exception as e:
+        logger.error(f"WhatsApp send error: {e}")
+        return False, str(e)
+
+
+def send_whatsapp_template(phone_number, template_name="hello_world", language="en_US"):
+    """Send a pre-approved WhatsApp template message.
+    Required for first contact — you can't send free-form text to users
+    who haven't messaged you in the last 24 hours.
+    """
+    if not wa_configured():
+        return False, "WhatsApp not configured"
+
+    try:
+        import requests
+
+        to_number = phone_number.lstrip("+")
+
+        url = f"https://graph.facebook.com/{WA_API_VERSION}/{WA_PHONE_ID}/messages"
+        headers = {
+            "Authorization": f"Bearer {WA_ACCESS_TOKEN}",
+            "Content-Type": "application/json",
+        }
+        payload = {
+            "messaging_product": "whatsapp",
+            "to": to_number,
+            "type": "template",
+            "template": {
+                "name": template_name,
+                "language": {"code": language},
+            },
+        }
+
+        response = requests.post(url, headers=headers, json=payload, timeout=15)
+        data = response.json()
+
+        if response.status_code in (200, 201):
+            msg_id = data.get("messages", [{}])[0].get("id", "unknown")
+            logger.info(f"WhatsApp template sent to {phone_number}: {msg_id}")
+            return True, "Sent"
+        else:
+            error = data.get("error", {})
+            error_msg = error.get("message", response.text[:200])
+            logger.error(f"WhatsApp template failed: {error_msg}")
+            return False, f"WhatsApp template failed: {error_msg}"
+
+    except Exception as e:
+        logger.error(f"WhatsApp template error: {e}")
+        return False, str(e)
 
 
 # ══════════════════════════════════════════════
