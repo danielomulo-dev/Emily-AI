@@ -300,6 +300,35 @@ textarea.journal-input::placeholder{color:var(--text-muted)}
 .install-bar .it p{font-size:11px;color:var(--text-dim)}
 .install-bar button{background:var(--accent);color:#000;border:none;border-radius:10px;padding:9px 16px;font-size:12px;font-weight:700;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif}
 
+/* ═══ DASHBOARD WIDGETS ═══ */
+.dash-progress{position:relative;height:10px;background:var(--bg);border-radius:6px;overflow:hidden;margin:8px 0}
+.dash-progress-fill{height:100%;border-radius:6px;transition:width .8s cubic-bezier(.23,1,.32,1)}
+.dash-stat-row{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:10px 0}
+.dash-stat{background:var(--bg);border-radius:12px;padding:12px;text-align:center;border:1px solid var(--border)}
+.dash-stat .ds-val{font-family:'Lora',serif;font-size:20px;font-weight:700}
+.dash-stat .ds-lbl{font-size:10px;color:var(--text-dim);margin-top:2px}
+.dash-cat-row{display:flex;align-items:center;gap:8px;margin-bottom:8px}
+.dash-cat-name{font-size:11px;color:var(--text-dim);width:70px;text-align:right;flex-shrink:0;text-transform:capitalize}
+.dash-cat-bar{flex:1;height:20px;background:var(--bg);border-radius:10px;overflow:hidden}
+.dash-cat-fill{height:100%;border-radius:10px;display:flex;align-items:center;padding:0 8px;justify-content:flex-end;transition:width .6s ease}
+.dash-cat-fill span{font-size:9px;font-weight:700;color:#000}
+.dash-cat-amt{font-size:11px;color:var(--text-dim);width:65px;font-weight:500;font-variant-numeric:tabular-nums}
+.dash-holding{display:flex;justify-content:space-between;align-items:center;padding:10px;background:var(--bg);border-radius:10px;margin-bottom:6px;border:1px solid var(--border)}
+.dash-holding .dh-sym{font-weight:700;font-size:14px}
+.dash-holding .dh-detail{font-size:11px;color:var(--text-dim)}
+.dash-holding .dh-val{font-size:14px;font-weight:600;text-align:right}
+.dash-goal{padding:10px;background:var(--bg);border-radius:10px;margin-bottom:8px;border:1px solid var(--border)}
+.dash-goal .dg-title{font-size:13px;font-weight:600;margin-bottom:6px}
+.dash-goal .dg-bar{height:8px;background:var(--border);border-radius:4px;overflow:hidden}
+.dash-goal .dg-fill{height:100%;border-radius:4px;background:var(--accent);transition:width .6s ease}
+.dash-goal .dg-meta{display:flex;justify-content:space-between;font-size:10px;color:var(--text-dim);margin-top:4px}
+.dash-empty{text-align:center;padding:16px;color:var(--text-muted);font-size:12px}
+.dash-big-pct{font-family:'Lora',serif;font-size:36px;font-weight:700;text-align:center;line-height:1}
+.dash-big-label{text-align:center;font-size:11px;color:var(--text-dim);margin-top:4px}
+.dash-daily-chart{display:flex;align-items:flex-end;gap:4px;height:60px;padding:8px 0}
+.dash-daily-bar{flex:1;border-radius:4px 4px 0 0;transition:height .5s ease;min-height:3px;position:relative}
+.dash-daily-bar .ddb-lbl{position:absolute;bottom:-14px;left:50%;transform:translateX(-50%);font-size:8px;color:var(--text-muted);white-space:nowrap}
+
 /* ═══ DIARY SEARCH & EXPORT ═══ */
 .diary-toolbar{display:flex;gap:8px;margin-bottom:8px}
 .diary-search{flex:1;background:var(--card);border:1.5px solid var(--border);border-radius:14px;padding:12px 14px 12px 40px;color:var(--text);font-size:14px;font-family:'Plus Jakarta Sans',sans-serif;outline:none;transition:border .25s;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' fill='%234a5b6e' viewBox='0 0 16 16'%3E%3Cpath d='M11.742 10.344a6.5 6.5 0 1 0-1.397 1.398h-.001l3.85 3.85a1 1 0 0 0 1.415-1.414l-3.85-3.85zm-5.242.656a5 5 0 1 1 0-10 5 5 0 0 1 0 10z'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:14px center}
@@ -668,21 +697,40 @@ textarea.journal-input::placeholder{color:var(--text-muted)}
   <div id="diaryList"><div class="spin-wrap"><div class="spin"></div></div></div>
 </div>
 
-<!-- MOOD -->
+<!-- DASHBOARD -->
 <div id="moodScreen" class="screen">
-  <div class="header anim-1"><div class="greeting" style="font-size:24px">Mood Insights 📊</div></div>
+  <div class="header anim-1"><div class="greeting" style="font-size:24px">Dashboard 📊</div></div>
 
-  <div class="mood-overview anim-2" id="moodOverview">
+  <!-- Budget Overview -->
+  <div class="trend-card anim-2" id="dashBudgetCard">
+    <h3>💰 Budget</h3>
+    <div id="dashBudgetContent"><div class="spin-wrap"><div class="spin"></div></div></div>
+  </div>
+
+  <!-- Portfolio -->
+  <div class="trend-card anim-3" style="margin-top:14px" id="dashPortfolioCard">
+    <h3>📈 Portfolio</h3>
+    <div id="dashPortfolioContent"><div class="spin-wrap"><div class="spin"></div></div></div>
+  </div>
+
+  <!-- Goals -->
+  <div class="trend-card anim-3" style="margin-top:14px" id="dashGoalsCard">
+    <h3>🎯 Goals</h3>
+    <div id="dashGoalsContent"><div class="spin-wrap"><div class="spin"></div></div></div>
+  </div>
+
+  <!-- Mood (kept from original) -->
+  <div class="mood-overview anim-4" id="moodOverview" style="margin-top:14px">
     <div class="mood-big" id="moodBigAvg">-</div>
     <div class="mood-big-label">average mood (14 days)</div>
   </div>
 
-  <div class="trend-card anim-3">
+  <div class="trend-card anim-4" style="margin-top:14px">
     <h3>📉 Mood Trend</h3>
     <div id="moodTrendChart"></div>
   </div>
 
-  <div class="trend-card anim-4" style="margin-top:14px">
+  <div class="trend-card anim-5" style="margin-top:14px">
     <h3>🎭 Emotions</h3>
     <div id="moodDistChart"></div>
   </div>
@@ -733,7 +781,7 @@ textarea.journal-input::placeholder{color:var(--text-muted)}
   <button class="nav-btn" onclick="go('diary',this)"><span class="ni">📖</span>Diary</button>
   <button class="nav-plus" onclick="go('write')">✍️</button>
   <button class="nav-btn" onclick="go('notes',this)"><span class="ni">📝</span>Notes</button>
-  <button class="nav-btn" onclick="go('mood',this)"><span class="ni">📊</span>Mood</button>
+  <button class="nav-btn" onclick="go('mood',this)"><span class="ni">📊</span>Dash</button>
 </nav>
 
 </div>
@@ -1308,13 +1356,13 @@ async function togglePin(id, pin){
 
 // ═══ MOOD ═══
 async function loadMood(){
+  // Load mood data
   try{
     const [tr,st]=await Promise.all([api('GET','/api/journal/mood-trend?days=14'),api('GET','/api/journal/stats?days=14')]);
     renderTrend(tr.trend||[],'moodTrendChart');
     const s=st.stats||{};
     const avg=s.avg_mood||0;
     document.getElementById('moodBigAvg').textContent=avg?`${M[Math.round(avg)]} ${avg}`:'—';
-    // Distribution
     const dist=s.mood_distribution||{};
     const mx=Math.max(...Object.values(dist),1);
     const total=Object.values(dist).reduce((a,b)=>a+b,0)||1;
@@ -1326,7 +1374,118 @@ async function loadMood(){
     dh+='</div>';
     document.getElementById('moodDistChart').innerHTML=dh;
   }catch(e){console.error(e)}
+
+  // Load dashboard panels
+  loadDashBudget();
+  loadDashPortfolio();
+  loadDashGoals();
   loadInsights();
+}
+
+// ═══ DASHBOARD: BUDGET ═══
+async function loadDashBudget(){
+  const el=document.getElementById('dashBudgetContent');
+  try{
+    const d=await api('GET','/api/dashboard/budget');
+    const b=d.budget;
+    if(!b||b.total_spent===0){
+      el.innerHTML='<div class="dash-empty">No spending data this month. Log with <b>!spent</b> on Discord.</div>';
+      return;
+    }
+    const pctColor=b.pct_used>90?'var(--danger)':b.pct_used>70?'var(--mood-2)':'var(--success)';
+
+    let html=`<div class="dash-big-pct" style="color:${pctColor}">${b.pct_used}%</div>`;
+    html+=`<div class="dash-big-label">of ${b.effective_budget?`KES ${b.effective_budget.toLocaleString()}`:'budget'} used</div>`;
+    html+=`<div class="dash-progress"><div class="dash-progress-fill" style="width:${Math.min(b.pct_used,100)}%;background:${pctColor}"></div></div>`;
+
+    html+=`<div class="dash-stat-row">`;
+    html+=`<div class="dash-stat"><div class="ds-val">KES ${b.total_spent.toLocaleString()}</div><div class="ds-lbl">Spent</div></div>`;
+    html+=`<div class="dash-stat"><div class="ds-val" style="color:${b.remaining>0?'var(--success)':'var(--danger)'}">KES ${b.remaining.toLocaleString()}</div><div class="ds-lbl">Remaining</div></div>`;
+    if(b.total_income>0){
+      html+=`<div class="dash-stat"><div class="ds-val" style="color:var(--success)">KES ${b.total_income.toLocaleString()}</div><div class="ds-lbl">Income</div></div>`;
+      html+=`<div class="dash-stat"><div class="ds-val">${b.transaction_count}</div><div class="ds-lbl">Transactions</div></div>`;
+    }
+    html+=`</div>`;
+
+    // Category breakdown
+    const cats=Object.entries(b.by_category||{}).sort((a,b)=>b[1]-a[1]);
+    if(cats.length){
+      const maxCat=cats[0][1];
+      const catColors={food:'var(--mood-2)',transport:'var(--mood-5)',shopping:'var(--mood-4)',bills:'var(--mood-3)',entertainment:'var(--accent)',health:'var(--success)',general:'var(--text-dim)'};
+      for(const [cat,amt] of cats.slice(0,6)){
+        const pct=(amt/maxCat)*100;
+        const cc=catColors[cat]||'var(--accent)';
+        html+=`<div class="dash-cat-row"><div class="dash-cat-name">${cat}</div><div class="dash-cat-bar"><div class="dash-cat-fill" style="width:${pct}%;background:${cc}"><span>${Math.round((amt/b.total_spent)*100)}%</span></div></div><div class="dash-cat-amt">KES ${amt.toLocaleString()}</div></div>`;
+      }
+    }
+
+    // Daily spending mini chart
+    const daily=b.daily_spending||[];
+    if(daily.length>2){
+      const maxD=Math.max(...daily.map(d=>d.total),1);
+      html+=`<div style="font-size:11px;color:var(--text-dim);margin-top:12px">Daily spending (14 days)</div>`;
+      html+=`<div class="dash-daily-chart">`;
+      for(const d of daily){
+        const h=Math.max((d.total/maxD)*100,5);
+        const dd=d.date.slice(5);
+        html+=`<div class="dash-daily-bar" style="height:${h}%;background:var(--accent);opacity:${0.4+0.6*(d.total/maxD)}"><div class="ddb-lbl">${dd}</div></div>`;
+      }
+      html+=`</div>`;
+    }
+
+    el.innerHTML=html;
+  }catch(e){
+    el.innerHTML='<div class="dash-empty">Could not load budget data.</div>';
+  }
+}
+
+// ═══ DASHBOARD: PORTFOLIO ═══
+async function loadDashPortfolio(){
+  const el=document.getElementById('dashPortfolioContent');
+  try{
+    const d=await api('GET','/api/dashboard/portfolio');
+    const holdings=d.portfolio||[];
+    if(!holdings.length){
+      el.innerHTML='<div class="dash-empty">No holdings. Add stocks with <b>!buy</b> on Discord.</div>';
+      return;
+    }
+    let html=`<div style="text-align:center;margin-bottom:10px"><div class="dash-big-pct">KES ${d.total_value.toLocaleString()}</div><div class="dash-big-label">${d.holding_count} holding${d.holding_count!==1?'s':''} · cost basis</div></div>`;
+    for(const h of holdings){
+      html+=`<div class="dash-holding"><div><div class="dh-sym">${h.symbol}</div><div class="dh-detail">${h.quantity} shares @ KES ${h.buy_price.toLocaleString()}</div></div><div class="dh-val">KES ${h.value.toLocaleString()}</div></div>`;
+    }
+    el.innerHTML=html;
+  }catch(e){
+    el.innerHTML='<div class="dash-empty">Could not load portfolio.</div>';
+  }
+}
+
+// ═══ DASHBOARD: GOALS ═══
+async function loadDashGoals(){
+  const el=document.getElementById('dashGoalsContent');
+  try{
+    const d=await api('GET','/api/dashboard/goals');
+    const goals=d.goals||[];
+    if(!goals.length){
+      el.innerHTML=`<div class="dash-empty">No active goals. Set one with <b>!goal</b> on Discord.${d.completed_count?` (${d.completed_count} completed)`:''}</div>`;
+      return;
+    }
+    let html='';
+    if(d.completed_count>0){
+      html+=`<div style="text-align:center;font-size:11px;color:var(--text-dim);margin-bottom:8px">✅ ${d.completed_count} goal${d.completed_count!==1?'s':''} completed</div>`;
+    }
+    for(const g of goals){
+      const pct=g.target>0?Math.min(100,Math.round((g.progress/g.target)*100)):0;
+      const barColor=pct>=75?'var(--success)':pct>=40?'var(--accent)':'var(--mood-2)';
+      html+=`<div class="dash-goal"><div class="dg-title">${esc(g.goal)}</div><div class="dg-bar"><div class="dg-fill" style="width:${pct}%;background:${barColor}"></div></div><div class="dg-meta"><span>${pct}% complete</span>`;
+      if(g.type==='saving'&&g.target_amount){
+        html+=`<span>KES ${(g.saved_amount||0).toLocaleString()} / ${g.target_amount.toLocaleString()}</span>`;
+      }
+      html+=`</div></div>`;
+    }
+    el.innerHTML=html;
+  }catch(e){
+    el.innerHTML='<div class="dash-empty">Could not load goals.</div>';
+  }
 }
 
 // ═══ TAGS ═══
@@ -1557,6 +1716,7 @@ let isRecording = false;
 let voiceTimerInterval = null;
 let voiceSeconds = 0;
 let preVoiceText = '';
+let confirmedText = '';  // All finalized speech so far
 
 function initVoice() {
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -1566,11 +1726,10 @@ function initVoice() {
     return;
   }
   recognition = new SR();
-  recognition.continuous = false;  // Process one phrase at a time
+  recognition.continuous = true;        // Keep listening — no gaps
   recognition.interimResults = true;
   recognition.lang = 'en-US';
-
-  let currentInterim = '';
+  recognition.maxAlternatives = 1;
 
   recognition.onresult = (e) => {
     let finalText = '';
@@ -1587,22 +1746,30 @@ function initVoice() {
 
     const ta = document.getElementById('jText');
 
-    // If we got a final result, append it permanently
     if (finalText) {
-      preVoiceText += (preVoiceText && !preVoiceText.endsWith(' ') ? ' ' : '') + finalText.trim();
-      ta.value = preVoiceText;
-      currentInterim = '';
-    } else {
-      // Show interim (temporary preview)
-      ta.value = preVoiceText + (preVoiceText ? ' ' : '') + interim;
+      // Append finalized text permanently
+      const spacer = confirmedText && !confirmedText.endsWith(' ') ? ' ' : '';
+      confirmedText += spacer + finalText.trim();
+      ta.value = preVoiceText + (preVoiceText && confirmedText ? ' ' : '') + confirmedText;
+    } else if (interim) {
+      // Show interim preview (not saved yet)
+      const base = preVoiceText + (preVoiceText && confirmedText ? ' ' : '') + confirmedText;
+      ta.value = base + (base && !base.endsWith(' ') ? ' ' : '') + interim;
     }
     updateCount();
   };
 
   recognition.onend = () => {
+    // Some mobile browsers force-stop continuous mode after ~60s
+    // Restart with a small delay to avoid rapid-fire failures
     if (isRecording) {
-      // Restart for next phrase
-      try { recognition.start(); } catch(e) {}
+      setTimeout(() => {
+        if (isRecording) {
+          try { recognition.start(); } catch(e) {
+            console.warn('Voice restart failed:', e);
+          }
+        }
+      }, 150);
     }
   };
 
@@ -1611,10 +1778,17 @@ function initVoice() {
       toast('🎙️ Microphone access denied. Check permissions.');
       stopVoice();
     } else if (e.error === 'no-speech') {
-      // Silence — just restart if still recording
+      // Silence timeout — restart if still recording
       if (isRecording) {
-        try { recognition.start(); } catch(ex) {}
+        setTimeout(() => {
+          if (isRecording) {
+            try { recognition.start(); } catch(ex) {}
+          }
+        }, 200);
       }
+    } else if (e.error === 'network') {
+      toast('🎙️ Network error — check your connection');
+      stopVoice();
     } else if (e.error !== 'aborted') {
       console.warn('Speech error:', e.error);
     }
@@ -1629,8 +1803,9 @@ function toggleVoice() {
 function startVoice() {
   if (!recognition) { toast('Voice not supported'); return; }
 
-  // Save existing text
+  // Save existing text and reset confirmed buffer
   preVoiceText = document.getElementById('jText').value;
+  confirmedText = '';
   isRecording = true;
   voiceSeconds = 0;
 
@@ -1650,8 +1825,8 @@ function startVoice() {
 
   try { recognition.start(); } catch(e) {}
 
-  // Auto-stop after 2 minutes
-  setTimeout(() => { if (isRecording) stopVoice(); }, 120000);
+  // Auto-stop after 3 minutes
+  setTimeout(() => { if (isRecording) stopVoice(); }, 180000);
 }
 
 function stopVoice() {
@@ -1666,8 +1841,11 @@ function stopVoice() {
   document.getElementById('voiceWave').style.display = 'none';
   document.getElementById('voiceTimer').style.display = 'none';
 
-  // Set final text
-  document.getElementById('jText').value = preVoiceText;
+  // KEEP the captured text — don't reset!
+  const ta = document.getElementById('jText');
+  if (confirmedText) {
+    ta.value = preVoiceText + (preVoiceText ? ' ' : '') + confirmedText;
+  }
   updateCount();
 
   if (voiceSeconds > 0) toast(`🎙️ ${voiceSeconds}s recorded`);

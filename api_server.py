@@ -466,6 +466,111 @@ def api_delete_note(user_id, note_id):
         return False
 
 
+
+# ══════════════════════════════════════════════
+# DASHBOARD API FUNCTIONS
+# ══════════════════════════════════════════════
+def api_get_dashboard_budget(user_id):
+    """Get budget dashboard data."""
+    db = _get_db()
+    if db is None:
+        return {"budget": None}
+    try:
+        now = datetime.now(EAT_ZONE)
+        month_str = now.strftime("%Y-%m")
+        from datetime import timedelta
+
+        # Monthly spending by category
+        pipeline = [
+            {"$match": {"user_id": str(user_id), "month_str": month_str}},
+            {"$group": {"_id": "$category", "total": {"$sum": "$amount"}, "count": {"$sum": 1}}},
+        ]
+        cat_results = list(db["budgets"].aggregate(pipeline))
+        by_category = {r["_id"]: round(r["total"], 2) for r in cat_results}
+        total_spent = round(sum(by_category.values()), 2)
+        total_count = sum(r["count"] for r in cat_results)
+
+        # Budget limit
+        limit_doc = db["budget_limits"].find_one({"user_id": str(user_id)})
+        budget_limit = limit_doc.get("limit", 0) if limit_doc else 0
+
+        # Income
+        income_pipeline = [
+            {"$match": {"user_id": str(user_id), "month_str": month_str}},
+            {"$group": {"_id": None, "total": {"$sum": "$amount"}, "count": {"$sum": 1}}},
+        ]
+        income_result = list(db["income"].aggregate(income_pipeline))
+        total_income = round(income_result[0]["total"], 2) if income_result else 0
+        effective_budget = total_income if total_income > 0 else budget_limit
+
+        # Daily spending trend (14 days)
+        cutoff = now - timedelta(days=14)
+        daily_pipeline = [
+            {"$match": {"user_id": str(user_id), "date": {"$gte": cutoff}}},
+            {"$group": {"_id": "$date_str", "total": {"$sum": "$amount"}}},
+            {"$sort": {"_id": 1}},
+        ]
+        daily_spending = [{"date": d["_id"], "total": round(d["total"], 2)} for d in db["budgets"].aggregate(daily_pipeline)]
+
+        return {"budget": {
+            "total_spent": total_spent, "transaction_count": total_count,
+            "budget_limit": budget_limit, "effective_budget": effective_budget,
+            "total_income": total_income,
+            "remaining": round(effective_budget - total_spent, 2) if effective_budget else 0,
+            "pct_used": round((total_spent / effective_budget) * 100, 1) if effective_budget > 0 else 0,
+            "by_category": by_category, "daily_spending": daily_spending,
+            "month": month_str, "day_of_month": now.day,
+        }}
+    except Exception as e:
+        logger.error(f"Dashboard budget error: {e}")
+        return {"budget": None}
+
+
+def api_get_dashboard_portfolio(user_id):
+    """Get portfolio dashboard data."""
+    db = _get_db()
+    if db is None:
+        return {"portfolio": [], "total_value": 0}
+    try:
+        holdings = list(db["portfolio"].find(
+            {"user_id": str(user_id)},
+            {"_id": 0, "symbol": 1, "quantity": 1, "buy_price": 1, "added_at": 1}
+        ))
+        total_value = 0
+        for h in holdings:
+            h["value"] = round(h.get("quantity", 0) * h.get("buy_price", 0), 2)
+            total_value += h["value"]
+            if isinstance(h.get("added_at"), datetime):
+                h["added_at"] = h["added_at"].isoformat()
+        return {"portfolio": holdings, "total_value": round(total_value, 2), "holding_count": len(holdings)}
+    except Exception as e:
+        logger.error(f"Dashboard portfolio error: {e}")
+        return {"portfolio": [], "total_value": 0, "holding_count": 0}
+
+
+def api_get_dashboard_goals(user_id):
+    """Get goals dashboard data."""
+    db = _get_db()
+    if db is None:
+        return {"goals": []}
+    try:
+        active = list(db["goals"].find(
+            {"user_id": str(user_id), "status": "active"},
+            {"_id": 0, "goal": 1, "progress": 1, "target": 1, "type": 1,
+             "target_amount": 1, "saved_amount": 1, "created_at": 1}
+        ))
+        for g in active:
+            if isinstance(g.get("created_at"), datetime):
+                g["created_at"] = g["created_at"].isoformat()
+            g.setdefault("progress", 0)
+            g.setdefault("target", 100)
+        completed_count = db["goals"].count_documents({"user_id": str(user_id), "status": "completed"})
+        return {"goals": active, "active_count": len(active), "completed_count": completed_count}
+    except Exception as e:
+        logger.error(f"Dashboard goals error: {e}")
+        return {"goals": [], "active_count": 0, "completed_count": 0}
+
+
 # ══════════════════════════════════════════════
 # HTTP API HANDLER
 # ══════════════════════════════════════════════
@@ -563,6 +668,19 @@ class EmilyAPIHandler(BaseHTTPRequestHandler):
             days = int(params.get("days", [7])[0])
             entries = api_get_sleep(user_id, days=days)
             self._send_json({"sleep": entries})
+
+        # ── DASHBOARD ENDPOINTS ──
+        elif path == "/api/dashboard/budget":
+            data = api_get_dashboard_budget(user_id)
+            self._send_json(data)
+
+        elif path == "/api/dashboard/portfolio":
+            data = api_get_dashboard_portfolio(user_id)
+            self._send_json(data)
+
+        elif path == "/api/dashboard/goals":
+            data = api_get_dashboard_goals(user_id)
+            self._send_json(data)
 
         else:
             self._send_error("Not found", 404)
