@@ -541,7 +541,7 @@ def api_get_dashboard_portfolio(user_id):
     if db is None:
         return {"portfolio": [], "total_value": 0}
     try:
-        holdings = list(db["portfolio"].find(
+        holdings = list(db["portfolios"].find(
             {"user_id": str(user_id)},
             {"_id": 0, "symbol": 1, "quantity": 1, "buy_price": 1, "added_at": 1}
         ))
