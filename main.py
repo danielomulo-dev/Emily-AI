@@ -1409,6 +1409,373 @@ IMPORTANT:
 
 
 # ══════════════════════════════════════════════
+# AI AGENT MODE (multi-step research & actions)
+# ══════════════════════════════════════════════
+
+AGENT_TOOLS = [
+    {
+        "name": "lookup_stock",
+        "description": "Get live stock price for NSE (Kenyan) or global stocks. Returns formatted price info.",
+        "input_schema": {
+            "type": "object",
+            "properties": {"symbol": {"type": "string", "description": "Stock ticker e.g. SCOM, EQTY, AAPL, NVDA"}},
+            "required": ["symbol"]
+        }
+    },
+    {
+        "name": "search_news",
+        "description": "Search for recent news articles on a topic. Returns headlines, sources, and snippets.",
+        "input_schema": {
+            "type": "object",
+            "properties": {"topic": {"type": "string", "description": "News topic to search"}},
+            "required": ["topic"]
+        }
+    },
+    {
+        "name": "web_search",
+        "description": "General web search for any information. Returns URLs and snippets.",
+        "input_schema": {
+            "type": "object",
+            "properties": {"query": {"type": "string", "description": "Search query"}},
+            "required": ["query"]
+        }
+    },
+    {
+        "name": "check_portfolio",
+        "description": "View the user's investment portfolio — their stock holdings, quantities, and buy prices.",
+        "input_schema": {"type": "object", "properties": {}}
+    },
+    {
+        "name": "check_budget",
+        "description": "View the user's monthly spending, budget limit, income, and spending by category.",
+        "input_schema": {"type": "object", "properties": {}}
+    },
+    {
+        "name": "check_goals",
+        "description": "View the user's active goals, progress, and saving goals.",
+        "input_schema": {"type": "object", "properties": {}}
+    },
+    {
+        "name": "check_journal",
+        "description": "View the user's recent journal entries and mood trend.",
+        "input_schema": {"type": "object", "properties": {}}
+    },
+    {
+        "name": "currency_convert",
+        "description": "Convert between currencies. Supports KES, USD, EUR, GBP, etc.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "amount": {"type": "number", "description": "Amount to convert"},
+                "from_currency": {"type": "string", "description": "Source currency code e.g. USD"},
+                "to_currency": {"type": "string", "description": "Target currency code e.g. KES"}
+            },
+            "required": ["amount", "from_currency", "to_currency"]
+        }
+    },
+    {
+        "name": "read_url",
+        "description": "Fetch and read the text content of a webpage. Useful for reading articles, reports, or documentation.",
+        "input_schema": {
+            "type": "object",
+            "properties": {"url": {"type": "string", "description": "Full URL to fetch"}},
+            "required": ["url"]
+        }
+    },
+    {
+        "name": "compare_loans",
+        "description": "Compare Kenyan bank/mobile loan options for a given amount and duration.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "amount": {"type": "number", "description": "Loan amount in KES"},
+                "months": {"type": "integer", "description": "Repayment period in months"}
+            },
+            "required": ["amount", "months"]
+        }
+    },
+    {
+        "name": "reddit_buzz",
+        "description": "Check Reddit for investment discussions, stock mentions, or trending topics.",
+        "input_schema": {
+            "type": "object",
+            "properties": {"topic": {"type": "string", "description": "Stock ticker or investment topic to search Reddit for"}},
+            "required": ["topic"]
+        }
+    },
+]
+
+
+def _execute_agent_tool(tool_name, tool_input, user_id):
+    """Execute a single agent tool and return the result as a string."""
+    try:
+        if tool_name == "lookup_stock":
+            result = get_stock_price(tool_input.get("symbol", ""))
+            return result or "No data found."
+
+        elif tool_name == "search_news":
+            articles, _ = get_news_raw(tool_input.get("topic", ""), max_results=5)
+            if not articles:
+                return "No recent news found."
+            lines = []
+            for a in articles[:5]:
+                lines.append(f"- {a.get('title', '')} ({a.get('source', '')}): {a.get('snippet', '')[:100]}")
+            return "\n".join(lines)
+
+        elif tool_name == "web_search":
+            from web_tools import _google_web_search, _ddg_web_search, _google_configured
+            query = tool_input.get("query", "")
+            if _google_configured():
+                urls = _google_web_search(query, max_results=5)
+            else:
+                urls = _ddg_web_search(query, max_results=5)
+            if not urls:
+                return "No results found."
+            # Try to extract text from first result
+            snippets = []
+            for url in urls[:3]:
+                text = extract_text_from_url(url, max_chars=500)
+                if text:
+                    snippets.append(f"- {url}: {text[:200]}")
+                else:
+                    snippets.append(f"- {url}")
+            return "\n".join(snippets)
+
+        elif tool_name == "check_portfolio":
+            portfolio = get_portfolio(user_id)
+            if not portfolio:
+                return "No portfolio holdings found."
+            lines = []
+            total = 0
+            for h in portfolio:
+                sym = h.get("symbol", "?")
+                qty = h.get("quantity", 0)
+                price = h.get("buy_price", 0)
+                value = qty * price
+                total += value
+                lines.append(f"- {sym}: {qty} shares @ KES {price:,.2f} (value: KES {value:,.0f})")
+            lines.append(f"Total portfolio cost basis: KES {total:,.0f}")
+            return "\n".join(lines)
+
+        elif tool_name == "check_budget":
+            month_str = datetime.now(pytz.timezone('Africa/Nairobi')).strftime("%Y-%m")
+            monthly = get_monthly_spending(user_id, month_str)
+            effective = get_effective_budget(user_id)
+            income = get_monthly_income(user_id, month_str)
+            if not monthly or monthly["total"] == 0:
+                return "No spending data this month."
+            result = f"Monthly spending: KES {monthly['total']:,.0f} ({monthly['count']} transactions)\n"
+            if effective:
+                remaining = effective - monthly["total"]
+                pct = (monthly["total"] / effective) * 100
+                result += f"Budget: KES {effective:,.0f} — {pct:.0f}% used, KES {remaining:,.0f} remaining\n"
+            cats = monthly.get("by_category", {})
+            if cats:
+                sorted_cats = sorted(cats.items(), key=lambda x: -x[1])
+                result += "By category: " + ", ".join(f"{c}: KES {a:,.0f}" for c, a in sorted_cats[:6])
+            if income and income.get("total", 0) > 0:
+                result += f"\nIncome this month: KES {income['total']:,.0f}"
+            return result
+
+        elif tool_name == "check_goals":
+            goals = get_active_goals(user_id)
+            if not goals:
+                return "No active goals."
+            lines = []
+            for g in goals:
+                progress = g.get("progress", 0)
+                lines.append(f"- {g.get('goal', 'Goal')}: {progress}% complete")
+                if g.get("type") == "saving":
+                    saved = g.get("saved_amount", 0)
+                    target = g.get("target_amount", 0)
+                    lines.append(f"  Saved: KES {saved:,.0f} / {target:,.0f}")
+            return "\n".join(lines)
+
+        elif tool_name == "check_journal":
+            entries = get_journal_entries(user_id, days=7, limit=7)
+            if not entries:
+                return "No journal entries this week."
+            mood_scores = [e.get("mood_score", 3) for e in entries]
+            avg = round(sum(mood_scores) / len(mood_scores), 1)
+            lines = [f"This week: {len(entries)} entries, avg mood: {avg}/5"]
+            for e in entries[:5]:
+                src = e.get("source", "discord")
+                lines.append(f"- {e.get('date_str', '')} ({e.get('mood_label', '')}): {(e.get('text', '') or '')[:60]}")
+            return "\n".join(lines)
+
+        elif tool_name == "currency_convert":
+            result = convert_currency(
+                tool_input.get("amount", 0),
+                tool_input.get("from_currency", "USD"),
+                tool_input.get("to_currency", "KES")
+            )
+            if result:
+                return format_currency_result(result)
+            return "Conversion failed."
+
+        elif tool_name == "read_url":
+            url = tool_input.get("url", "")
+            if not url:
+                return "No URL provided."
+            text = extract_text_from_url(url, max_chars=1500)
+            return text if text else "Couldn't read that URL."
+
+        elif tool_name == "compare_loans":
+            amount = tool_input.get("amount", 100000)
+            months = tool_input.get("months", 12)
+            results = compare_lenders(amount, months)
+            if results:
+                return format_comparison(results, amount, months)
+            return "Loan comparison failed."
+
+        elif tool_name == "reddit_buzz":
+            topic = tool_input.get("topic", "")
+            if not reddit_configured():
+                return "Reddit not configured."
+            posts = get_investment_buzz(topic) if topic else []
+            if not posts:
+                posts = search_reddit(topic, max_results=5) if topic else []
+            if not posts:
+                return f"No Reddit discussion found for '{topic}'."
+            return format_reddit_posts(posts)[:1500]
+
+        else:
+            return f"Unknown tool: {tool_name}"
+
+    except Exception as e:
+        logger.error(f"Agent tool error ({tool_name}): {e}")
+        return f"Error executing {tool_name}: {str(e)[:100]}"
+
+
+async def run_agent(user_query, user_id, progress_channel=None):
+    """Run Emily's AI agent — multi-step research and action loop.
+    
+    progress_channel: if provided, sends status updates as tools execute.
+    Returns the final response text.
+    """
+    eat_zone = pytz.timezone('Africa/Nairobi')
+    current_time = datetime.now(eat_zone).strftime("%A, %d %B %Y, %I:%M %p EAT")
+
+    profile = get_user_profile(user_id)
+    safe_facts = [_sanitize_fact(f) for f in profile.get("facts", [])]
+    facts_str = "\n- ".join(safe_facts) if safe_facts else "New user."
+
+    system_prompt = (
+        f"{EMILY_MINI_PERSONA}\n\n"
+        f"Current time: {current_time}\n"
+        f"User info: {facts_str}\n\n"
+        f"You are in AGENT MODE. You can use multiple tools to research and answer complex questions.\n"
+        f"Think step by step:\n"
+        f"1. Break down what info you need\n"
+        f"2. Call the right tools to gather data\n"
+        f"3. Synthesize everything into a clear, opinionated answer\n\n"
+        f"Be thorough but concise. Give specific recommendations with reasons.\n"
+        f"You're on Discord — use markdown formatting, not HTML."
+    )
+
+    tool_labels = {
+        "lookup_stock": "📈 Checking stock price",
+        "search_news": "📰 Searching news",
+        "web_search": "🔍 Searching the web",
+        "check_portfolio": "💼 Reviewing your portfolio",
+        "check_budget": "💰 Checking your budget",
+        "check_goals": "🎯 Looking at your goals",
+        "check_journal": "📓 Reading your journal",
+        "currency_convert": "💱 Converting currency",
+        "read_url": "🌐 Reading webpage",
+        "compare_loans": "🏦 Comparing loan options",
+        "reddit_buzz": "📊 Checking Reddit buzz",
+    }
+
+    messages = [{"role": "user", "content": user_query}]
+
+    max_rounds = 5
+    for round_num in range(max_rounds):
+        try:
+            response = await asyncio.wait_for(
+                claude_client.messages.create(
+                    model=MODEL_CLAUDE,
+                    max_tokens=1500,
+                    system=system_prompt,
+                    messages=messages,
+                    tools=AGENT_TOOLS,
+                ),
+                timeout=45,
+            )
+        except asyncio.TimeoutError:
+            return "Agent timed out — try a simpler question?"
+        except Exception as e:
+            logger.error(f"Agent Claude error: {e}")
+            return "Agent hit an error. Try again?"
+
+        # Check if Claude wants to use tools
+        tool_calls = [b for b in response.content if b.type == "tool_use"]
+        text_blocks = [b.text for b in response.content if b.type == "text" and b.text.strip()]
+
+        if not tool_calls:
+            # No more tool calls — return the final answer
+            return "\n".join(text_blocks) if text_blocks else "I couldn't find a good answer for that."
+
+        # Send progress update
+        if progress_channel:
+            tools_str = ", ".join(tool_labels.get(tc.name, tc.name) for tc in tool_calls)
+            try:
+                await progress_channel.send(f"⏳ *Step {round_num + 1}: {tools_str}...*")
+            except Exception:
+                pass
+
+        # Execute each tool call
+        messages.append({"role": "assistant", "content": response.content})
+
+        tool_results = []
+        for tc in tool_calls:
+            logger.info(f"🤖 Agent tool: {tc.name}({tc.input})")
+            result = await asyncio.to_thread(
+                _execute_agent_tool, tc.name, tc.input, user_id
+            )
+            tool_results.append({
+                "type": "tool_result",
+                "tool_use_id": tc.id,
+                "content": result[:2000],  # Cap tool results
+            })
+            await asyncio.sleep(0.5)  # Don't hammer APIs
+
+        messages.append({"role": "user", "content": tool_results})
+        logger.info(f"🤖 Agent round {round_num + 1}: {len(tool_calls)} tools called")
+
+    # If we hit max rounds, get whatever Claude has so far
+    return "I gathered a lot of data but couldn't finish the analysis. Try breaking your question into smaller parts?"
+
+
+def _is_agent_query(text):
+    """Detect if a message needs multi-step agent processing."""
+    text_lower = text.lower()
+    # Explicit trigger
+    if text_lower.startswith(("emily research", "emily analyze", "emily investigate", "emily deep dive", "emily agent", "agent:")):
+        return True
+    # Multi-step patterns
+    agent_patterns = [
+        r'research\s+\w+\s+and\s+(?:tell|let|give|show)',
+        r'(?:should\s+i|is\s+it\s+worth)\s+(?:buy|sell|invest)',
+        r'analyze\s+(?:my|the)\s+(?:portfolio|spending|budget|finances)',
+        r'compare\s+(?:my|the)\s+.+(?:and|vs|versus|with)',
+        r'(?:full|deep|detailed)\s+(?:analysis|review|breakdown)\s+(?:of|on)',
+        r'(?:what\s+should\s+i\s+do\s+(?:about|with))\s+(?:my\s+)?(?:money|savings|portfolio|investments|budget)',
+        r'give\s+me\s+(?:a\s+)?(?:full|complete|detailed)\s+(?:report|summary|overview)',
+        r'how\s+(?:is|are)\s+my\s+(?:finances|investments|portfolio|stocks|goals)\s+doing',
+        r'(?:review|audit|check)\s+my\s+(?:finances|budget|spending|portfolio|goals)',
+        r'(?:research|look into|investigate|dig into)\s+(?:whether|if)\s+',
+        r'(?:help me decide|help me figure out)\s+(?:whether|if|what)',
+        r'what.+(?:best|cheapest|most affordable)\s+(?:loan|bank|lender|investment)',
+        r'plan\s+(?:my|a)\s+(?:budget|investment|savings)\s+(?:strategy|plan)',
+    ]
+    for pattern in agent_patterns:
+        if re.search(pattern, text_lower):
+            return True
+    return False
+
+
+# ══════════════════════════════════════════════
 # DISCORD BOT
 # ══════════════════════════════════════════════
 intents = discord.Intents.default()
@@ -3507,6 +3874,8 @@ async def cmd_help(ctx):
 **🐦 Twitter:** `!tweet <text>` · `!emilytweet <topic>`
 
 **💻 Code:** `!review <code or file>` · `!explain <code or file>`
+
+**🤖 Agent:** `!agent <complex question>` — multi-step research with live data
 
 **🔔 Alerts:** `!setalert 5` · `!stopalert`
 
@@ -5892,6 +6261,31 @@ async def cmd_explain(ctx, *, code: str = ""):
 
 
 # ══════════════════════════════════════════════
+# AI AGENT COMMAND
+# ══════════════════════════════════════════════
+@bot.command(name="agent")
+async def cmd_agent(ctx, *, query: str = ""):
+    """Run Emily's AI agent for multi-step research. Usage: !agent should I buy Safaricom?"""
+    if not query:
+        await ctx.reply(
+            "🤖 **Agent Mode** — I can research complex questions by chaining multiple tools.\n\n"
+            "**Examples:**\n"
+            "`!agent should I buy Safaricom?`\n"
+            "`!agent analyze my portfolio and suggest changes`\n"
+            "`!agent compare my spending to my goals`\n"
+            "`!agent research Tesla and tell me the risks`\n"
+            "`!agent give me a full financial health check`"
+        )
+        return
+
+    user_id = str(ctx.author.id)
+    async with ctx.typing():
+        await ctx.reply("🤖 **Agent mode activated** — researching...\n_This may take a moment while I gather data._")
+        result = await run_agent(query, user_id, ctx.channel)
+        await send_chunked_reply(ctx.message, f"🤖 **Agent Report:**\n\n{result}")
+
+
+# ══════════════════════════════════════════════
 # WATCHPARTY SMS NOTIFICATIONS
 # ══════════════════════════════════════════════
 @bot.command(name="addphone")
@@ -7030,6 +7424,25 @@ async def on_message(message):
                         pre_media_url = await asyncio.to_thread(get_media_link, search_term, False)
                         pre_media_type = "image"
                         logger.info(f"Pre-detected image request: '{search_term}' -> {pre_media_url}")
+
+            # ─── AGENT MODE AUTO-DETECT ───
+            if clean_msg and _is_agent_query(clean_msg):
+                logger.info(f"🤖 Agent mode triggered for {user_id}: {clean_msg[:50]}")
+                await message.reply("🤖 **Agent mode** — let me research that...\n_Gathering data from multiple sources._")
+                agent_result = ""
+                try:
+                    agent_result = await asyncio.wait_for(run_agent(clean_msg, user_id, message.channel), timeout=120)
+                    await send_chunked_reply(message, f"🤖 **Agent Report:**\n\n{agent_result}")
+                except asyncio.TimeoutError:
+                    agent_result = "Timed out"
+                    await message.reply("Agent timed out — try a simpler question?")
+                except Exception as e:
+                    agent_result = f"Error: {e}"
+                    logger.error(f"Agent error: {e}")
+                    await message.reply("Agent hit an error. Try again or use `!agent <question>`")
+                add_message_to_history(user_id, "user", [{"text": clean_msg}])
+                add_message_to_history(user_id, "model", [{"text": agent_result[:500]}])
+                return
 
             # ─── HIVE MIND ROUTING ───
             chosen_model, route_reason = _route_to_model(
