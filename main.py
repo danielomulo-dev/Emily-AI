@@ -101,7 +101,7 @@ from twitter_tools import (
     is_film_tweet_day, get_film_tweet_time, get_film_tweet_prompt,
 )
 from messaging_tools import (
-    send_sms, send_sms_batch, send_whatsapp,
+    send_sms, send_sms_batch, send_whatsapp, wa_configured,
     add_contact, remove_contact, remove_contact_by_name,
     get_contacts, format_contacts,
     is_configured as messaging_configured,
@@ -1474,13 +1474,23 @@ async def daily_news_briefing():
         servers = get_news_servers()
         for server in servers:
             news_time = server.get("news_time", "07:00")
-            if current_time != news_time:
-                continue
 
             # Check if already posted today
             last_posted = server.get("last_news_date", "")
             today = now.strftime("%Y-%m-%d")
             if last_posted == today:
+                continue
+
+            # Post if we're past the scheduled time (within a 60-min window)
+            # This handles bot restarts, missed minutes, and slow loops
+            try:
+                target_h, target_m = map(int, news_time.split(":"))
+                now_minutes = now.hour * 60 + now.minute
+                target_minutes = target_h * 60 + target_m
+                # Post if we're 0-60 minutes past the target time
+                if now_minutes < target_minutes or now_minutes > target_minutes + 60:
+                    continue
+            except (ValueError, AttributeError):
                 continue
 
             channel_id = server.get("news_channel_id")
@@ -1589,13 +1599,21 @@ async def weekend_movie_suggestion():
         tweeted_movie = False
         for server in servers:
             suggest_time = server.get("suggest_time", "19:00")
-            if current_time != suggest_time:
-                continue
 
             # Check if already suggested today
             last_date = server.get("last_suggestion_date", "")
             today = now.strftime("%Y-%m-%d")
             if last_date == today:
+                continue
+
+            # Post if we're past the scheduled time (within a 60-min window)
+            try:
+                target_h, target_m = map(int, suggest_time.split(":"))
+                now_minutes = now.hour * 60 + now.minute
+                target_minutes = target_h * 60 + target_m
+                if now_minutes < target_minutes or now_minutes > target_minutes + 60:
+                    continue
+            except (ValueError, AttributeError):
                 continue
 
             channel_id = server.get("channel_id")
@@ -3015,7 +3033,7 @@ async def cmd_help(ctx):
 
 **🔔 Alerts:** `!setalert 5` · `!stopalert`
 
-**📱 SMS:** `!addphone <n> <num>` · `!removephone <n>` · `!contacts` · `!notifywp movie | time | location`
+**📱 SMS/WhatsApp:** `!addphone <n> <num>` · `!removephone <n>` · `!contacts` · `!notifywp movie | time | location` · `!notifywa movie | time | location`
 
 **📝 To-Do:** `!todo <task>` · `!todos` · `!done 1` · `!deltodo 1` · `!cleartodos`
 
@@ -5560,6 +5578,123 @@ async def cmd_notifywp(ctx, *, details: str = ""):
 
         await ctx.reply(report)
 
+
+@bot.command(name="notifywa")
+async def cmd_notifywa(ctx, *, details: str = ""):
+    """Send watch party WhatsApp to all contacts.
+    Usage: !notifywa Inception | Friday 8pm | Daniel's place
+           !notifywa Inception | Saturday 3pm
+           !notifywa Inception
+    """
+    if not ctx.guild:
+        await ctx.reply("This only works in a server!")
+        return
+
+    if not wa_configured():
+        await ctx.reply("WhatsApp isn't set up yet. Add `WA_PHONE_NUMBER_ID` and `WA_ACCESS_TOKEN` to env.\nSee: https://developers.facebook.com/apps")
+        return
+
+    bot_owner = os.getenv("BOT_OWNER_ID")
+    if bot_owner and str(ctx.author.id) != bot_owner:
+        if not ctx.author.guild_permissions.manage_guild:
+            await ctx.reply("You need **Manage Server** permission to send notifications!")
+            return
+
+    contacts = get_contacts(str(ctx.guild.id))
+    if not contacts:
+        await ctx.reply("No contacts saved! Add some first with `!addphone <n> <number>`")
+        return
+
+    # Parse: movie title | time | location (pipe-separated)
+    parts = [p.strip() for p in details.split("|")]
+    wp_title = parts[0] if len(parts) >= 1 and parts[0] else ""
+    wp_time = parts[1] if len(parts) >= 2 and parts[1] else ""
+    wp_location = parts[2] if len(parts) >= 3 and parts[2] else ""
+
+    # Fallback: check scheduled watch party
+    if not wp_title:
+        next_party = get_next_watchparty(str(ctx.guild.id))
+        if next_party:
+            wp_title = next_party.get("title", "")
+            party_time = next_party.get("time")
+            if party_time and not wp_time:
+                wp_time = party_time.strftime("%A, %b %d at %I:%M %p")
+
+    if not wp_title:
+        await ctx.reply("What movie? Try:\n`!notifywa Inception | Friday 8pm | Dan's place`\n`!notifywa Inception | Saturday 3pm`\n`!notifywa Inception`")
+        return
+
+    async with ctx.typing():
+        # Generate unique messages using Claude
+        async def generate_unique_message(name):
+            try:
+                time_bit = f" on {wp_time}" if wp_time else ""
+                location_bit = f" at {wp_location}" if wp_location else ""
+                response = await asyncio.wait_for(
+                    claude_client.messages.create(
+                        model=MODEL_CLAUDE,
+                        max_tokens=200,
+                        messages=[{"role": "user", "content": (
+                            f"{EMILY_MINI_PERSONA} Write a short, fun WhatsApp message (max 200 chars) to {name} "
+                            f"about an upcoming watch party for '{wp_title}'"
+                            f"{time_bit}{location_bit}. "
+                            f"Include the movie title{', time' if wp_time else ''}"
+                            f"{', and location' if wp_location else ''} naturally in the message. "
+                            f"Make it personal and unique — like you're texting a friend on WhatsApp. "
+                            f"You can use 1-2 emojis. Don't include links. Just the message text, nothing else."
+                        )}],
+                    ),
+                    timeout=15,
+                )
+                msg = ""
+                for block in response.content:
+                    if block.type == "text":
+                        msg += block.text
+                return msg.strip().strip('"')
+            except Exception:
+                msg_parts = [f"Hey {name}! 🍿 Watch party alert — we're watching *{wp_title}*!"]
+                if wp_time:
+                    msg_parts.append(f"Time: {wp_time}.")
+                if wp_location:
+                    msg_parts.append(f"Location: {wp_location}.")
+                msg_parts.append("Don't miss it!")
+                return " ".join(msg_parts)
+
+        # Send to each contact
+        results = {"sent": 0, "failed": 0, "errors": []}
+
+        for contact in contacts:
+            name = contact.get("name", "Friend")
+            phone = contact.get("phone", "")
+
+            if not phone:
+                results["failed"] += 1
+                continue
+
+            personal_msg = await generate_unique_message(name)
+
+            success, detail = await asyncio.to_thread(send_whatsapp, phone, personal_msg)
+            if success:
+                results["sent"] += 1
+            else:
+                results["failed"] += 1
+                results["errors"].append(f"{name}: {detail}")
+
+            await asyncio.sleep(1)
+
+        # Report results
+        report = f"📱 **Watch Party WhatsApp Sent!**\n\n"
+        report += f"**Movie:** {wp_title}\n"
+        if wp_time:
+            report += f"**Time:** {wp_time}\n"
+        if wp_location:
+            report += f"**Location:** {wp_location}\n"
+        report += f"\n✅ Sent: {results['sent']} | ❌ Failed: {results['failed']}"
+
+        if results["errors"]:
+            report += f"\n\n**Errors:**\n" + "\n".join(f"• {e}" for e in results["errors"][:5])
+
+        await ctx.reply(report)
 
 
 # ══════════════════════════════════════════════
