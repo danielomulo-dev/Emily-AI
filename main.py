@@ -305,6 +305,13 @@ RESPONSE LENGTH:
 - Advice/analysis: 2-4 paragraphs. Be thorough but not a lecture.
 - Never pad responses with filler. If the answer is short, keep it short.
 
+FORMATTING — CRITICAL:
+- You are chatting on Discord. Discord uses MARKDOWN, not HTML.
+- NEVER output raw HTML, CSS, or code blocks for design suggestions. Discord cannot render them.
+- For design feedback: describe changes in plain text with Discord markdown (**bold**, *italic*, `code`).
+- If someone asks you to redesign something, describe the layout, colors, and changes in words.
+- Use bullet points and clear sections, not code.
+
 ═══════════════════════════════════════
 TOOL TAGS:
 ═══════════════════════════════════════
@@ -1411,6 +1418,8 @@ async def on_ready():
         nightly_scripture.start()
     if not weekly_journal_digest.is_running():
         weekly_journal_digest.start()
+    if not weekly_dm_report.is_running():
+        weekly_dm_report.start()
     if not weekly_playlist_recs.is_running():
         weekly_playlist_recs.start()
 
@@ -2851,6 +2860,222 @@ async def weekly_journal_digest():
 
 @weekly_journal_digest.before_loop
 async def before_weekly_digest():
+    await bot.wait_until_ready()
+
+
+# ══════════════════════════════════════════════
+# WEEKLY PERSONAL DM REPORT (Sunday morning)
+# ══════════════════════════════════════════════
+@tasks.loop(minutes=1)
+async def weekly_dm_report():
+    """Send comprehensive weekly report to each user via DM — Sunday 10AM EAT."""
+    try:
+        now = datetime.now(pytz.timezone('Africa/Nairobi'))
+
+        # Sunday only
+        if now.weekday() != 6:
+            return
+
+        # 10:00-11:00 AM window
+        now_minutes = now.hour * 60 + now.minute
+        if now_minutes < 600 or now_minutes > 660:
+            return
+
+        if not hasattr(weekly_dm_report, '_db'):
+            import certifi
+            from pymongo import MongoClient as _MC
+            _client = _MC(os.getenv("MONGO_URI"), tlsCAFile=certifi.where(), serverSelectionTimeoutMS=10000)
+            weekly_dm_report._db = _client["emily_brain_db"]
+
+        db = weekly_dm_report._db
+        week_ago = now - timedelta(days=7)
+        month_str = now.strftime("%Y-%m")
+        today = now.strftime("%Y-%m-%d")
+        week_key = now.strftime("%Y-%W")
+
+        # Check if already ran this week
+        already = db["dm_report_log"].find_one({"week": week_key, "type": "weekly_dm_report"})
+        if already:
+            return
+
+        # Find all active users: anyone who logged expenses, journal, or has goals
+        user_ids = set()
+        user_ids.update(db["budgets"].distinct("user_id", {"month_str": month_str}))
+        user_ids.update(db["journal"].distinct("user_id", {"date": {"$gte": week_ago}}))
+        user_ids.update(db["goals"].distinct("user_id", {"status": "active"}))
+
+        if not user_ids:
+            db["dm_report_log"].insert_one({"week": week_key, "type": "weekly_dm_report", "sent_at": now})
+            return
+
+        for user_id in user_ids:
+            try:
+                # ── Gather all data ──
+                sections = []
+
+                # 1. BUDGET
+                monthly = get_monthly_spending(user_id, month_str)
+                income_data = get_monthly_income(user_id, month_str)
+                effective = get_effective_budget(user_id)
+
+                if monthly and monthly["total"] > 0:
+                    budget_section = f"💰 **Budget**\n"
+                    budget_section += f"Spent: **KES {monthly['total']:,.0f}** ({monthly['count']} transactions)\n"
+                    if effective:
+                        remaining = effective - monthly['total']
+                        pct = (monthly['total'] / effective) * 100
+                        budget_section += f"Budget: KES {effective:,.0f} — **{pct:.0f}% used** (KES {remaining:,.0f} left)\n"
+                    # Top categories
+                    cats = monthly.get("by_category", {})
+                    if cats:
+                        sorted_cats = sorted(cats.items(), key=lambda x: -x[1])[:4]
+                        cat_str = " · ".join([f"{c}: KES {a:,.0f}" for c, a in sorted_cats])
+                        budget_section += f"Top: {cat_str}\n"
+                    if income_data and income_data.get("total", 0) > 0:
+                        budget_section += f"Income this month: **KES {income_data['total']:,.0f}**\n"
+                    sections.append(budget_section)
+
+                # 2. PORTFOLIO
+                portfolio = get_portfolio(user_id)
+                if portfolio:
+                    port_section = f"📈 **Portfolio**\n"
+                    total_value = 0
+                    holdings = []
+                    for h in portfolio[:6]:
+                        symbol = h.get("symbol", "?")
+                        qty = h.get("quantity", 0)
+                        buy_price = h.get("buy_price", 0)
+                        value = qty * buy_price
+                        total_value += value
+                        holdings.append(f"{symbol} ({qty} @ {buy_price})")
+                    port_section += f"Holdings: {', '.join(holdings)}\n"
+                    port_section += f"Total cost basis: **KES {total_value:,.0f}**\n"
+                    sections.append(port_section)
+
+                # 3. JOURNAL & MOOD
+                entries = list(db["journal"].find({
+                    "user_id": user_id,
+                    "date": {"$gte": week_ago}
+                }).sort("date", -1))
+
+                if entries:
+                    mood_scores = [e.get("mood_score", 3) for e in entries]
+                    avg_mood = round(sum(mood_scores) / len(mood_scores), 1)
+                    mood_emojis = {1: "😢", 2: "😔", 3: "😐", 4: "😊", 5: "🤩"}
+                    avg_emoji = mood_emojis.get(round(avg_mood), "😐")
+
+                    journal_section = f"📓 **Journal**\n"
+                    journal_section += f"Entries: **{len(entries)}** this week\n"
+                    journal_section += f"Avg mood: **{avg_emoji} {avg_mood}/5**\n"
+
+                    # Mood mini-chart
+                    mood_dist = {}
+                    for ms in mood_scores:
+                        mood_dist[ms] = mood_dist.get(ms, 0) + 1
+                    chart_parts = []
+                    for score in [5, 4, 3, 2, 1]:
+                        c = mood_dist.get(score, 0)
+                        if c > 0:
+                            chart_parts.append(f"{mood_emojis[score]}{'█' * c}")
+                    if chart_parts:
+                        journal_section += " ".join(chart_parts) + "\n"
+
+                    sections.append(journal_section)
+
+                # 4. GOALS
+                goals = get_active_goals(user_id)
+                if goals:
+                    goals_section = f"🎯 **Active Goals**\n"
+                    for g in goals[:5]:
+                        progress = g.get("progress", 0)
+                        target = g.get("target", 100)
+                        pct = min(100, int((progress / target) * 100)) if target > 0 else 0
+                        bar = "▓" * (pct // 10) + "░" * (10 - pct // 10)
+                        goals_section += f"{bar} {pct}% — {g.get('title', 'Goal')}\n"
+
+                        # Saving goals
+                        if g.get("type") == "saving":
+                            saved = g.get("saved_amount", 0)
+                            target_amt = g.get("target_amount", 0)
+                            if target_amt:
+                                goals_section += f"  💵 KES {saved:,.0f} / {target_amt:,.0f} saved\n"
+                    sections.append(goals_section)
+
+                # 5. SLEEP (if tracked)
+                sleep_entries = list(db["sleep"].find({
+                    "user_id": user_id, "date": {"$gte": week_ago}
+                }))
+                if sleep_entries:
+                    avg_sleep = round(sum(s.get("hours", 0) for s in sleep_entries) / len(sleep_entries), 1)
+                    avg_quality = round(sum(s.get("quality", 3) for s in sleep_entries) / len(sleep_entries), 1)
+                    sleep_emojis = {1: "😫", 2: "😪", 3: "😐", 4: "😊", 5: "😴"}
+                    sleep_section = f"😴 **Sleep:** avg **{avg_sleep}hrs** · quality **{sleep_emojis.get(round(avg_quality), '😐')} {avg_quality}/5**\n"
+                    sections.append(sleep_section)
+
+                # Skip users with no data at all
+                if not sections:
+                    continue
+
+                # ── AI Commentary ──
+                data_summary = "\n".join(sections)
+                try:
+                    response = await asyncio.wait_for(
+                        claude_client.messages.create(
+                            model=MODEL_CLAUDE,
+                            max_tokens=300,
+                            messages=[{"role": "user", "content": (
+                                f"{EMILY_MINI_PERSONA}\n\n"
+                                f"You're sending a Sunday morning weekly report DM. Here's their data:\n\n"
+                                f"{data_summary}\n\n"
+                                f"Write 2-3 sentences: highlight one win, one area to watch, "
+                                f"and a motivational nudge for the week ahead. "
+                                f"Keep it warm, short, personal. Kenyan style."
+                            )}],
+                        ),
+                        timeout=20,
+                    )
+                    ai_note = ""
+                    for block in response.content:
+                        if block.type == "text":
+                            ai_note += block.text
+                    ai_note = ai_note.strip()
+                except Exception:
+                    ai_note = "New week, fresh start! Let's get it, manze. 💪"
+
+                # ── Build final report ──
+                report = f"📊 **Your Weekly Report** — *{week_ago.strftime('%b %d')} to {now.strftime('%b %d')}*\n\n"
+                report += "\n".join(sections)
+                report += f"\n**Emily says:** *{ai_note}*\n"
+                report += f"\n_Happy Sunday! 🌟_"
+
+                # ── Send DM ──
+                try:
+                    for guild in bot.guilds:
+                        member = guild.get_member(int(user_id))
+                        if member:
+                            dm = await member.create_dm()
+                            await dm.send(report)
+                            logger.info(f"Weekly DM report sent to {user_id}")
+                            break
+                except discord.Forbidden:
+                    logger.warning(f"Cannot DM user {user_id} — DMs disabled")
+                except Exception as e:
+                    logger.warning(f"Weekly DM report failed for {user_id}: {e}")
+
+                await asyncio.sleep(2)  # Don't spam Discord API
+
+            except Exception as e:
+                logger.error(f"Weekly report error for user {user_id}: {e}")
+
+        # Mark as done for the week
+        db["dm_report_log"].insert_one({"week": week_key, "type": "weekly_dm_report", "sent_at": now})
+        logger.info(f"Weekly DM reports complete — {len(user_ids)} users processed")
+
+    except Exception as e:
+        logger.error(f"Weekly DM report task error: {e}")
+
+@weekly_dm_report.before_loop
+async def before_dm_report():
     await bot.wait_until_ready()
 
 
