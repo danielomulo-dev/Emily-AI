@@ -1404,6 +1404,8 @@ async def on_ready():
         daily_birthday_check.start()
     if not accountability_check.is_running():
         accountability_check.start()
+    if not smart_nudges.is_running():
+        smart_nudges.start()
     if not daily_learning.is_running():
         daily_learning.start()
     if not weekly_finance_coaching.is_running():
@@ -2049,6 +2051,223 @@ async def accountability_check():
 
 @accountability_check.before_loop
 async def before_accountability():
+    await bot.wait_until_ready()
+
+
+# ══════════════════════════════════════════════
+# SMART PROACTIVE NUDGES (daily at 8PM EAT)
+# ══════════════════════════════════════════════
+@tasks.loop(minutes=1)
+async def smart_nudges():
+    """Proactively DM users about patterns Emily notices — daily at 8PM EAT."""
+    try:
+        now = datetime.now(pytz.timezone('Africa/Nairobi'))
+
+        # 8PM window (20:00-21:00)
+        now_minutes = now.hour * 60 + now.minute
+        if now_minutes < 1200 or now_minutes > 1260:
+            return
+
+        if not hasattr(smart_nudges, '_db'):
+            import certifi
+            from pymongo import MongoClient as _MC
+            _client = _MC(os.getenv("MONGO_URI"), tlsCAFile=certifi.where(), serverSelectionTimeoutMS=10000)
+            smart_nudges._db = _client["emily_brain_db"]
+
+        db = smart_nudges._db
+        today = now.strftime("%Y-%m-%d")
+
+        # Check if already ran today
+        already = db["nudge_log"].find_one({"date": today, "type": "daily_nudge_run"})
+        if already:
+            return
+
+        month_str = now.strftime("%Y-%m")
+
+        # Find all potentially active users
+        user_ids = set()
+        week_ago = now - timedelta(days=7)
+        user_ids.update(db["budgets"].distinct("user_id", {"month_str": month_str}))
+        user_ids.update(db["journal"].distinct("user_id", {"date": {"$gte": week_ago}}))
+        user_ids.update(db["goals"].distinct("user_id", {"status": "active"}))
+
+        for user_id in user_ids:
+            try:
+                nudges = []
+
+                # ── CHECK 1: Journal streak broken (3+ days) ──
+                last_entry = db["journal"].find_one(
+                    {"user_id": user_id},
+                    sort=[("date", -1)]
+                )
+                if last_entry and last_entry.get("date"):
+                    days_since = (now - last_entry["date"]).days
+                    if days_since >= 3 and not _nudged_recently(db, user_id, "journal_streak", 3):
+                        nudges.append({
+                            "type": "journal_streak",
+                            "msg": random.choice([
+                                f"Hey! It's been **{days_since} days** since your last journal entry. Even a one-liner counts — how was today? 📝",
+                                f"Manze, {days_since} days without journaling? Your future self wants to know what happened this week! ✍️",
+                                f"Your journal misses you — {days_since} days! Quick check-in: how are you doing today? 💭",
+                            ])
+                        })
+
+                # ── CHECK 2: Budget warning (>80% spent) ──
+                effective = get_effective_budget(user_id)
+                monthly = get_monthly_spending(user_id, month_str)
+                if effective and monthly and monthly["total"] > 0:
+                    pct = (monthly["total"] / effective) * 100
+                    remaining = effective - monthly["total"]
+                    day_of_month = now.day
+                    days_left = max(1, 30 - day_of_month)
+
+                    if pct >= 95 and not _nudged_recently(db, user_id, "budget_critical", 3):
+                        nudges.append({
+                            "type": "budget_critical",
+                            "msg": f"⚠️ Budget alert! You've used **{pct:.0f}%** of your budget (KES {remaining:,.0f} left for {days_left} days). Time to slow down on spending, manze."
+                        })
+                    elif pct >= 80 and not _nudged_recently(db, user_id, "budget_warning", 5):
+                        daily_pace = remaining / days_left
+                        nudges.append({
+                            "type": "budget_warning",
+                            "msg": f"💰 Heads up — you're at **{pct:.0f}%** of your monthly budget with {days_left} days left. That's about **KES {daily_pace:,.0f}/day** to stay on track."
+                        })
+
+                # ── CHECK 3: Mood dipping (avg < 2.5 last 3 days) ──
+                recent_entries = list(db["journal"].find({
+                    "user_id": user_id,
+                    "date": {"$gte": now - timedelta(days=3)}
+                }))
+                if len(recent_entries) >= 2:
+                    recent_moods = [e.get("mood_score", 3) for e in recent_entries]
+                    avg_recent = sum(recent_moods) / len(recent_moods)
+                    if avg_recent <= 2.5 and not _nudged_recently(db, user_id, "mood_low", 4):
+                        nudges.append({
+                            "type": "mood_low",
+                            "msg": random.choice([
+                                "I've noticed your mood has been a bit low lately. Just checking in — is everything okay? I'm here if you want to talk. 💛",
+                                "Hey, your recent entries show a tough stretch. Remember it's okay to not be okay. Want to journal about it or just vent? 🤗",
+                                "Pole, manze. Your mood's been dipping. Sometimes writing it out helps — or just know someone's checking in on you. 💙",
+                            ])
+                        })
+
+                # ── CHECK 4: Goal stalling (no progress 7+ days) ──
+                active_goals = get_active_goals(user_id)
+                for goal in active_goals:
+                    last_activity = goal.get("created_at", now)
+                    if goal.get("check_ins"):
+                        last_activity = goal["check_ins"][-1].get("date", last_activity)
+                    days_stale = (now - last_activity).days if hasattr(last_activity, 'day') else 0
+
+                    if days_stale >= 7 and not _nudged_recently(db, user_id, f"goal_stale_{goal.get('_id','')}", 7):
+                        progress = goal.get("progress", 0)
+                        nudges.append({
+                            "type": f"goal_stale_{goal.get('_id','')}",
+                            "msg": f"🎯 Your goal **\"{goal.get('goal', 'Goal')}\"** is at {progress}% and hasn't moved in {days_stale} days. Even 1% progress counts! Update with `!progress`"
+                        })
+                        break  # Only one goal nudge per day
+
+                # ── CHECK 5: Saving goal milestone ──
+                for goal in active_goals:
+                    if goal.get("type") == "saving" and goal.get("target_amount"):
+                        saved = goal.get("saved_amount", 0)
+                        target = goal["target_amount"]
+                        pct = (saved / target) * 100 if target > 0 else 0
+                        for milestone in [75, 50, 25]:
+                            if pct >= milestone and not _nudged_recently(db, user_id, f"saving_{milestone}_{goal.get('_id','')}", 30):
+                                nudges.append({
+                                    "type": f"saving_{milestone}_{goal.get('_id','')}",
+                                    "msg": f"🎉 You've hit **{milestone}%** on your saving goal **\"{goal.get('goal', 'Goal')}\"**! KES {saved:,.0f} / {target:,.0f}. Keep it up, manze! 💪"
+                                })
+                                break
+                        break  # Only one saving nudge per day
+
+                # ── CHECK 6: Poor sleep (avg < 6hrs over 3+ days) ──
+                sleep_entries = list(db["sleep"].find({
+                    "user_id": user_id,
+                    "date": {"$gte": now - timedelta(days=3)}
+                }))
+                if len(sleep_entries) >= 3:
+                    avg_sleep = sum(s.get("hours", 7) for s in sleep_entries) / len(sleep_entries)
+                    if avg_sleep < 6 and not _nudged_recently(db, user_id, "sleep_low", 5):
+                        nudges.append({
+                            "type": "sleep_low",
+                            "msg": f"😴 You've been averaging **{avg_sleep:.1f} hours** of sleep the last few days. Your body needs rest, manze. Try to hit the bed earlier tonight!"
+                        })
+
+                # ── CHECK 7: Spending spike (today > 2x daily average) ──
+                daily = get_daily_spending(user_id)
+                if daily and monthly and monthly["count"] > 5:
+                    avg_daily = monthly["total"] / max(now.day, 1)
+                    today_total = daily.get("total", 0)
+                    if today_total > avg_daily * 2.5 and today_total > 500 and not _nudged_recently(db, user_id, "spending_spike", 2):
+                        nudges.append({
+                            "type": "spending_spike",
+                            "msg": f"📊 You spent **KES {today_total:,.0f}** today — that's more than double your daily average of KES {avg_daily:,.0f}. Big day or something to watch?"
+                        })
+
+                # ── Send nudges (max 2 per user per day) ──
+                if not nudges:
+                    continue
+
+                nudges = nudges[:2]  # Cap at 2 to avoid being annoying
+
+                for nudge in nudges:
+                    try:
+                        for guild in bot.guilds:
+                            member = guild.get_member(int(user_id))
+                            if member:
+                                dm = await member.create_dm()
+                                await dm.send(f"💡 **Emily noticed something:**\n\n{nudge['msg']}")
+                                _log_nudge(db, user_id, nudge["type"])
+                                logger.info(f"Smart nudge sent to {user_id}: {nudge['type']}")
+                                break
+                    except discord.Forbidden:
+                        logger.warning(f"Cannot DM {user_id} — DMs disabled")
+                    except Exception as e:
+                        logger.warning(f"Nudge DM failed for {user_id}: {e}")
+
+                    await asyncio.sleep(1)
+
+            except Exception as e:
+                logger.error(f"Smart nudge error for {user_id}: {e}")
+
+        # Mark daily run complete
+        db["nudge_log"].insert_one({"date": today, "type": "daily_nudge_run", "at": now})
+        logger.info(f"Smart nudges complete — {len(user_ids)} users checked")
+
+    except Exception as e:
+        logger.error(f"Smart nudges task error: {e}")
+
+
+def _nudged_recently(db, user_id, nudge_type, cooldown_days):
+    """Check if a nudge was sent recently (prevents spam)."""
+    try:
+        cutoff = datetime.now(pytz.timezone('Africa/Nairobi')) - timedelta(days=cooldown_days)
+        doc = db["nudge_log"].find_one({
+            "user_id": user_id,
+            "nudge_type": nudge_type,
+            "at": {"$gte": cutoff}
+        })
+        return doc is not None
+    except Exception:
+        return False
+
+
+def _log_nudge(db, user_id, nudge_type):
+    """Log that a nudge was sent."""
+    try:
+        db["nudge_log"].insert_one({
+            "user_id": user_id,
+            "nudge_type": nudge_type,
+            "at": datetime.now(pytz.timezone('Africa/Nairobi'))
+        })
+    except Exception:
+        pass
+
+
+@smart_nudges.before_loop
+async def before_smart_nudges():
     await bot.wait_until_ready()
 
 
