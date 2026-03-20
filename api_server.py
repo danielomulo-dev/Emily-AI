@@ -501,7 +501,16 @@ def api_get_dashboard_budget(user_id):
         ]
         income_result = list(db["income"].aggregate(income_pipeline))
         total_income = round(income_result[0]["total"], 2) if income_result else 0
-        effective_budget = total_income if total_income > 0 else budget_limit
+
+        # Match get_effective_budget() logic: limit + income, or whichever exists
+        if total_income > 0 and budget_limit > 0:
+            effective_budget = budget_limit + total_income
+        elif total_income > 0:
+            effective_budget = total_income
+        elif budget_limit > 0:
+            effective_budget = budget_limit
+        else:
+            effective_budget = 0
 
         # Daily spending trend (14 days)
         cutoff = now - timedelta(days=14)
