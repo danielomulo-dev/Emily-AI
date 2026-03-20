@@ -169,6 +169,11 @@ def api_get_entries(user_id, days=14, limit=20):
         e["_id"] = str(e["_id"])
         if isinstance(e.get("date"), datetime):
             e["date"] = e["date"].isoformat()
+        # Ensure cross-platform fields exist (older Discord entries may lack these)
+        e.setdefault("source", "discord")
+        e.setdefault("pinned", False)
+        e.setdefault("photos", [])
+        e.setdefault("tags", [])
     return entries
 
 

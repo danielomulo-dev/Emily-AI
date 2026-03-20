@@ -1078,10 +1078,13 @@ def add_journal_entry(user_id, text, mood_score=None, tags=None):
             "mood_emoji": mood_emoji,
             "mood_label": mood_label,
             "tags": tags or [],
+            "photos": [],
+            "pinned": False,
             "date": now,
             "date_str": now.strftime("%Y-%m-%d"),
             "time_str": now.strftime("%I:%M %p"),
             "day_name": now.strftime("%A"),
+            "source": "discord",
         }
         journal_col.insert_one(entry)
         logger.info(f"Journal entry for {user_id}: mood={mood_score} ({mood_label})")

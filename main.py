@@ -1156,6 +1156,39 @@ async def get_ai_response(conversation_history, user_id, chosen_model, route_rea
 
         emily_prompt = _build_emily_prompt(current_time, facts_str)
 
+        # ─── CROSS-PLATFORM JOURNAL CONTEXT ───
+        # Give Emily awareness of recent journal entries from both Discord and PWA
+        try:
+            recent_entries = get_journal_entries(user_id, days=3, limit=5)
+            if recent_entries:
+                mood_scores = [e.get("mood_score", 3) for e in recent_entries]
+                avg_mood = round(sum(mood_scores) / len(mood_scores), 1)
+                mood_emojis = {1: "😢", 2: "😔", 3: "😐", 4: "😊", 5: "🤩"}
+                avg_emoji = mood_emojis.get(round(avg_mood), "😐")
+
+                journal_lines = []
+                for e in recent_entries[:3]:
+                    src = e.get("source", "discord")
+                    text_preview = (e.get("text", "") or "")[:60]
+                    journal_lines.append(
+                        f"  - {e.get('date_str', '')} ({e.get('mood_label', 'neutral')}, via {src}): {text_preview}"
+                    )
+
+                emily_prompt += f"""
+
+═══════════════════════════════════════
+RECENT JOURNAL CONTEXT (last 3 days):
+═══════════════════════════════════════
+- Recent mood: {avg_emoji} {avg_mood}/5 ({len(recent_entries)} entries)
+{chr(10).join(journal_lines)}
+
+Use this context naturally — if someone seems down and their journal confirms it, be extra warm.
+If their mood has been great, match that energy. Don't explicitly say "I saw your journal" unless
+they bring it up — just let it inform your tone and awareness.
+"""
+        except Exception:
+            pass  # Don't break conversations if journal lookup fails
+
         # ─── CUSTOM SERVER PERSONA ───
         if guild_id:
             custom_persona = get_server_persona(str(guild_id))
