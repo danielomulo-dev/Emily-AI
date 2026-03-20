@@ -492,7 +492,7 @@ def api_get_dashboard_budget(user_id):
 
         # Budget limit
         limit_doc = db["budget_limits"].find_one({"user_id": str(user_id)})
-        budget_limit = limit_doc.get("limit", 0) if limit_doc else 0
+        budget_limit = limit_doc.get("monthly_limit", 0) if limit_doc else 0
 
         # Income
         income_pipeline = [
@@ -543,11 +543,13 @@ def api_get_dashboard_portfolio(user_id):
     try:
         holdings = list(db["portfolios"].find(
             {"user_id": str(user_id)},
-            {"_id": 0, "symbol": 1, "quantity": 1, "buy_price": 1, "added_at": 1}
+            {"_id": 0, "ticker": 1, "shares": 1, "buy_price": 1, "added_at": 1}
         ))
         total_value = 0
         for h in holdings:
-            h["value"] = round(h.get("quantity", 0) * h.get("buy_price", 0), 2)
+            h["symbol"] = h.get("ticker", "?")
+            h["quantity"] = h.get("shares", 0)
+            h["value"] = round(h.get("shares", 0) * h.get("buy_price", 0), 2)
             total_value += h["value"]
             if isinstance(h.get("added_at"), datetime):
                 h["added_at"] = h["added_at"].isoformat()
