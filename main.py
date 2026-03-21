@@ -2676,10 +2676,13 @@ async def before_smart_nudges():
 # ══════════════════════════════════════════════
 @tasks.loop(minutes=1)
 async def daily_learning():
-    """Post a daily learning nugget at noon EAT."""
+    """Post a daily learning nugget at noon EAT — researched from the web."""
     try:
         now = datetime.now(pytz.timezone('Africa/Nairobi'))
-        if now.strftime("%H:%M") != "12:00":
+
+        # 12:00-13:00 window
+        now_minutes = now.hour * 60 + now.minute
+        if now_minutes < 720 or now_minutes > 780:
             return
 
         servers = get_news_servers()  # Reuse news channel config
@@ -2711,14 +2714,51 @@ async def daily_learning():
             topic = random.choice(LEARNING_TOPICS[cat])
             cat_emoji = {"finance": "💰", "cooking": "🍳", "film": "🎬"}[cat]
 
-            # Use Claude to generate the lesson
+            # ── RESEARCH: Search the web for fresh facts ──
+            web_context = ""
             try:
+                search_queries = {
+                    "finance": f"{topic} tips facts 2025 2026",
+                    "cooking": f"{topic} technique tips recipe facts",
+                    "film": f"{topic} film analysis interesting facts",
+                }
+                query = search_queries.get(cat, f"{topic} interesting facts tips")
+                articles, _ = await asyncio.to_thread(get_news_raw, query, max_results=3)
+                if not articles:
+                    # Try general web search
+                    urls = await asyncio.to_thread(get_search_results, query, 3)
+                    if urls:
+                        for url in urls[:2]:
+                            text = await asyncio.to_thread(extract_text_from_url, url, 500)
+                            if text:
+                                web_context += f"\nSource ({url[:60]}):\n{text[:400]}\n"
+                else:
+                    for a in articles[:3]:
+                        web_context += f"\n- {a.get('title', '')}: {a.get('snippet', '')[:150]}\n"
+            except Exception as e:
+                logger.warning(f"Learning web research failed: {e}")
+
+            # ── GENERATE: Use Claude with web research ──
+            try:
+                research_note = ""
+                if web_context:
+                    research_note = (
+                        f"\n\nHere are some fresh facts and sources I found online about this topic. "
+                        f"Use these real facts in your lesson — cite specific data, numbers, or examples from them:\n"
+                        f"{web_context}\n"
+                    )
+
                 lesson_response = await asyncio.wait_for(
                     claude_client.messages.create(
                         model=MODEL_CLAUDE,
                         max_tokens=1024,
-                        system=f"{EMILY_MINI_PERSONA} Write a fun, educational 3-4 paragraph lesson. Include real-world examples and a practical tip someone can use TODAY.",
-                        messages=[{"role": "user", "content": f"Teach me about: {topic}"}],
+                        system=(
+                            f"{EMILY_MINI_PERSONA} Write a fun, educational 3-4 paragraph lesson. "
+                            f"Include REAL facts and specific numbers — not generic advice. "
+                            f"Include a practical tip someone can use TODAY. "
+                            f"You're on Discord — use markdown, not HTML."
+                        ),
+                        messages=[{"role": "user", "content": f"Teach me about: {topic}{research_note}"}],
                     ),
                     timeout=API_TIMEOUT_SECONDS,
                 )
