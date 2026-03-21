@@ -102,25 +102,27 @@ def _ddg_news_search(topic, max_results=5):
     try:
         try:
             from ddgs import DDGS
+            results = DDGS().news(query=topic, region="us-en",
+                safesearch="moderate", max_results=max_results)
         except ImportError:
             from duckduckgo_search import DDGS
-        with DDGS() as ddgs:
-            results = list(ddgs.news(
-                keywords=topic, region="wt-wt",
-                safesearch="moderate", max_results=max_results
-            ))
-            if not results:
-                return None
+            with DDGS() as ddgs:
+                results = list(ddgs.news(
+                    keywords=topic, region="wt-wt",
+                    safesearch="moderate", max_results=max_results
+                ))
+        if not results:
+            return None
 
-            formatted = []
-            for r in results:
-                formatted.append({
-                    "title": r.get("title", "No Title"),
-                    "url": r.get("url", "#"),
-                    "source": r.get("source", "Unknown"),
-                    "date": r.get("date", ""),
-                })
-            return formatted
+        formatted = []
+        for r in results:
+            formatted.append({
+                "title": r.get("title", "No Title"),
+                "url": r.get("url", "#"),
+                "source": r.get("source", "Unknown"),
+                "date": r.get("date", ""),
+            })
+        return formatted
     except Exception as e:
         logger.error(f"DDG news fallback error: {e}")
         return None
@@ -131,14 +133,16 @@ def _ddg_web_search(query, max_results=3):
     try:
         try:
             from ddgs import DDGS
+            results = DDGS().text(query=query, region="us-en",
+                safesearch="moderate", max_results=max_results)
         except ImportError:
             from duckduckgo_search import DDGS
-        with DDGS() as ddgs:
-            results = list(ddgs.text(
-                query, region="wt-wt",
-                safesearch="moderate", max_results=max_results
-            ))
-            return [r["href"] for r in results]
+            with DDGS() as ddgs:
+                results = list(ddgs.text(
+                    query, region="wt-wt",
+                    safesearch="moderate", max_results=max_results
+                ))
+        return [r.get("href", r.get("url", "")) for r in (results or [])]
     except Exception as e:
         logger.error(f"DDG web fallback error: {e}")
         return []
@@ -149,15 +153,16 @@ def _ddg_video_search(query):
     try:
         try:
             from ddgs import DDGS
+            results = DDGS().videos(query=f"site:youtube.com {query}", max_results=1)
         except ImportError:
             from duckduckgo_search import DDGS
-        with DDGS() as ddgs:
-            results = list(ddgs.videos(
-                keywords=f"site:youtube.com {query}", max_results=1
-            ))
-            if results:
-                return results[0].get("content")
-            return None
+            with DDGS() as ddgs:
+                results = list(ddgs.videos(
+                    keywords=f"site:youtube.com {query}", max_results=1
+                ))
+        if results:
+            return results[0].get("content") or results[0].get("url")
+        return None
     except Exception:
         return None
 
