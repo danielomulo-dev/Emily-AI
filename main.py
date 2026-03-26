@@ -2501,7 +2501,10 @@ async def smart_nudges():
                     sort=[("date", -1)]
                 )
                 if last_entry and last_entry.get("date"):
-                    days_since = (now - last_entry["date"]).days
+                    last_date = last_entry["date"]
+                    if last_date.tzinfo is None:
+                        last_date = pytz.timezone('Africa/Nairobi').localize(last_date)
+                    days_since = (now - last_date).days
                     if days_since >= 3 and not _nudged_recently(db, user_id, "journal_streak", 3):
                         nudges.append({
                             "type": "journal_streak",
@@ -2557,7 +2560,13 @@ async def smart_nudges():
                     last_activity = goal.get("created_at", now)
                     if goal.get("check_ins"):
                         last_activity = goal["check_ins"][-1].get("date", last_activity)
-                    days_stale = (now - last_activity).days if hasattr(last_activity, 'day') else 0
+                    # Ensure timezone-aware comparison
+                    if hasattr(last_activity, 'tzinfo') and last_activity.tzinfo is None:
+                        last_activity = pytz.timezone('Africa/Nairobi').localize(last_activity)
+                    try:
+                        days_stale = (now - last_activity).days
+                    except TypeError:
+                        days_stale = 0
 
                     if days_stale >= 7 and not _nudged_recently(db, user_id, f"goal_stale_{goal.get('_id','')}", 7):
                         progress = goal.get("progress", 0)
@@ -7045,6 +7054,11 @@ async def on_command_error(ctx, error):
 async def on_message(message):
     if message.author == bot.user:
         return
+
+    # Debug: log every message that reaches the bot
+    is_mention = bot.user.mentioned_in(message) if bot.user else False
+    is_dm = isinstance(message.channel, discord.DMChannel)
+    logger.info(f"📨 MSG from {message.author}: '{message.content[:50]}' mention={is_mention} dm={is_dm}")
 
     # Process prefix commands (! commands) — works with or without @mention
     # Strip mention to check if the actual message is a command
