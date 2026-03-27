@@ -7168,18 +7168,23 @@ async def on_message(message):
                 # Also skip if message contains a question mark or question phrases anywhere
                 has_question_mark = '?' in clean_msg
                 has_question_phrase = bool(re.search(
-                    r'\b(?:when is|when does|when will|when do|what is|what are|how much|how many|how long|how do|where is|where can|why did|why is|is it|are there|due date|deadline|expire|expiry)\b',
+                    r'\b(?:when is|when does|when will|when do|what is|what are|how much|how many|how long|how do|where is|where can|why did|why is|is it|are there|due date|deadline|expire|expiry|can i|can you|should i|could i|do you|do i|is there)\b',
+                    msg_lower
+                ))
+                # Skip cooking/recipe context — numbers refer to measurements, not money
+                has_cooking_context = bool(re.search(
+                    r'\b(?:cups?|tablespoons?|teaspoons?|tbsp|tsp|grams?|ounces?|oz|liters?|ml|recipe|flour|salt|sugar|butter|oil|cook|bake|ingredient|dough|knead|stir|mix)\b',
                     msg_lower
                 ))
                 # Skip very long messages (probably conversation, not expense logging)
                 is_too_long = len(clean_msg.split()) > 20
-                skip_expense = is_question or has_question_mark or has_question_phrase or is_too_long
+                skip_expense = is_question or has_question_mark or has_question_phrase or has_cooking_context or is_too_long
 
                 # Pattern 1: "spent/paid/bought 500 on/for lunch"
                 spend_match = None
                 if not skip_expense:
                     spend_match = re.search(
-                    r'(?:i\s+)?(?:spent|paid|used|bought|cost\s+me)\s+(?:KES\s*|Ksh\s*)?(\d[\d,]*\.?\d*)\s+(?:on\s+|for\s+)?(.+)',
+                    r'(?:i\s+)?(?:spent|paid|bought|cost\s+me)\s+(?:KES\s*|Ksh\s*)?(\d[\d,]*\.?\d*)\s+(?:on\s+|for\s+)?(.+)',
                     clean_msg, re.IGNORECASE
                 )
                 # Pattern 2: "KES 500 on/for lunch"
@@ -7258,8 +7263,8 @@ async def on_message(message):
                     except (ValueError, IndexError):
                         pass
 
-                # Log the expense if detected
-                if expense_detected and amount and amount > 0 and desc and len(desc) > 1:
+                # Log the expense if detected (minimum KES 10 to avoid false positives)
+                if expense_detected and amount and amount >= 10 and desc and len(desc) > 1:
                     try:
                         category = _detect_expense_category(desc)
                         if log_expense(user_id, amount, desc, category):
