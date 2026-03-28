@@ -547,11 +547,20 @@ def get_past_suggestions(guild_id, limit=50):
 
 # Language/genre pools for variety
 MOVIE_LANGUAGES = [
-    "English",
+    # Weighted: English appears more since it has the largest accessible catalog
+    "English", "English", "English", "English",
+    "Korean (K-drama/Korean cinema)", "Korean (K-drama/Korean cinema)",
+    "Japanese", "Japanese",
     "French",
-    "German",
     "Spanish",
-    "Korean (K-drama/Korean cinema)",
+    "Italian",
+    "German",
+    "Hindi (Bollywood)",
+    "Swahili / East African",
+    "Nigerian (Nollywood)",
+    "Scandinavian (Danish/Swedish/Norwegian)",
+    "Thai",
+    "Brazilian Portuguese",
 ]
 
 MOVIE_GENRES = [
