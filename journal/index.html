@@ -1525,27 +1525,32 @@ async function loadDashBudget(){
 
     // Daily spending SVG area chart
     const daily=b.daily_spending||[];
-    if(daily.length>2){
+    if(daily.length>=1){
       const maxD=Math.max(...daily.map(d=>d.total),1);
-      const pts=daily.map((d,i)=>({x:i/(daily.length-1),y:d.total/maxD}));
-      const W=320,H=70,P=4;
-      const area=svgAreaPath(pts,W,H,P);
-      const line=svgLinePath(pts,W,H,P);
       html+=`<div style="font-size:11px;color:var(--text-dim);margin-top:12px">Daily spending (14 days)</div>`;
-      html+=`<div class="trend-svg-wrap"><svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">`;
-      html+=`<path d="${area}" fill="var(--accent)" fill-opacity="0.15"/>`;
-      html+=`<path d="${line}" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linecap="round"/>`;
-      // Dots on data points
-      for(let i=0;i<pts.length;i++){
-        const cx=P+(pts[i].x*(W-P*2));
-        const cy=P+((1-pts[i].y)*(H-P*2));
-        if(i===pts.length-1||i===0||i===Math.floor(pts.length/2)){
-          html+=`<circle cx="${cx}" cy="${cy}" r="3" fill="var(--accent)"/>`;
+      if(daily.length===1){
+        // Single dot
+        html+=`<div style="text-align:center;padding:12px 0;font-size:13px;color:var(--accent)">KES ${daily[0].total.toLocaleString()} on ${daily[0].date.slice(5)}</div>`;
+      } else {
+        const pts=daily.map((d,i)=>({x:i/(daily.length-1),y:d.total/maxD}));
+        const W=320,H=70,P=4;
+        const area=svgAreaPath(pts,W,H,P);
+        const line=svgLinePath(pts,W,H,P);
+        html+=`<div class="trend-svg-wrap"><svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">`;
+        html+=`<path d="${area}" fill="var(--accent)" fill-opacity="0.15"/>`;
+        html+=`<path d="${line}" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linecap="round"/>`;
+        // Dots on data points
+        for(let i=0;i<pts.length;i++){
+          const cx=P+(pts[i].x*(W-P*2));
+          const cy=P+((1-pts[i].y)*(H-P*2));
+          if(i===pts.length-1||i===0||i===Math.floor(pts.length/2)){
+            html+=`<circle cx="${cx}" cy="${cy}" r="3" fill="var(--accent)"/>`;
+          }
         }
+        html+=`</svg>`;
+        html+=`<div class="tsw-labels"><span>${daily[0].date.slice(5)}</span><span>${daily[daily.length-1].date.slice(5)}</span></div>`;
+        html+=`</div>`;
       }
-      html+=`</svg>`;
-      html+=`<div class="tsw-labels"><span>${daily[0].date.slice(5)}</span><span>${daily[daily.length-1].date.slice(5)}</span></div>`;
-      html+=`</div>`;
     }
 
     el.innerHTML=html;

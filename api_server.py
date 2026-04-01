@@ -577,12 +577,24 @@ def api_get_dashboard_budget(user_id):
 
         # Daily spending trend (14 days)
         cutoff = now - timedelta(days=14)
+        cutoff_str = cutoff.strftime("%Y-%m-%d")
         daily_pipeline = [
             {"$match": {"user_id": str(user_id), "date": {"$gte": cutoff}}},
             {"$group": {"_id": "$date_str", "total": {"$sum": "$amount"}}},
             {"$sort": {"_id": 1}},
         ]
-        daily_spending = [{"date": d["_id"], "total": round(d["total"], 2)} for d in db["budgets"].aggregate(daily_pipeline)]
+        daily_spending = [{"date": d["_id"], "total": round(d["total"], 2)}
+                          for d in db["budgets"].aggregate(daily_pipeline) if d["_id"]]
+
+        # Fallback: if date filter returned nothing, try date_str string comparison
+        if not daily_spending:
+            daily_pipeline_str = [
+                {"$match": {"user_id": str(user_id), "date_str": {"$gte": cutoff_str}}},
+                {"$group": {"_id": "$date_str", "total": {"$sum": "$amount"}}},
+                {"$sort": {"_id": 1}},
+            ]
+            daily_spending = [{"date": d["_id"], "total": round(d["total"], 2)}
+                              for d in db["budgets"].aggregate(daily_pipeline_str) if d["_id"]]
 
         return {"budget": {
             "total_spent": total_spent, "transaction_count": total_count,
