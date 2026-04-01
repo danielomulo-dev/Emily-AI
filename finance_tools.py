@@ -2,11 +2,16 @@ import os
 import logging
 import re
 import requests
+import time
 from bs4 import BeautifulSoup
 
 logger = logging.getLogger(__name__)
 
 ALPHA_VANTAGE_KEY = os.getenv("ALPHA_VANTAGE_KEY", "")
+
+# ── Price cache (avoids hitting APIs repeatedly for same stock) ──
+_price_cache = {}  # {symbol: {"result": ..., "time": timestamp}}
+CACHE_TTL = 3600   # 1 hour cache
 
 # Browser-like headers for scraper fallbacks
 BROWSER_HEADERS = {
@@ -224,6 +229,7 @@ def _format_stock_result(symbol, result, is_nse):
 def get_stock_price(symbol):
     """
     Gets live price for Stocks, Crypto, or Forex.
+    Results are cached for 1 hour to avoid burning API quota.
 
     Fetch order:
       NSE stocks:    Alpha Vantage → AFX scraper → MyStocks scraper
@@ -232,6 +238,14 @@ def get_stock_price(symbol):
     try:
         # 1. Clean the symbol
         symbol = symbol.replace('[', '').replace(']', '').replace('STOCK:', '').strip().upper()
+
+        # 1b. Check cache first
+        cache_key = symbol
+        if cache_key in _price_cache:
+            cached = _price_cache[cache_key]
+            if time.time() - cached["time"] < CACHE_TTL:
+                logger.info(f"Cache hit for {symbol} (age: {int(time.time() - cached['time'])}s)")
+                return cached["result"]
 
         # 2. Determine if NSE
         is_nse = False
@@ -248,19 +262,25 @@ def get_stock_price(symbol):
         result = _fetch_from_alphavantage(base_symbol, is_nse)
         if result:
             logger.info(f"Got {base_symbol} from Alpha Vantage")
-            return _format_stock_result(base_symbol, result, is_nse)
+            formatted = _format_stock_result(base_symbol, result, is_nse)
+            _price_cache[cache_key] = {"result": formatted, "time": time.time()}
+            return formatted
 
         # 4. NSE fallbacks
         if is_nse:
             result = _fetch_nse_from_afx(base_symbol)
             if result:
                 logger.info(f"Got {base_symbol} from AFX")
-                return _format_stock_result(base_symbol, result, is_nse)
+                formatted = _format_stock_result(base_symbol, result, is_nse)
+                _price_cache[cache_key] = {"result": formatted, "time": time.time()}
+                return formatted
 
             result = _fetch_nse_from_mystocks(base_symbol)
             if result:
                 logger.info(f"Got {base_symbol} from MyStocks")
-                return _format_stock_result(base_symbol, result, is_nse)
+                formatted = _format_stock_result(base_symbol, result, is_nse)
+                _price_cache[cache_key] = {"result": formatted, "time": time.time()}
+                return formatted
 
             return f"*(Manze, I couldn't find live prices for {base_symbol} on NSE right now. Market might be closed.)*"
 

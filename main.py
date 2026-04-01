@@ -1829,7 +1829,7 @@ async def on_ready():
 # ══════════════════════════════════════════════
 # BACKGROUND TASKS
 # ══════════════════════════════════════════════
-@tasks.loop(seconds=30)
+@tasks.loop(seconds=60)
 async def check_reminders():
     """Check for due reminders and watch parties every 30 seconds."""
     try:
@@ -3028,7 +3028,7 @@ async def before_film_tweet():
 # ══════════════════════════════════════════════
 # INVESTMENT ALERTS (check every 30 minutes)
 # ══════════════════════════════════════════════
-@tasks.loop(minutes=30)
+@tasks.loop(hours=6)
 async def investment_alerts():
     """Check portfolio stocks and alert users on big price moves."""
     try:
