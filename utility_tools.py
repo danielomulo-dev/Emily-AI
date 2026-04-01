@@ -2,6 +2,7 @@ import os
 import io
 import random
 import logging
+import calendar
 import requests
 from datetime import datetime
 import pytz
@@ -463,7 +464,8 @@ def generate_expense_pdf(user_name, monthly_data, budget_limit=None, income_data
         remaining = (budget_limit - total) if budget_limit else None
         budget_pct = (total / budget_limit * 100) if budget_limit else 0
         day_of_month = now.day
-        days_left = max(30 - day_of_month, 1)
+        days_in_month = calendar.monthrange(now.year, now.month)[1]
+        days_left = max(days_in_month - day_of_month, 1)
         daily_avg = total / max(day_of_month, 1)
         daily_allowance = remaining / days_left if remaining and remaining > 0 else 0
         net_balance = total_income - total  # Income minus expenses

@@ -9,7 +9,7 @@ import secrets
 import logging
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from urllib.parse import urlparse, parse_qs
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import pytz
 import certifi
@@ -17,6 +17,10 @@ from pymongo import MongoClient
 
 logger = logging.getLogger(__name__)
 EAT_ZONE = pytz.timezone('Africa/Nairobi')
+
+# CORS — restrict to journal app origin (set JOURNAL_APP_URL in env)
+# Falls back to '*' if not set (for local dev)
+ALLOWED_ORIGIN = os.getenv("JOURNAL_APP_URL", "*")
 
 # ── MongoDB (auto-reconnecting for API thread) ──
 _api_client = None
@@ -56,6 +60,9 @@ def _get_db():
 # ══════════════════════════════════════════════
 # AUTH: Token management
 # ══════════════════════════════════════════════
+TOKEN_EXPIRY_DAYS = 30  # Tokens expire after 30 days
+
+
 def generate_app_token(user_id, username):
     """Generate a token for PWA auth. Returns token string."""
     db = _get_db()
@@ -63,13 +70,16 @@ def generate_app_token(user_id, username):
         return None
     token = secrets.token_urlsafe(32)
     token_hash = hashlib.sha256(token.encode()).hexdigest()
+    now = datetime.now(EAT_ZONE)
     db["app_tokens"].update_one(
         {"user_id": str(user_id)},
         {"$set": {
             "user_id": str(user_id),
             "username": username,
             "token_hash": token_hash,
-            "created_at": datetime.now(EAT_ZONE),
+            "created_at": now,
+            "expires_at": now + timedelta(days=TOKEN_EXPIRY_DAYS),
+            "last_used_at": now,
         }},
         upsert=True,
     )
@@ -77,15 +87,44 @@ def generate_app_token(user_id, username):
 
 
 def verify_token(token):
-    """Verify a PWA token. Returns user_id or None."""
+    """Verify a PWA token. Returns user_id or None. Rejects expired tokens."""
     db = _get_db()
     if db is None or not token:
         return None
     token_hash = hashlib.sha256(token.encode()).hexdigest()
     doc = db["app_tokens"].find_one({"token_hash": token_hash})
-    if doc:
-        return doc["user_id"]
-    return None
+    if not doc:
+        return None
+
+    # Check expiry
+    expires_at = doc.get("expires_at")
+    now = datetime.now(EAT_ZONE)
+    if expires_at and now > expires_at:
+        logger.info(f"Token expired for user {doc.get('user_id')}")
+        return None
+
+    # Update last_used_at
+    try:
+        db["app_tokens"].update_one(
+            {"token_hash": token_hash},
+            {"$set": {"last_used_at": now}}
+        )
+    except Exception:
+        pass
+
+    return doc["user_id"]
+
+
+def revoke_token(user_id):
+    """Revoke a user's app token."""
+    db = _get_db()
+    if db is None:
+        return False
+    try:
+        result = db["app_tokens"].delete_one({"user_id": str(user_id)})
+        return result.deleted_count > 0
+    except Exception:
+        return False
 
 
 # ══════════════════════════════════════════════
@@ -591,7 +630,7 @@ class EmilyAPIHandler(BaseHTTPRequestHandler):
     def _send_json(self, data, status=200):
         self.send_response(status)
         self.send_header('Content-Type', 'application/json')
-        self.send_header('Access-Control-Allow-Origin', '*')
+        self.send_header('Access-Control-Allow-Origin', ALLOWED_ORIGIN)
         self.send_header('Access-Control-Allow-Headers', 'Content-Type, Authorization')
         self.send_header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
         self.send_header('Connection', 'close')
@@ -623,7 +662,7 @@ class EmilyAPIHandler(BaseHTTPRequestHandler):
     def do_OPTIONS(self):
         """CORS preflight."""
         self.send_response(200)
-        self.send_header('Access-Control-Allow-Origin', '*')
+        self.send_header('Access-Control-Allow-Origin', ALLOWED_ORIGIN)
         self.send_header('Access-Control-Allow-Headers', 'Content-Type, Authorization')
         self.send_header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
         self.send_header('Connection', 'close')

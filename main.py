@@ -147,6 +147,31 @@ MAX_DEDUP_SIZE = 500
 # --- VOICE CONVERSATION MODE (per user) ---
 _voice_mode_users = set()  # Users who want voice replies automatically
 
+def _is_voice_mode(user_id):
+    """Check if voice mode is on — uses in-memory cache, falls back to DB."""
+    uid = str(user_id)
+    if uid in _voice_mode_users:
+        return True
+    # Check DB (one-time load per user per restart)
+    try:
+        profile = get_user_profile(uid)
+        if profile.get("voice_mode"):
+            _voice_mode_users.add(uid)
+            return True
+    except Exception:
+        pass
+    return False
+
+async def _require_manage_guild(ctx):
+    """Check if user has Manage Server permission. Returns False and replies if not."""
+    if not ctx.guild:
+        await ctx.reply("This only works in a server, not DMs!")
+        return False
+    if not ctx.author.guild_permissions.manage_guild:
+        await ctx.reply("You need **Manage Server** permission to use this command!")
+        return False
+    return True
+
 # --- EMILY'S STATUS ROTATION ---
 EMILY_STATUSES = {
     "morning": [
@@ -1601,12 +1626,8 @@ def _execute_agent_tool(tool_name, tool_input, user_id):
             lines = []
             total = 0
             for h in portfolio:
-                sym = h.get("symbol", "?")
-                qty = h.get("quantity", 0)
-                price = h.get("buy_price", 0)
-                value = qty * price
-                total += value
-                lines.append(f"- {sym}: {qty} shares @ KES {price:,.2f} (value: KES {value:,.0f})")
+                lines.append(f"- {h['symbol']}: {h['quantity']} shares @ KES {h['buy_price']:,.2f} (value: KES {h['value']:,.0f})")
+                total += h["value"]
             lines.append(f"Total portfolio cost basis: KES {total:,.0f}")
             return "\n".join(lines)
 
@@ -1657,14 +1678,14 @@ def _execute_agent_tool(tool_name, tool_input, user_id):
             return "\n".join(lines)
 
         elif tool_name == "currency_convert":
-            result = convert_currency(
+            result, error = convert_currency(
                 tool_input.get("amount", 0),
                 tool_input.get("from_currency", "USD"),
                 tool_input.get("to_currency", "KES")
             )
             if result:
                 return format_currency_result(result)
-            return "Conversion failed."
+            return error or "Conversion failed."
 
         elif tool_name == "read_url":
             url = tool_input.get("url", "")
@@ -4370,7 +4391,8 @@ async def cmd_apptoken(ctx):
             await ctx.reply("I can't DM you! Enable DMs from server members, then try again.")
     except Exception as e:
         logger.error(f"Apptoken error: {e}")
-        await ctx.reply(f"Something went wrong: {e}")
+        logger.error(f"Command error: {e}", exc_info=True)
+        await ctx.reply("Something went wrong. Try again later!")
 
 
 # ══════════════════════════════════════════════
@@ -4679,7 +4701,7 @@ async def cmd_recipe(ctx, *, dish: str = ""):
 async def cmd_news(ctx, *, topic: str = "Kenya"):
     """Get latest news. Usage: !news | !news technology | !news sports"""
     async with ctx.typing():
-        news, _ = get_latest_news(topic, max_results=5)
+        news, _ = await asyncio.to_thread(get_latest_news, topic, max_results=5)
         if news:
             await send_chunked_reply(ctx.message, news)
         else:
@@ -4779,15 +4801,15 @@ async def cmd_newsbrief(ctx, *, topics: str = ""):
 
         except Exception as e:
             logger.error(f"Newsbrief error: {e}")
-            await ctx.reply(f"Something went wrong: {e}")
+            logger.error(f"Command error: {e}", exc_info=True)
+        await ctx.reply("Something went wrong. Try again later!")
 
 
 @bot.command(name="setnews")
 async def cmd_setnews(ctx, *, config: str = ""):
     """Set up daily AI news briefing. Usage: !setnews | !setnews 8:00 tech, sports, Kenya"""
     try:
-        if not ctx.guild:
-            await ctx.reply("This only works in a server, not DMs!")
+        if not await _require_manage_guild(ctx):
             return
 
         guild_id = str(ctx.guild.id)
@@ -4826,7 +4848,8 @@ async def cmd_setnews(ctx, *, config: str = ""):
             await ctx.reply("Couldn't set up news. Try again?")
     except Exception as e:
         logger.error(f"Setnews error: {e}")
-        await ctx.reply(f"Error setting up news: {e}")
+        logger.error(f"News setup error: {e}", exc_info=True)
+        await ctx.reply("Something went wrong setting up news. Try again!")
 
 
 @bot.command(name="reset")
@@ -4857,7 +4880,7 @@ async def cmd_convert(ctx, amount: str, from_curr: str, to_curr: str = "KES"):
         if to_curr.lower() == "to" and len(ctx.message.content.split()) > 4:
             to_curr = ctx.message.content.split()[-1]
 
-        result, error = convert_currency(amt, from_curr, to_curr)
+        result, error = await asyncio.to_thread(convert_currency, amt, from_curr, to_curr)
         if result:
             await ctx.send(format_currency_result(result))
         else:
@@ -4968,7 +4991,7 @@ async def cmd_report(ctx):
             income = get_monthly_income(user_id)
 
             user_name = ctx.author.display_name
-            pdf_bytes = generate_expense_pdf(user_name, monthly, limit, income_data=income)
+            pdf_bytes = await asyncio.to_thread(generate_expense_pdf, user_name, monthly, limit, income_data=income)
 
             if pdf_bytes:
                 now = datetime.now(pytz.timezone('Africa/Nairobi'))
@@ -4979,7 +5002,8 @@ async def cmd_report(ctx):
                 await ctx.reply("Couldn't generate the PDF. Try again?")
         except Exception as e:
             logger.error(f"Report error: {e}")
-            await ctx.reply(f"Report generation failed: {e}")
+            logger.error(f"Report generation failed: {e}", exc_info=True)
+            await ctx.reply("Report generation failed. Try again later!")
 
 
 @bot.command(name="recat")
@@ -5007,14 +5031,14 @@ async def cmd_recat(ctx):
 
         except Exception as e:
             logger.error(f"Recat error: {e}")
-            await ctx.reply(f"Something went wrong: {e}")
+            logger.error(f"Command error: {e}", exc_info=True)
+        await ctx.reply("Something went wrong. Try again later!")
 
 
 @bot.command(name="setfinance")
 async def cmd_setfinance(ctx):
     """Set this channel for weekly finance coaching tips."""
-    if not ctx.guild:
-        await ctx.reply("This only works in a server!")
+    if not await _require_manage_guild(ctx):
         return
     update_server_setting(str(ctx.guild.id), "finance_channel_id", str(ctx.channel.id))
     await ctx.reply("✅ Weekly finance coaching will be posted **here** every Saturday at 6pm EAT!\nEmily will analyze your spending and give personalized tips. 💰")
@@ -5358,7 +5382,8 @@ async def cmd_watchparty(ctx, *, args: str = None):
             await ctx.reply("Couldn't schedule that. Try again?")
     except Exception as e:
         logger.error(f"Watch party error: {e}")
-        await ctx.reply(f"Something went wrong: {e}")
+        logger.error(f"Command error: {e}", exc_info=True)
+        await ctx.reply("Something went wrong. Try again later!")
 
 
 @bot.command(name="join")
@@ -5434,8 +5459,7 @@ async def cmd_filmnight(ctx):
 @bot.command(name="setmovienight")
 async def cmd_setmovienight(ctx, time: str = "19:00"):
     """Set this channel for weekend movie suggestions. Usage: !setmovienight 19:00"""
-    if not ctx.guild:
-        await ctx.reply("This only works in a server!")
+    if not await _require_manage_guild(ctx):
         return
     try:
         # Validate time format
@@ -5455,7 +5479,8 @@ async def cmd_setmovienight(ctx, time: str = "19:00"):
             await ctx.reply("Couldn't set that up. Try again?")
     except Exception as e:
         logger.error(f"Set movie night error: {e}")
-        await ctx.reply(f"Error: {e}")
+        logger.error(f"Command error: {e}", exc_info=True)
+        await ctx.reply("Something went wrong. Try again!")
 
 
 @bot.command(name="suggest")
@@ -5575,11 +5600,13 @@ async def cmd_trivia(ctx, category: str = "mixed"):
 async def cmd_voicemode(ctx):
     """Toggle voice mode — Emily auto-sends voice replies."""
     user_id = str(ctx.author.id)
-    if user_id in _voice_mode_users:
+    if _is_voice_mode(user_id):
         _voice_mode_users.discard(user_id)
+        set_voice_mode(user_id, False)
         await ctx.reply("🔇 Voice mode **OFF**. I'll reply with text only now.")
     else:
         _voice_mode_users.add(user_id)
+        set_voice_mode(user_id, True)
         await ctx.reply("🎙️ Voice mode **ON**! I'll send voice notes with my replies. Say `!voicemode` again to turn off.")
 
 
@@ -5749,7 +5776,8 @@ async def cmd_birthday(ctx, name: str, *, date_str: str):
         else:
             await ctx.reply("Couldn't save that. Try again?")
     except Exception as e:
-        await ctx.reply(f"Error: {e}")
+        logger.error(f"Command error: {e}", exc_info=True)
+        await ctx.reply("Something went wrong. Try again!")
 
 
 @bot.command(name="anniversary")
@@ -5768,7 +5796,8 @@ async def cmd_anniversary(ctx, name: str, *, date_str: str):
         else:
             await ctx.reply("Couldn't save that.")
     except Exception as e:
-        await ctx.reply(f"Error: {e}")
+        logger.error(f"Command error: {e}", exc_info=True)
+        await ctx.reply("Something went wrong. Try again!")
 
 
 @bot.command(name="birthdays")
@@ -5930,8 +5959,7 @@ async def cmd_vibes(ctx, *, mood: str = "chill"):
 @bot.command(name="setmusic")
 async def cmd_setmusic(ctx):
     """Set this channel for Monday music suggestions."""
-    if not ctx.guild:
-        await ctx.reply("This only works in a server!")
+    if not await _require_manage_guild(ctx):
         return
     update_server_setting(str(ctx.guild.id), "music_channel_id", str(ctx.channel.id))
     await ctx.reply("✅ Monday music will be posted **here** every Monday at 9am EAT! 🎵")
@@ -5943,13 +5971,7 @@ async def cmd_setmusic(ctx):
 @bot.command(name="setpersona")
 async def cmd_setpersona(ctx, *, persona: str = ""):
     """Set Emily's personality for this server. Usage: !setpersona professional | !setpersona <custom text>"""
-    if not ctx.guild:
-        await ctx.reply("This only works in a server!")
-        return
-
-    # Check if user has manage server permission
-    if not ctx.author.guild_permissions.manage_guild:
-        await ctx.reply("You need **Manage Server** permission to change my personality!")
+    if not await _require_manage_guild(ctx):
         return
 
     if not persona:
@@ -6037,8 +6059,7 @@ async def cmd_stopalert(ctx):
 @bot.command(name="voicechat")
 async def cmd_voicechat(ctx):
     """Toggle voice chat mode for this channel. Emily always replies with voice here."""
-    if not ctx.guild:
-        await ctx.reply("This only works in a server!")
+    if not await _require_manage_guild(ctx):
         return
 
     currently_on = is_voice_chat_channel(str(ctx.guild.id), str(ctx.channel.id))
@@ -6217,7 +6238,8 @@ async def cmd_review(ctx, *, code: str = ""):
             filename = attachment.filename
             code_to_review = file_text
         except Exception as e:
-            await ctx.reply(f"Couldn't read that file: {e}")
+            logger.error(f"File read error: {e}")
+            await ctx.reply("Couldn't read that file. Try a different format?")
             return
 
     # Strip markdown code blocks if pasted
@@ -6301,7 +6323,8 @@ async def cmd_explain(ctx, *, code: str = ""):
             filename = attachment.filename
             code_to_explain = file_text
         except Exception as e:
-            await ctx.reply(f"Couldn't read that file: {e}")
+            logger.error(f"File read error: {e}")
+            await ctx.reply("Couldn't read that file. Try a different format?")
             return
 
     if code_to_explain.startswith("```") and code_to_explain.endswith("```"):
@@ -7138,7 +7161,7 @@ async def on_message(message):
     # Debug: log every message that reaches the bot
     is_mention = bot.user.mentioned_in(message) if bot.user else False
     is_dm = isinstance(message.channel, discord.DMChannel)
-    logger.info(f"📨 MSG from {message.author}: '{message.content[:50]}' mention={is_mention} dm={is_dm}")
+    logger.info(f"📨 MSG from {message.author.id} | guild={'DM' if is_dm else message.guild.id} | len={len(message.content)} | cmd={message.content.startswith('!')} | mention={is_mention}")
 
     # Process prefix commands (! commands) — works with or without @mention
     # Strip mention to check if the actual message is a command
@@ -7419,7 +7442,7 @@ async def on_message(message):
                     stock_data = await asyncio.to_thread(get_stock_price, detected_ticker)
                     if stock_data and "couldn't find" not in stock_data:
                         full_response = "Sawa, let me pull that up!\n\n" + stock_data
-                        if is_voice_input or wants_voice_reply or user_id in _voice_mode_users or is_voice_channel:
+                        if is_voice_input or wants_voice_reply or _is_voice_mode(user_id) or is_voice_channel:
                             if not await send_voice_reply(message, full_response):
                                 await send_chunked_reply(message, full_response)
                         else:
@@ -7612,7 +7635,7 @@ async def on_message(message):
                 return
             full_response = response_text + source_links
 
-            if is_voice_input or wants_voice_reply or user_id in _voice_mode_users or is_voice_channel:
+            if is_voice_input or wants_voice_reply or _is_voice_mode(user_id) or is_voice_channel:
                 # Send voice note + text fallback
                 voice_sent = await send_voice_reply(message, response_text)
                 if not voice_sent:

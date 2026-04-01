@@ -1305,10 +1305,10 @@ function renderDiaryEntries(entries){
     const eid=e._id||'';
     const isPinned=e.pinned?true:false;
     const tags=e.tags||[];
-    const tagsHtml=tags.map(t=>`<span class="entry-tag t-${t}">${t}</span>`).join('');
-    const entryTags=tags.length?tags.map(t=>`'${t}'`).join(','):'';
+    const tagsHtml=tags.map(t=>`<span class="entry-tag t-${esc(t)}">${esc(t)}</span>`).join('');
+    const entryTags=tags.length?tags.map(t=>`'${escAttr(t)}'`).join(','):'';
     const photos=e.photos||[];
-    const photosHtml=photos.length?`<div class="entry-photos">${photos.map(p=>`<div class="entry-photo" onclick="openLightbox('${p}')"><img src="${p}" loading="lazy" alt=""></div>`).join('')}</div>`:'';
+    const photosHtml=photos.length?`<div class="entry-photos">${photos.map(p=>{const u=safeUrl(p);return u?`<div class="entry-photo" onclick="openLightbox('${escAttr(u)}')"><img src="${escAttr(u)}" loading="lazy" alt=""></div>`:''}).join('')}</div>`:'';
 
     html+=`<div class="entry ${isPinned?'pinned-entry':''}" id="entry-${eid}">
       <div class="entry-top">
@@ -1415,7 +1415,7 @@ async function loadDashBudget(){
       for(const [cat,amt] of cats.slice(0,6)){
         const pct=(amt/maxCat)*100;
         const cc=catColors[cat]||'var(--accent)';
-        html+=`<div class="dash-cat-row"><div class="dash-cat-name">${cat}</div><div class="dash-cat-bar"><div class="dash-cat-fill" style="width:${pct}%;background:${cc}"><span>${Math.round((amt/b.total_spent)*100)}%</span></div></div><div class="dash-cat-amt">KES ${amt.toLocaleString()}</div></div>`;
+        html+=`<div class="dash-cat-row"><div class="dash-cat-name">${esc(cat)}</div><div class="dash-cat-bar"><div class="dash-cat-fill" style="width:${pct}%;background:${cc}"><span>${Math.round((amt/b.total_spent)*100)}%</span></div></div><div class="dash-cat-amt">KES ${amt.toLocaleString()}</div></div>`;
       }
     }
 
@@ -1451,7 +1451,7 @@ async function loadDashPortfolio(){
     }
     let html=`<div style="text-align:center;margin-bottom:10px"><div class="dash-big-pct">KES ${d.total_value.toLocaleString()}</div><div class="dash-big-label">${d.holding_count} holding${d.holding_count!==1?'s':''} · cost basis</div></div>`;
     for(const h of holdings){
-      html+=`<div class="dash-holding"><div><div class="dh-sym">${h.symbol}</div><div class="dh-detail">${h.quantity} shares @ KES ${h.buy_price.toLocaleString()}</div></div><div class="dh-val">KES ${h.value.toLocaleString()}</div></div>`;
+      html+=`<div class="dash-holding"><div><div class="dh-sym">${esc(h.symbol)}</div><div class="dh-detail">${h.quantity} shares @ KES ${h.buy_price.toLocaleString()}</div></div><div class="dh-val">KES ${h.value.toLocaleString()}</div></div>`;
     }
     el.innerHTML=html;
   }catch(e){
@@ -2175,6 +2175,8 @@ async function installApp(){
 // ═══ UTILS ═══
 function toast(msg){const t=document.getElementById('toast');t.textContent=msg;t.classList.add('show');setTimeout(()=>t.classList.remove('show'),2500)}
 function esc(s){const d=document.createElement('div');d.textContent=s;return d.innerHTML}
+function safeUrl(u){if(!u||typeof u!=='string')return '';try{const p=new URL(u);return['http:','https:','data:'].includes(p.protocol)?encodeURI(u):''}catch{return ''}}
+function escAttr(s){return esc(s).replace(/'/g,'&#39;').replace(/"/g,'&quot;')}
 
 // ═══ INIT ═══
 window.addEventListener('DOMContentLoaded',()=>{
