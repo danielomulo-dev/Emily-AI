@@ -9,7 +9,7 @@ from pymongo import MongoClient
 OLD_URI = "mongodb+srv://danielomulo_db_user:WjaEHyHIqRrKp9ic@cluster-1.og8yd3o.mongodb.net/emily_brain_db?retryWrites=true&w=majority&serverSelectionTimeoutMS=60000&connectTimeoutMS=60000"
 
 # ── New cluster (Virginia) ──
-NEW_URI = "mongodb+srv://emily_bot:ABBQJraqDQ4r1Fdy@emily-cluster.ecqxug2.mongodb.net/emily_brain_db?retryWrites=true&w=majority"
+NEW_URI = ""mongodb+srv://USERNAME:PASSWORD@your-cluster.mongodb.net/emily_brain_db"
 
 # All collections used by Emily
 COLLECTIONS = [
