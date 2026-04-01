@@ -17,6 +17,7 @@ ddgs
 
 # === Media & Voice ===
 elevenlabs
+openai
 PyNaCl
 
 # === Document Processing ===

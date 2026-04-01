@@ -28,7 +28,7 @@ from memory import get_user_profile, update_user_fact, set_voice_mode, add_messa
 from image_tools import get_media_link
 from web_tools import search_video_link, extract_text_from_url, get_latest_news, get_search_results, get_news_raw
 from finance_tools import get_stock_price
-from voice_tools import generate_voice_note, cleanup_voice_file
+from voice_tools import generate_voice_note, cleanup_voice_file, transcribe_audio, is_openai_configured
 from tracker_tools import (
     log_expense, get_daily_spending, get_monthly_spending, set_budget_limit,
     get_budget_limit, format_budget_summary,
@@ -115,6 +115,17 @@ logger = logging.getLogger(__name__)
 # --- INITIALIZE AI CLIENTS ---
 gemini_client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
 claude_client = anthropic.AsyncAnthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
+
+# OpenAI client (for cheap tasks via GPT-4.1-mini)
+_openai_chat_client = None
+def _get_openai_chat():
+    global _openai_chat_client
+    if _openai_chat_client is None and os.getenv("OPENAI_API_KEY"):
+        from openai import AsyncOpenAI
+        _openai_chat_client = AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+    return _openai_chat_client
+
+MODEL_GPT_MINI = "gpt-4.1-mini"
 
 # --- MODELS ---
 MODEL_GEMINI = os.getenv("MODEL_CHAT", "gemini-2.0-flash")
@@ -573,6 +584,36 @@ async def _call_claude_with_retry(create_func, *args, timeout=None, **kwargs):
 
 
 # ══════════════════════════════════════════════
+# GPT-4.1-MINI (Cheap Tasks — $0.40/1M tokens)
+# ══════════════════════════════════════════════
+async def gpt_mini_classify(prompt, max_tokens=50):
+    """Use GPT-4.1-mini for cheap classification tasks.
+    ~10x cheaper than Claude for simple tasks like:
+    - Expense categorization
+    - Mood detection
+    - Tag extraction
+    Returns the text response or None on failure.
+    """
+    client = _get_openai_chat()
+    if not client:
+        return None
+    try:
+        response = await asyncio.wait_for(
+            client.chat.completions.create(
+                model=MODEL_GPT_MINI,
+                messages=[{"role": "user", "content": prompt}],
+                max_tokens=max_tokens,
+                temperature=0,
+            ),
+            timeout=10,
+        )
+        return response.choices[0].message.content.strip()
+    except Exception as e:
+        logger.warning(f"GPT-mini error: {e}")
+        return None
+
+
+# ══════════════════════════════════════════════
 # INJECTION PROTECTION
 # ══════════════════════════════════════════════
 def _sanitize_fact(fact):
@@ -914,6 +955,18 @@ async def process_attachments(message):
 # VOICE
 # ══════════════════════════════════════════════
 async def transcribe_audio_with_gemini(audio_bytes, mime_type="audio/ogg"):
+    """Transcribe audio — tries OpenAI Whisper first (better accuracy, cheaper),
+    falls back to Gemini if OpenAI is not configured."""
+    # Try Whisper first
+    if is_openai_configured():
+        try:
+            result = await transcribe_audio(audio_bytes, mime_type)
+            if result:
+                return result
+        except Exception as e:
+            logger.warning(f"Whisper failed, falling back to Gemini: {e}")
+
+    # Fallback to Gemini
     try:
         audio_part = types.Part.from_bytes(data=audio_bytes, mime_type=mime_type)
         response = await _call_gemini_with_retry(
@@ -7042,6 +7095,33 @@ def _detect_expense_category(description):
     return "general"
 
 
+async def _smart_categorize(description):
+    """Use GPT-4.1-mini for expense categorization when regex fails.
+    ~$0.0004 per call — 10x cheaper than Claude.
+    """
+    result = await gpt_mini_classify(
+        f"Categorize this expense into ONE word from: food, transport, bills, shopping, "
+        f"entertainment, health, savings, general.\n\nExpense: {description}\n\nCategory:",
+        max_tokens=10,
+    )
+    if result:
+        cat = result.lower().strip().rstrip('.')
+        valid = {"food", "transport", "bills", "shopping", "entertainment", "health", "savings", "general"}
+        if cat in valid:
+            return cat
+    return None
+
+
+async def _detect_category_smart(description):
+    """Try regex first (instant), then GPT-mini for ambiguous cases."""
+    cat = _detect_expense_category(description)
+    if cat != "general":
+        return cat
+    # Regex couldn't tell — ask GPT-mini
+    smart = await _smart_categorize(description)
+    return smart or "general"
+
+
 # ══════════════════════════════════════════════
 # COMMAND ERROR HANDLER (catches all command errors)
 # ══════════════════════════════════════════════
@@ -7266,7 +7346,7 @@ async def on_message(message):
                 # Log the expense if detected (minimum KES 10 to avoid false positives)
                 if expense_detected and amount and amount >= 10 and desc and len(desc) > 1:
                     try:
-                        category = _detect_expense_category(desc)
+                        category = await _detect_category_smart(desc)
                         if log_expense(user_id, amount, desc, category):
                             daily = get_daily_spending(user_id)
                             today_total = daily["total"] if daily else amount
