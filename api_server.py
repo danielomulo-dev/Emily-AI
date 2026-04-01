@@ -679,8 +679,14 @@ def api_get_dashboard_budget_history(user_id, months=4):
         now = datetime.now(EAT_ZONE)
         results = []
         for i in range(months):
-            dt = now - timedelta(days=30 * i)
-            ms = dt.strftime("%Y-%m")
+            # Proper calendar month subtraction
+            y = now.year
+            m = now.month - i
+            while m <= 0:
+                m += 12
+                y -= 1
+            ms = f"{y}-{m:02d}"
+            label = datetime(y, m, 1).strftime("%b")
             pipeline = [
                 {"$match": {"user_id": str(user_id), "month_str": ms}},
                 {"$group": {"_id": None, "total": {"$sum": "$amount"}, "count": {"$sum": 1}}},
@@ -688,7 +694,7 @@ def api_get_dashboard_budget_history(user_id, months=4):
             agg = list(db["budgets"].aggregate(pipeline))
             total = round(agg[0]["total"], 2) if agg else 0
             count = agg[0]["count"] if agg else 0
-            results.append({"month": ms, "label": dt.strftime("%b"), "total_spent": total, "transactions": count})
+            results.append({"month": ms, "label": label, "total_spent": total, "transactions": count})
         results.reverse()
         return {"months": results}
     except Exception as e:
