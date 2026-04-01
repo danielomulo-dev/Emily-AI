@@ -2855,7 +2855,7 @@ async def before_smart_nudges():
 # ══════════════════════════════════════════════
 @tasks.loop(minutes=1)
 async def daily_learning():
-    """Post a daily learning nugget at noon EAT — researched from the web."""
+    """Post a daily learning nugget at noon EAT — AI-generated unique topics."""
     try:
         now = datetime.now(pytz.timezone('Africa/Nairobi'))
 
@@ -2864,7 +2864,7 @@ async def daily_learning():
         if now_minutes < 720 or now_minutes > 780:
             return
 
-        servers = get_news_servers()  # Reuse news channel config
+        servers = get_news_servers()
         for server_config in servers:
             channel_id = server_config.get("news_channel_id")
             if not channel_id:
@@ -2879,32 +2879,116 @@ async def daily_learning():
             if not channel:
                 continue
 
-            # Rotate category: Mon/Thu=finance, Tue/Fri=cooking, Wed/Sat=film, Sun=random
+            # ── EXPANDED CATEGORY ROTATION ──
+            LESSON_CATS = {
+                0: ("finance", "💰"),
+                1: ("cooking", "🍳"),
+                2: ("science", "🔬"),
+                3: ("history", "📜"),
+                4: ("technology", "💻"),
+                5: ("health", "🏥"),
+                6: ("african_culture", "🌍"),
+            }
+            BONUS_CATS = [("psychology", "🧠"), ("film", "🎬"), ("nature", "🌿"), ("music", "🎵")]
+
             day = now.weekday()
-            if day in (0, 3):
-                cat = "finance"
-            elif day in (1, 4):
-                cat = "cooking"
-            elif day in (2, 5):
-                cat = "film"
-            else:
-                cat = random.choice(["finance", "cooking", "film"])
+            cat, cat_emoji = LESSON_CATS.get(day, ("finance", "💰"))
 
-            topic = random.choice(LEARNING_TOPICS[cat])
-            cat_emoji = {"finance": "💰", "cooking": "🍳", "film": "🎬"}[cat]
+            # 20% chance to swap in a bonus category for variety
+            if random.random() < 0.2:
+                cat, cat_emoji = random.choice(BONUS_CATS)
 
-            # ── RESEARCH: Search the web for fresh facts ──
+            # ── LAZY DB CONNECTION ──
+            if not hasattr(daily_learning, '_db'):
+                import certifi
+                from pymongo import MongoClient as _MC
+                _client = _MC(os.getenv("MONGO_URI"), tlsCAFile=certifi.where(), serverSelectionTimeoutMS=10000)
+                daily_learning._db = _client["emily_brain_db"]
+
+            db = daily_learning._db
+            guild_id = str(server_config["guild_id"])
+
+            # ── LOAD RECENT TOPICS TO AVOID REPEATS ──
+            recent_topics = []
+            try:
+                recent = list(db["lesson_history"].find(
+                    {"guild_id": guild_id},
+                    {"topic": 1, "category": 1, "_id": 0}
+                ).sort("date_dt", -1).limit(60))
+                recent_topics = [r["topic"] for r in recent if r.get("topic")]
+            except Exception as e:
+                logger.warning(f"Could not load lesson history: {e}")
+
+            avoid_str = "\n".join(f"- {t}" for t in recent_topics[:30]) if recent_topics else "None yet"
+
+            # ── GENERATE UNIQUE TOPIC WITH GEMINI ──
+            topic = None
+            topic_prompt = (
+                f"Pick ONE specific, interesting, surprising topic for a daily lesson.\n"
+                f"Category: {cat.replace('_', ' ')}\n"
+                f"Target audience: a young Kenyan professional in Nairobi.\n\n"
+                f"Make it SPECIFIC — not generic. Examples:\n"
+                f"- Instead of 'budgeting' → 'The 50/30/20 rule adapted for Kenyan salaries'\n"
+                f"- Instead of 'cooking tips' → 'Why your chapati is never as flaky as your mum's — the science of layering'\n"
+                f"- Instead of 'technology' → 'How M-Pesa's architecture handles 1,600 transactions per second'\n\n"
+                f"DO NOT repeat any of these recently used topics:\n{avoid_str}\n\n"
+                f"Reply with ONLY the topic title — nothing else. No quotes, no bullet, no numbering."
+            )
+
+            try:
+                topic_response = await _call_gemini_with_retry(
+                    gemini_client.aio.models.generate_content,
+                    model=MODEL_GEMINI,
+                    contents=[types.Content(role="user", parts=[types.Part.from_text(text=topic_prompt)])],
+                    config=types.GenerateContentConfig(max_output_tokens=100, temperature=1.0),
+                    timeout=15,
+                )
+                topic = topic_response.text.strip().strip('"').strip("'").strip("*").strip()
+            except Exception as e:
+                logger.warning(f"Gemini topic generation failed: {e}")
+
+            # Fallback: OpenAI GPT-4.1-mini for topic
+            if not topic:
+                try:
+                    oai = _get_openai_chat()
+                    if oai:
+                        resp = await asyncio.wait_for(
+                            oai.chat.completions.create(
+                                model=MODEL_GPT_MINI,
+                                messages=[{"role": "user", "content": topic_prompt}],
+                                max_tokens=100,
+                                temperature=1.0,
+                            ),
+                            timeout=15,
+                        )
+                        topic = resp.choices[0].message.content.strip().strip('"').strip("'").strip("*").strip()
+                except Exception as e:
+                    logger.warning(f"OpenAI topic generation failed: {e}")
+
+            # Final fallback: static list
+            if not topic:
+                fallback_cat = cat if cat in LEARNING_TOPICS else "finance"
+                topic = random.choice(LEARNING_TOPICS[fallback_cat])
+
+            # ── WEB RESEARCH FOR FRESH FACTS ──
             web_context = ""
             try:
                 search_queries = {
-                    "finance": f"{topic} tips facts 2025 2026",
+                    "finance": f"{topic} tips facts Kenya 2025 2026",
                     "cooking": f"{topic} technique tips recipe facts",
                     "film": f"{topic} film analysis interesting facts",
+                    "science": f"{topic} explained facts discoveries",
+                    "history": f"{topic} historical facts surprising",
+                    "technology": f"{topic} tech innovation facts 2025",
+                    "health": f"{topic} health wellness facts",
+                    "african_culture": f"{topic} Africa culture facts",
+                    "psychology": f"{topic} psychology facts studies",
+                    "nature": f"{topic} nature wildlife facts",
+                    "music": f"{topic} music industry facts",
                 }
                 query = search_queries.get(cat, f"{topic} interesting facts tips")
                 articles, _ = await asyncio.to_thread(get_news_raw, query, max_results=3)
                 if not articles:
-                    # Try general web search
                     urls = await asyncio.to_thread(get_search_results, query, 3)
                     if urls:
                         for url in urls[:2]:
@@ -2917,46 +3001,104 @@ async def daily_learning():
             except Exception as e:
                 logger.warning(f"Learning web research failed: {e}")
 
-            # ── GENERATE: Use Claude with web research ──
-            try:
-                research_note = ""
-                if web_context:
-                    research_note = (
-                        f"\n\nHere are some fresh facts and sources I found online about this topic. "
-                        f"Use these real facts in your lesson — cite specific data, numbers, or examples from them:\n"
-                        f"{web_context}\n"
-                    )
-
-                lesson_response = await asyncio.wait_for(
-                    claude_client.messages.create(
-                        model=MODEL_CLAUDE,
-                        max_tokens=1024,
-                        system=(
-                            f"{EMILY_MINI_PERSONA} Write a fun, educational 3-4 paragraph lesson. "
-                            f"Include REAL facts and specific numbers — not generic advice. "
-                            f"Include a practical tip someone can use TODAY. "
-                            f"You're on Discord — use markdown, not HTML."
-                        ),
-                        messages=[{"role": "user", "content": f"Teach me about: {topic}{research_note}"}],
-                    ),
-                    timeout=API_TIMEOUT_SECONDS,
+            research_note = ""
+            if web_context:
+                research_note = (
+                    f"\n\nHere are some fresh facts and sources I found online about this topic. "
+                    f"Use these real facts in your lesson — cite specific data, numbers, or examples from them:\n"
+                    f"{web_context}\n"
                 )
-                lesson_text = ""
-                for block in lesson_response.content:
-                    if block.type == "text":
-                        lesson_text += block.text
 
-                if lesson_text:
-                    message = (
-                        f"{cat_emoji} **Emily's Daily Lesson — {cat.title()}**\n\n"
-                        f"**Today's topic:** {topic}\n\n"
-                        f"{lesson_text}\n\n"
-                        f"_Learn something new every day with Emily!_ 📚"
-                    )
-                    await send_chunked_reply_to_channel(channel, message)
-                    update_server_setting(str(server_config["guild_id"]), "last_learn_date", today)
+            lesson_system = (
+                f"{EMILY_MINI_PERSONA} Write a fun, educational 3-4 paragraph lesson. "
+                f"Include REAL facts and specific numbers — not generic advice. "
+                f"Include a practical tip someone can use TODAY. "
+                f"You're on Discord — use markdown, not HTML."
+            )
+            lesson_prompt = f"Teach me about: {topic}{research_note}"
+
+            # ── GENERATE LESSON WITH GEMINI (PRIMARY) ──
+            lesson_text = None
+            try:
+                lesson_response = await _call_gemini_with_retry(
+                    gemini_client.aio.models.generate_content,
+                    model=MODEL_GEMINI,
+                    contents=[types.Content(role="user", parts=[types.Part.from_text(text=lesson_prompt)])],
+                    config=types.GenerateContentConfig(
+                        system_instruction=lesson_system,
+                        max_output_tokens=1024,
+                        temperature=0.8,
+                    ),
+                    timeout=30,
+                )
+                lesson_text = lesson_response.text.strip()
             except Exception as e:
-                logger.error(f"Learning lesson generation error: {e}")
+                logger.warning(f"Gemini lesson generation failed: {e}")
+
+            # ── FALLBACK: OPENAI GPT-4.1-MINI ──
+            if not lesson_text:
+                try:
+                    oai = _get_openai_chat()
+                    if oai:
+                        resp = await asyncio.wait_for(
+                            oai.chat.completions.create(
+                                model=MODEL_GPT_MINI,
+                                messages=[
+                                    {"role": "system", "content": lesson_system},
+                                    {"role": "user", "content": lesson_prompt},
+                                ],
+                                max_tokens=1024,
+                                temperature=0.8,
+                            ),
+                            timeout=30,
+                        )
+                        lesson_text = resp.choices[0].message.content.strip()
+                except Exception as e:
+                    logger.warning(f"OpenAI lesson generation failed: {e}")
+
+            # ── LAST RESORT: CLAUDE (original fallback) ──
+            if not lesson_text:
+                try:
+                    lesson_response = await asyncio.wait_for(
+                        claude_client.messages.create(
+                            model=MODEL_CLAUDE,
+                            max_tokens=1024,
+                            system=lesson_system,
+                            messages=[{"role": "user", "content": lesson_prompt}],
+                        ),
+                        timeout=API_TIMEOUT_SECONDS,
+                    )
+                    for block in lesson_response.content:
+                        if block.type == "text":
+                            lesson_text = (lesson_text or "") + block.text
+                except Exception as e:
+                    logger.error(f"Claude lesson fallback also failed: {e}")
+
+            if lesson_text:
+                display_cat = cat.replace("_", " ").title()
+                message = (
+                    f"{cat_emoji} **Emily's Daily Lesson — {display_cat}**\n\n"
+                    f"**Today's topic:** {topic}\n\n"
+                    f"{lesson_text}\n\n"
+                    f"_Learn something new every day with Emily!_ 📚"
+                )
+                await send_chunked_reply_to_channel(channel, message)
+                update_server_setting(guild_id, "last_learn_date", today)
+
+                # ── SAVE TO HISTORY (prevents future repeats) ──
+                try:
+                    db["lesson_history"].insert_one({
+                        "guild_id": guild_id,
+                        "topic": topic,
+                        "category": cat,
+                        "date": today,
+                        "date_dt": now,
+                    })
+                except Exception as e:
+                    logger.warning(f"Could not save lesson history: {e}")
+
+            else:
+                logger.error(f"All lesson generation methods failed for topic: {topic}")
 
     except Exception as e:
         logger.error(f"Daily learning error: {e}")
@@ -6036,33 +6178,100 @@ async def cmd_debate(ctx, *, topic: str):
 # ══════════════════════════════════════════════
 @bot.command(name="learn")
 async def cmd_learn(ctx, category: str = None):
-    """Get a learning nugget. Usage: !learn [finance/cooking/film]"""
+    """Get a learning nugget. Usage: !learn [finance/cooking/science/history/tech/health/film/psychology]"""
     async with ctx.typing():
         try:
-            if category and category.lower() in LEARNING_TOPICS:
+            ALL_CATS = {
+                "finance": "💰", "cooking": "🍳", "science": "🔬", "history": "📜",
+                "technology": "💻", "tech": "💻", "health": "🏥", "film": "🎬",
+                "psychology": "🧠", "nature": "🌿", "music": "🎵", "african_culture": "🌍",
+                "culture": "🌍",
+            }
+            if category and category.lower() in ALL_CATS:
                 cat = category.lower()
+                if cat == "tech":
+                    cat = "technology"
+                elif cat == "culture":
+                    cat = "african_culture"
             else:
-                cat = random.choice(["finance", "cooking", "film"])
+                cat = random.choice(["finance", "cooking", "science", "history", "technology", "health", "film"])
 
-            topic = random.choice(LEARNING_TOPICS[cat])
-            cat_emoji = {"finance": "💰", "cooking": "🍳", "film": "🎬"}[cat]
+            cat_emoji = ALL_CATS.get(cat, "📚")
 
-            lesson_response = await asyncio.wait_for(
-                claude_client.messages.create(
-                    model=MODEL_CLAUDE,
-                    max_tokens=1024,
-                    system=f"{EMILY_MINI_PERSONA} Write a fun, educational 3-4 paragraph lesson. Include real-world examples and a practical tip someone can use TODAY.",
-                    messages=[{"role": "user", "content": f"Teach me about: {topic}"}],
-                ),
-                timeout=API_TIMEOUT_SECONDS,
+            # Generate unique topic with Gemini
+            topic_prompt = (
+                f"Pick ONE specific, interesting, surprising topic for a lesson.\n"
+                f"Category: {cat.replace('_', ' ')}\n"
+                f"Target audience: a young Kenyan professional in Nairobi.\n"
+                f"Make it SPECIFIC and fascinating — not generic.\n"
+                f"Reply with ONLY the topic title — nothing else."
             )
-            lesson = ""
-            for block in lesson_response.content:
-                if block.type == "text":
-                    lesson += block.text
+            topic = None
+            try:
+                resp = await _call_gemini_with_retry(
+                    gemini_client.aio.models.generate_content,
+                    model=MODEL_GEMINI,
+                    contents=[types.Content(role="user", parts=[types.Part.from_text(text=topic_prompt)])],
+                    config=types.GenerateContentConfig(max_output_tokens=100, temperature=1.0),
+                    timeout=15,
+                )
+                topic = resp.text.strip().strip('"').strip("'").strip("*").strip()
+            except Exception:
+                pass
+
+            if not topic:
+                fallback_cat = cat if cat in LEARNING_TOPICS else "finance"
+                topic = random.choice(LEARNING_TOPICS[fallback_cat])
+
+            lesson_system = (
+                f"{EMILY_MINI_PERSONA} Write a fun, educational 3-4 paragraph lesson. "
+                f"Include real-world examples, REAL facts, specific numbers, and a practical tip someone can use TODAY. "
+                f"You're on Discord — use markdown, not HTML."
+            )
+            lesson_prompt = f"Teach me about: {topic}"
+
+            # Gemini primary
+            lesson = None
+            try:
+                resp = await _call_gemini_with_retry(
+                    gemini_client.aio.models.generate_content,
+                    model=MODEL_GEMINI,
+                    contents=[types.Content(role="user", parts=[types.Part.from_text(text=lesson_prompt)])],
+                    config=types.GenerateContentConfig(
+                        system_instruction=lesson_system,
+                        max_output_tokens=1024,
+                        temperature=0.8,
+                    ),
+                    timeout=30,
+                )
+                lesson = resp.text.strip()
+            except Exception as e:
+                logger.warning(f"Gemini learn failed: {e}")
+
+            # OpenAI fallback
+            if not lesson:
+                try:
+                    oai = _get_openai_chat()
+                    if oai:
+                        resp = await asyncio.wait_for(
+                            oai.chat.completions.create(
+                                model=MODEL_GPT_MINI,
+                                messages=[
+                                    {"role": "system", "content": lesson_system},
+                                    {"role": "user", "content": lesson_prompt},
+                                ],
+                                max_tokens=1024,
+                                temperature=0.8,
+                            ),
+                            timeout=30,
+                        )
+                        lesson = resp.choices[0].message.content.strip()
+                except Exception as e:
+                    logger.warning(f"OpenAI learn failed: {e}")
 
             if lesson:
-                await send_chunked_reply(ctx.message, f"{cat_emoji} **Emily's Lesson — {cat.title()}**\n\n**Topic:** {topic}\n\n{lesson}")
+                display_cat = cat.replace("_", " ").title()
+                await send_chunked_reply(ctx.message, f"{cat_emoji} **Emily's Lesson — {display_cat}**\n\n**Topic:** {topic}\n\n{lesson}")
             else:
                 await ctx.reply("Lesson plan failed. Try again!")
         except Exception as e:
