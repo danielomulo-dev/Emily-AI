@@ -996,6 +996,112 @@ def get_server_persona(guild_id):
 
 
 # ══════════════════════════════════════════════
+# UNIFIED SETTINGS SYSTEM
+# ══════════════════════════════════════════════
+FEATURE_TOGGLES = {
+    "news":      {"key": "news_enabled",      "label": "Daily News Briefing",   "default": False},
+    "finance":   {"key": "finance_enabled",   "label": "Weekly Finance Coaching","default": False},
+    "movies":    {"key": "movie_enabled",     "label": "Weekend Movie Nights",  "default": False},
+    "music":     {"key": "music_enabled",     "label": "Monday Music Drops",    "default": False},
+    "learning":  {"key": "learning_enabled",  "label": "Daily Learning Topics", "default": False},
+    "digest":    {"key": "digest_enabled",    "label": "Weekly Server Digest",  "default": False},
+    "scripture": {"key": "scripture_enabled", "label": "Nightly Scripture",     "default": False},
+    "nudges":    {"key": "nudges_enabled",    "label": "Smart Nudges",          "default": True},
+}
+
+
+def toggle_feature(guild_id, feature_name):
+    """Toggle a feature on/off. Returns (success, new_state, label)."""
+    feature_name = feature_name.lower()
+    if feature_name not in FEATURE_TOGGLES:
+        return False, None, f"Unknown feature: {feature_name}. Options: {', '.join(FEATURE_TOGGLES.keys())}"
+
+    feat = FEATURE_TOGGLES[feature_name]
+    settings = get_server_settings(guild_id)
+    current = settings.get(feat["key"], feat["default"])
+    new_state = not current
+    success = update_server_setting(guild_id, feat["key"], new_state)
+    return success, new_state, feat["label"]
+
+
+def get_full_settings(guild_id):
+    """Get all settings for a guild in a structured format."""
+    settings = get_server_settings(guild_id)
+
+    channels = {
+        "news": settings.get("news_channel_id"),
+        "finance": settings.get("finance_channel_id"),
+        "movies": settings.get("movie_channel_id"),
+        "music": settings.get("music_channel_id"),
+        "voicechat": settings.get("voice_chat_channels", []),
+    }
+
+    schedule = {
+        "news_time": settings.get("news_time", "07:00"),
+        "movie_time": settings.get("movie_time", "19:00"),
+        "news_topics": settings.get("news_topics", ["Kenya", "Africa", "business", "technology"]),
+    }
+
+    features = {}
+    for name, feat in FEATURE_TOGGLES.items():
+        features[name] = {
+            "enabled": settings.get(feat["key"], feat["default"]),
+            "label": feat["label"],
+        }
+
+    persona = settings.get("custom_persona", "Default Emily")
+
+    return {
+        "guild_id": guild_id,
+        "channels": channels,
+        "schedule": schedule,
+        "features": features,
+        "persona": persona,
+    }
+
+
+def format_settings(guild_id):
+    """Format all guild settings for Discord display."""
+    s = get_full_settings(guild_id)
+
+    lines = ["⚙️ **Server Settings**\n"]
+
+    # Features
+    lines.append("**Features:**")
+    for name, feat in s["features"].items():
+        icon = "✅" if feat["enabled"] else "❌"
+        lines.append(f"  {icon} {feat['label']} (`{name}`)")
+
+    # Channels
+    lines.append("\n**Channels:**")
+    for name, ch_id in s["channels"].items():
+        if name == "voicechat":
+            if ch_id:
+                lines.append(f"  🔊 Voice chat: {len(ch_id)} channel(s)")
+            continue
+        if ch_id:
+            lines.append(f"  📢 {name.title()}: <#{ch_id}>")
+        else:
+            lines.append(f"  ⬜ {name.title()}: not set")
+
+    # Schedule
+    lines.append("\n**Schedule:**")
+    lines.append(f"  📰 News: {s['schedule']['news_time']} EAT")
+    lines.append(f"  🎬 Movies: {s['schedule']['movie_time']} EAT (Fri-Sun)")
+    lines.append(f"  📝 Topics: {', '.join(s['schedule']['news_topics'])}")
+
+    # Persona
+    persona = s["persona"]
+    if persona and persona != "Default Emily":
+        lines.append(f"\n**Persona:** {persona[:80]}{'...' if len(str(persona)) > 80 else ''}")
+    else:
+        lines.append(f"\n**Persona:** Default Emily")
+
+    lines.append("\n_Toggle features: `!toggle news` · Change channels: `!setnews` `!setfinance`_")
+    return "\n".join(lines)
+
+
+# ══════════════════════════════════════════════
 # INVESTMENT ALERTS
 # ══════════════════════════════════════════════
 def set_alert_settings(user_id, channel_id, threshold_pct=5.0, enabled=True):
@@ -1554,4 +1660,258 @@ def format_mood_trend(trend):
     overall_emoji = MOOD_SCALE.get(round(overall), ("😐", "okay"))[0]
     lines.append(f"\n**Overall: {overall_emoji} {overall:.1f}/5**")
 
+    return "\n".join(lines)
+
+
+# ══════════════════════════════════════════════
+# UNIFIED PERSONAL SEARCH
+# ══════════════════════════════════════════════
+def search_user_data(user_id, query, limit=10):
+    """Search across journal, expenses, goals, reminders, and portfolio.
+    Returns categorized results.
+    """
+    if db is None:
+        return {}
+    
+    user_id = str(user_id)
+    q_lower = query.lower()
+    results = {}
+
+    try:
+        # 1. Journal entries (text search)
+        if journal_col:
+            journal_hits = list(journal_col.find(
+                {"user_id": user_id, "text": {"$regex": query, "$options": "i"}},
+                {"_id": 0, "text": 1, "mood_emoji": 1, "date_str": 1, "mood_label": 1}
+            ).sort("date", -1).limit(limit))
+            if journal_hits:
+                results["journal"] = journal_hits
+
+        # 2. Expenses (description search)
+        if budgets_col:
+            expense_hits = list(budgets_col.find(
+                {"user_id": user_id, "description": {"$regex": query, "$options": "i"}},
+                {"_id": 0, "description": 1, "amount": 1, "category": 1, "date_str": 1}
+            ).sort("date", -1).limit(limit))
+            if expense_hits:
+                results["expenses"] = expense_hits
+
+        # 3. Goals
+        if db["goals"]:
+            goal_hits = list(db["goals"].find(
+                {"user_id": user_id, "goal": {"$regex": query, "$options": "i"}},
+                {"_id": 0, "goal": 1, "progress": 1, "target": 1, "status": 1}
+            ).limit(limit))
+            if goal_hits:
+                results["goals"] = goal_hits
+
+        # 4. Reminders
+        if reminders_col:
+            reminder_hits = list(reminders_col.find(
+                {"user_id": user_id, "text": {"$regex": query, "$options": "i"}},
+                {"_id": 0, "text": 1, "remind_at": 1, "status": 1}
+            ).sort("remind_at", -1).limit(limit))
+            if reminder_hits:
+                results["reminders"] = reminder_hits
+
+        # 5. Todos
+        if todos_col:
+            todo_hits = list(todos_col.find(
+                {"user_id": user_id, "text": {"$regex": query, "$options": "i"}},
+                {"_id": 0, "text": 1, "status": 1}
+            ).limit(limit))
+            if todo_hits:
+                results["todos"] = todo_hits
+
+    except PyMongoError as e:
+        logger.error(f"Search error: {e}")
+
+    return results
+
+
+def format_search_results(query, results):
+    """Format unified search results for Discord."""
+    if not results:
+        return f"No results found for **{query}**."
+
+    lines = [f"🔍 **Search: {query}**\n"]
+    total = 0
+
+    if "journal" in results:
+        lines.append("**📓 Journal:**")
+        for e in results["journal"][:5]:
+            text = (e.get("text", "") or "")[:80]
+            lines.append(f"  {e.get('mood_emoji', '📝')} {e.get('date_str', '?')}: {text}")
+            total += 1
+
+    if "expenses" in results:
+        lines.append("\n**💸 Expenses:**")
+        for e in results["expenses"][:5]:
+            lines.append(f"  {e.get('date_str', '?')}: KES {e['amount']:,.0f} — {e.get('description', '?')} ({e.get('category', '?')})")
+            total += 1
+
+    if "goals" in results:
+        lines.append("\n**🎯 Goals:**")
+        for g in results["goals"][:3]:
+            pct = int((g.get("progress", 0) / max(g.get("target", 100), 1)) * 100)
+            lines.append(f"  {g.get('goal', '?')} — {pct}% ({g.get('status', '?')})")
+            total += 1
+
+    if "reminders" in results:
+        lines.append("\n**⏰ Reminders:**")
+        for r in results["reminders"][:3]:
+            lines.append(f"  {r.get('text', '?')} ({r.get('status', '?')})")
+            total += 1
+
+    if "todos" in results:
+        lines.append("\n**📝 Todos:**")
+        for t in results["todos"][:3]:
+            icon = "✅" if t.get("status") == "done" else "⬜"
+            lines.append(f"  {icon} {t.get('text', '?')}")
+            total += 1
+
+    lines.append(f"\n_Found {total} results across {len(results)} categories_")
+    return "\n".join(lines)
+
+
+# ══════════════════════════════════════════════
+# PRIVACY CONTROLS
+# ══════════════════════════════════════════════
+def export_user_data(user_id):
+    """Export all data for a user as a dictionary. GDPR-style data export."""
+    if db is None:
+        return None
+
+    user_id = str(user_id)
+    export = {"user_id": user_id, "exported_at": str(_now())}
+
+    collections_to_export = {
+        "budgets": {"query": {"user_id": user_id}},
+        "income": {"query": {"user_id": user_id}},
+        "portfolios": {"query": {"user_id": user_id}},
+        "portfolio_transactions": {"query": {"user_id": user_id}},
+        "journal": {"query": {"user_id": user_id}},
+        "goals": {"query": {"user_id": user_id}},
+        "reminders": {"query": {"user_id": user_id}},
+        "todos": {"query": {"user_id": user_id}},
+        "gratitude": {"query": {"user_id": user_id}},
+        "notes": {"query": {"user_id": user_id}},
+        "sleep": {"query": {"user_id": user_id}},
+        "investment_alerts": {"query": {"user_id": user_id}},
+        "users": {"query": {"_id": user_id}},
+    }
+
+    try:
+        for col_name, config in collections_to_export.items():
+            try:
+                col = db[col_name]
+                docs = list(col.find(config["query"], {"_id": 0}))
+                export[col_name] = docs
+            except Exception:
+                export[col_name] = []
+
+        return export
+    except PyMongoError as e:
+        logger.error(f"Data export error: {e}")
+        return None
+
+
+def delete_user_data(user_id, confirm=False):
+    """Delete ALL data for a user across all collections. Irreversible.
+    Returns dict of {collection: deleted_count}.
+    """
+    if db is None or not confirm:
+        return None
+
+    user_id = str(user_id)
+    results = {}
+
+    collections_to_delete = [
+        ("budgets", {"user_id": user_id}),
+        ("income", {"user_id": user_id}),
+        ("portfolios", {"user_id": user_id}),
+        ("portfolio_transactions", {"user_id": user_id}),
+        ("journal", {"user_id": user_id}),
+        ("goals", {"user_id": user_id}),
+        ("reminders", {"user_id": user_id}),
+        ("todos", {"user_id": user_id}),
+        ("gratitude", {"user_id": user_id}),
+        ("notes", {"user_id": user_id}),
+        ("sleep", {"user_id": user_id}),
+        ("investment_alerts", {"user_id": user_id}),
+        ("nudge_log", {"user_id": user_id}),
+        ("dm_report_log", {"user_id": user_id}),
+        ("app_tokens", {"user_id": user_id}),
+        ("users", {"_id": user_id}),
+    ]
+
+    try:
+        total = 0
+        for col_name, query in collections_to_delete:
+            try:
+                result = db[col_name].delete_many(query)
+                results[col_name] = result.deleted_count
+                total += result.deleted_count
+            except Exception:
+                results[col_name] = 0
+
+        logger.info(f"PRIVACY: Deleted {total} documents for user {user_id}")
+        results["total"] = total
+        return results
+    except PyMongoError as e:
+        logger.error(f"Data deletion error: {e}")
+        return None
+
+
+def get_data_summary(user_id):
+    """Get a summary of what data is stored for a user."""
+    if db is None:
+        return None
+
+    user_id = str(user_id)
+    summary = {}
+
+    collections = {
+        "budgets": "Expenses",
+        "income": "Income entries",
+        "portfolios": "Portfolio holdings",
+        "portfolio_transactions": "Portfolio transactions",
+        "journal": "Journal entries",
+        "goals": "Goals",
+        "reminders": "Reminders",
+        "todos": "To-do items",
+        "gratitude": "Gratitude entries",
+        "notes": "Notes",
+        "sleep": "Sleep logs",
+        "users": "Profile & memory",
+    }
+
+    try:
+        for col_name, label in collections.items():
+            try:
+                query = {"_id": user_id} if col_name == "users" else {"user_id": user_id}
+                count = db[col_name].count_documents(query)
+                if count > 0:
+                    summary[label] = count
+            except Exception:
+                pass
+        return summary
+    except PyMongoError as e:
+        logger.error(f"Data summary error: {e}")
+        return None
+
+
+def format_data_summary(user_id):
+    """Format data summary for Discord."""
+    summary = get_data_summary(user_id)
+    if not summary:
+        return "No data stored for your account."
+
+    lines = ["🔒 **Your Data in Emily**\n"]
+    total = 0
+    for label, count in sorted(summary.items()):
+        lines.append(f"  📄 {label}: **{count}**")
+        total += count
+    lines.append(f"\n**Total records:** {total}")
+    lines.append("\n_Export: `!exportdata` · Delete all: `!deletedata`_")
     return "\n".join(lines)

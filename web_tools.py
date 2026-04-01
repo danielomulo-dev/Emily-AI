@@ -1,5 +1,6 @@
 import os
 import logging
+import time as _time
 import requests
 import io
 from bs4 import BeautifulSoup
@@ -9,6 +10,10 @@ from dotenv import load_dotenv
 
 load_dotenv()
 logger = logging.getLogger(__name__)
+
+# --- CACHING ---
+_news_cache = {}  # {topic: {"result": ..., "time": timestamp}}
+_NEWS_CACHE_TTL = 900  # 15 minutes
 
 # --- CONSTANTS ---
 DEFAULT_MAX_CHARS = 3000
@@ -205,8 +210,16 @@ def _dedup_results(results, exclude_urls=None):
 # PUBLIC API: NEWS SEARCH
 # ══════════════════════════════════════════════
 def get_latest_news(topic, max_results=5, exclude_urls=None):
-    """Fetch latest news — Google first, DuckDuckGo fallback."""
+    """Fetch latest news — Google first, DuckDuckGo fallback. Cached 15 min."""
     try:
+        # Check cache (only for standard requests without exclusions)
+        cache_key = f"{topic.lower()}:{max_results}"
+        if not exclude_urls:
+            cached = _news_cache.get(cache_key)
+            if cached and _time.time() - cached["time"] < _NEWS_CACHE_TTL:
+                logger.info(f"News cache hit for '{topic}'")
+                return cached["result"], cached.get("urls", [])
+
         logger.info(f"Fetching news for: {topic}")
 
         # Try Google first
@@ -244,6 +257,11 @@ def get_latest_news(topic, max_results=5, exclude_urls=None):
                 sent_urls.append(url)
 
         logger.info(f"News for '{topic}': {len(fresh)} articles via {source}")
+
+        # Store in cache
+        if not exclude_urls:
+            _news_cache[cache_key] = {"result": news_summary, "urls": sent_urls, "time": _time.time()}
+
         return news_summary, sent_urls
 
     except Exception as e:

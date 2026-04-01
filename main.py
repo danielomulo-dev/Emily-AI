@@ -4,9 +4,10 @@ import asyncio
 import logging
 import threading
 import io
+import json
 import random
 from collections import defaultdict
-from api_server import run_api_server, generate_app_token
+from api_server import run_api_server, generate_app_token, bot_status, update_task_health
 from scripture_tools import detect_scripture_theme, get_scripture_for_theme, SCRIPTURES
 from datetime import datetime, timedelta
 import pytz
@@ -17,6 +18,7 @@ from pydantic import BaseModel, Field
 # Discord & Gemini Imports
 import discord
 from discord.ext import commands, tasks
+from discord import app_commands
 from google import genai
 from google.genai import types
 
@@ -45,6 +47,9 @@ from tracker_tools import (
     format_journal_entries, format_mood_trend, detect_mood, MOOD_SCALE,
     get_server_settings, update_server_setting, set_news_channel, get_news_servers,
     set_server_persona, get_server_persona, PERSONA_PRESETS,
+    toggle_feature, get_full_settings, format_settings, FEATURE_TOGGLES,
+    search_user_data, format_search_results,
+    export_user_data, delete_user_data, format_data_summary,
     set_alert_settings, get_alert_settings, get_all_alert_users,
     save_last_prices, get_last_prices, get_all_users_with_portfolios,
     set_voice_chat_channel, is_voice_chat_channel,
@@ -889,10 +894,88 @@ async def process_text_file(att):
     return {"text": f"**File: {att.filename}**\n```{lang}\n{text}\n```"}, None
 
 async def process_document(att):
+    """Extract text from DOCX, XLSX, CSV, PPTX files for AI review."""
     ext = _get_file_extension(att.filename)
-    return {"text": f"[User uploaded: {att.filename}]"}, (
-        f"I can see you sent a `{ext}` file. Save it as a PDF and I can read it!"
-    )
+    if att.size > MAX_FILE_SIZE_MB * 1024 * 1024:
+        return None, f"File too large ({att.size // (1024*1024)}MB max {MAX_FILE_SIZE_MB}MB)."
+
+    data = await download_attachment(att)
+    if not data:
+        return None, "Couldn't download that file."
+
+    try:
+        text = await asyncio.to_thread(_extract_document_text, data, ext, att.filename)
+        if text and len(text.strip()) > 10:
+            # Chunk long documents
+            if len(text) > 8000:
+                text = text[:8000] + f"\n\n... [truncated — {len(text)} chars total, showing first 8000]"
+            return {"text": f"[Document: {att.filename}]\n\n{text}"}, None
+        return {"text": f"[User uploaded: {att.filename}]"}, "Couldn't extract text from that file."
+    except Exception as e:
+        logger.error(f"Document extraction error for {att.filename}: {e}")
+        return {"text": f"[User uploaded: {att.filename}]"}, "Couldn't read that file format."
+
+
+def _extract_document_text(data, ext, filename=""):
+    """Sync text extraction — called via asyncio.to_thread."""
+    import io as _io
+
+    if ext == ".docx":
+        from docx import Document
+        doc = Document(_io.BytesIO(data))
+        paragraphs = [p.text for p in doc.paragraphs if p.text.strip()]
+        # Also extract tables
+        for table in doc.tables:
+            for row in table.rows:
+                cells = [cell.text.strip() for cell in row.cells if cell.text.strip()]
+                if cells:
+                    paragraphs.append(" | ".join(cells))
+        return "\n".join(paragraphs)
+
+    elif ext == ".pptx":
+        from pptx import Presentation
+        prs = Presentation(_io.BytesIO(data))
+        slides_text = []
+        for i, slide in enumerate(prs.slides, 1):
+            slide_lines = [f"--- Slide {i} ---"]
+            for shape in slide.shapes:
+                if shape.has_text_frame:
+                    for para in shape.text_frame.paragraphs:
+                        text = para.text.strip()
+                        if text:
+                            slide_lines.append(text)
+            if len(slide_lines) > 1:  # Has content beyond header
+                slides_text.append("\n".join(slide_lines))
+        return "\n\n".join(slides_text)
+
+    elif ext in (".xlsx", ".xls"):
+        from openpyxl import load_workbook
+        wb = load_workbook(_io.BytesIO(data), read_only=True, data_only=True)
+        sheets_text = []
+        for ws in wb.worksheets:
+            rows = []
+            for row in ws.iter_rows(max_row=200, values_only=True):
+                cells = [str(c) if c is not None else "" for c in row]
+                if any(c.strip() for c in cells):
+                    rows.append(" | ".join(cells))
+            if rows:
+                sheets_text.append(f"--- Sheet: {ws.title} ---\n" + "\n".join(rows))
+        wb.close()
+        return "\n\n".join(sheets_text)
+
+    elif ext == ".csv":
+        import csv
+        reader = csv.reader(_io.StringIO(data.decode('utf-8', errors='replace')))
+        rows = []
+        for i, row in enumerate(reader):
+            if i > 200:
+                rows.append(f"... [{i}+ rows, showing first 200]")
+                break
+            rows.append(" | ".join(row))
+        return "\n".join(rows)
+
+    else:
+        return f"[Unsupported format: {ext}]"
 
 async def process_attachments(message):
     parts = []
@@ -1863,6 +1946,17 @@ bot = commands.Bot(command_prefix="!", intents=intents, help_command=None)
 async def on_ready():
     logger.info(f"Emily connected to Discord: {bot.user}")
     logger.info(f"Hive Mind active: Gemini ({MODEL_GEMINI}) + Claude ({MODEL_CLAUDE})")
+
+    # Record startup time
+    bot_status["started_at"] = datetime.now(pytz.timezone('Africa/Nairobi')).isoformat()
+
+    # Sync slash commands
+    try:
+        synced = await bot.tree.sync()
+        logger.info(f"Synced {len(synced)} slash commands")
+    except Exception as e:
+        logger.error(f"Slash command sync failed: {e}")
+
     # Start background tasks
     if not check_reminders.is_running():
         check_reminders.start()
@@ -5091,6 +5185,7 @@ async def cmd_setfinance(ctx):
     if not await _require_manage_guild(ctx):
         return
     update_server_setting(str(ctx.guild.id), "finance_channel_id", str(ctx.channel.id))
+    update_server_setting(str(ctx.guild.id), "finance_enabled", True)
     await ctx.reply("✅ Weekly finance coaching will be posted **here** every Saturday at 6pm EAT!\nEmily will analyze your spending and give personalized tips. 💰")
 
 
@@ -5518,6 +5613,8 @@ async def cmd_setmovienight(ctx, time: str = "19:00"):
             return
 
         if set_movie_channel(str(ctx.guild.id), str(ctx.channel.id), time):
+            update_server_setting(str(ctx.guild.id), "movie_enabled", True)
+            update_server_setting(str(ctx.guild.id), "movie_time", time)
             await ctx.reply(
                 f"✅ **Movie night configured!**\n\n"
                 f"Every **Friday, Saturday & Sunday** at **{time} EAT**, "
@@ -6012,6 +6109,7 @@ async def cmd_setmusic(ctx):
     if not await _require_manage_guild(ctx):
         return
     update_server_setting(str(ctx.guild.id), "music_channel_id", str(ctx.channel.id))
+    update_server_setting(str(ctx.guild.id), "music_enabled", True)
     await ctx.reply("✅ Monday music will be posted **here** every Monday at 9am EAT! 🎵")
 
 
@@ -6125,6 +6223,113 @@ async def cmd_voicechat(ctx):
             "Text version included for long replies.\n"
             "Say `!voicechat` again to turn off."
         )
+
+
+# ══════════════════════════════════════════════
+# UNIFIED SETTINGS & FEATURE TOGGLES
+# ══════════════════════════════════════════════
+@bot.command(name="settings")
+async def cmd_settings(ctx):
+    """View all server settings and feature toggles."""
+    if not await _require_manage_guild(ctx):
+        return
+    summary = format_settings(str(ctx.guild.id))
+    await ctx.send(summary)
+
+
+@bot.command(name="toggle")
+async def cmd_toggle(ctx, feature: str = ""):
+    """Toggle a feature on/off. Usage: !toggle news | !toggle movies"""
+    if not await _require_manage_guild(ctx):
+        return
+    if not feature:
+        features_list = " · ".join(f"`{k}`" for k in FEATURE_TOGGLES.keys())
+        await ctx.reply(f"Usage: `!toggle <feature>`\nAvailable: {features_list}")
+        return
+
+    success, new_state, label = toggle_feature(str(ctx.guild.id), feature)
+    if success:
+        icon = "✅" if new_state else "❌"
+        state_str = "**ON**" if new_state else "**OFF**"
+        await ctx.reply(f"{icon} {label} is now {state_str}")
+    else:
+        await ctx.reply(label)  # Contains the error message
+
+
+@bot.command(name="search", aliases=["find"])
+async def cmd_search(ctx, *, query: str = ""):
+    """Search across your journal, expenses, goals, reminders. Usage: !search transport"""
+    if not query:
+        await ctx.reply("Usage: `!search lunch` · `!search savings` · `!search stressed`")
+        return
+    async with ctx.typing():
+        results = await asyncio.to_thread(search_user_data, str(ctx.author.id), query)
+        summary = format_search_results(query, results)
+        await send_chunked_reply(ctx.message, summary)
+
+
+# ══════════════════════════════════════════════
+# PRIVACY CONTROLS
+# ══════════════════════════════════════════════
+@bot.command(name="mydata")
+async def cmd_mydata(ctx):
+    """See what data Emily has stored about you."""
+    summary = format_data_summary(str(ctx.author.id))
+    await ctx.send(summary)
+
+
+@bot.command(name="exportdata")
+async def cmd_exportdata(ctx):
+    """Export all your data as a JSON file. Sent via DM for privacy."""
+    async with ctx.typing():
+        data = await asyncio.to_thread(export_user_data, str(ctx.author.id))
+        if not data:
+            await ctx.reply("Couldn't export your data. Try again?")
+            return
+        try:
+            json_str = json.dumps(data, default=str, indent=2)
+            file = discord.File(io.BytesIO(json_str.encode()), filename=f"emily_data_{ctx.author.id}.json")
+            await ctx.author.send("📦 **Your Emily Data Export**\nHere's everything I have stored for you:", file=file)
+            await ctx.reply("📨 Data export sent to your DMs!")
+        except discord.Forbidden:
+            await ctx.reply("I can't DM you! Enable DMs from server members and try again.")
+        except Exception as e:
+            logger.error(f"Export error: {e}")
+            await ctx.reply("Something went wrong. Try again later!")
+
+
+_delete_confirmations = {}  # user_id -> timestamp
+
+@bot.command(name="deletedata")
+async def cmd_deletedata(ctx):
+    """Delete ALL your data from Emily. Requires double confirmation."""
+    user_id = str(ctx.author.id)
+    now = datetime.now(pytz.timezone('Africa/Nairobi'))
+
+    # Check for pending confirmation
+    pending = _delete_confirmations.get(user_id)
+    if pending and (now - pending).total_seconds() < 60:
+        # Confirmed — delete everything
+        result = await asyncio.to_thread(delete_user_data, user_id, confirm=True)
+        _delete_confirmations.pop(user_id, None)
+        if result:
+            total = result.get("total", 0)
+            await ctx.reply(
+                f"🗑️ **All your data has been deleted.**\n"
+                f"Removed {total} records across all categories.\n"
+                f"Emily no longer has any of your personal data."
+            )
+        else:
+            await ctx.reply("Something went wrong. Try again?")
+        return
+
+    # First request — ask for confirmation
+    _delete_confirmations[user_id] = now
+    summary = format_data_summary(user_id)
+    await ctx.reply(
+        f"⚠️ **This will permanently delete ALL your data:**\n\n{summary}\n\n"
+        f"**This cannot be undone.** Type `!deletedata` again within 60 seconds to confirm."
+    )
 
 
 @bot.command(name="mytaste")
@@ -7213,6 +7418,12 @@ async def on_message(message):
     is_dm = isinstance(message.channel, discord.DMChannel)
     logger.info(f"📨 MSG from {message.author.id} | guild={'DM' if is_dm else message.guild.id} | len={len(message.content)} | cmd={message.content.startswith('!')} | mention={is_mention}")
 
+    # Observability counters
+    bot_status["messages_processed"] = bot_status.get("messages_processed", 0) + 1
+    bot_status["last_message_at"] = datetime.now(pytz.timezone('Africa/Nairobi')).isoformat()
+    if message.content.startswith("!"):
+        bot_status["commands_processed"] = bot_status.get("commands_processed", 0) + 1
+
     # Process prefix commands (! commands) — works with or without @mention
     # Strip mention to check if the actual message is a command
     clean_content = re.sub(r'<@!?\d+>\s*', '', message.content).strip()
@@ -7707,6 +7918,226 @@ async def on_message(message):
             text_for_history = clean_msg or "Sent a file"
             add_message_to_history(user_id, "user", [{"text": text_for_history}])
             add_message_to_history(user_id, "model", [{"text": response_text}])
+
+
+
+# ══════════════════════════════════════════════
+# SLASH COMMANDS (/ commands with autocomplete)
+# ══════════════════════════════════════════════
+
+@bot.tree.command(name="buy", description="Buy stocks — adds to your position with avg cost tracking")
+@app_commands.describe(ticker="Stock ticker (e.g. SCOM, EQTY)", shares="Number of shares", price="Price per share in KES")
+async def slash_buy(interaction: discord.Interaction, ticker: str, shares: float, price: float):
+    user_id = str(interaction.user.id)
+    ticker = ticker.upper()
+    if shares <= 0 or price <= 0:
+        await interaction.response.send_message("Shares and price must be positive!", ephemeral=True)
+        return
+    if add_holding(user_id, ticker, shares, price):
+        total = shares * price
+        portfolio = get_portfolio(user_id)
+        position = next((h for h in portfolio if h["symbol"] == ticker), None)
+        avg_str = f" | Avg cost: KES {position['avg_cost']:,.2f}" if position else ""
+        held_str = f" | Now holding: {position['quantity']:.0f} shares" if position else ""
+        await interaction.response.send_message(
+            f"✅ Bought **{shares:.0f} shares of {ticker}** at KES {price:,.2f} "
+            f"(KES {total:,.2f}){avg_str}{held_str}"
+        )
+    else:
+        await interaction.response.send_message("Couldn't record that purchase. Try again?", ephemeral=True)
+
+
+@bot.tree.command(name="sell", description="Sell shares — partial or full")
+@app_commands.describe(ticker="Stock ticker", shares="Shares to sell (leave empty to sell all)", price="Sell price per share (optional, for P/L)")
+async def slash_sell(interaction: discord.Interaction, ticker: str, shares: float = None, price: float = None):
+    user_id = str(interaction.user.id)
+    ticker = ticker.upper()
+    if shares is None:
+        portfolio = get_portfolio(user_id)
+        position = next((h for h in portfolio if h["symbol"] == ticker), None)
+        if not position:
+            await interaction.response.send_message(f"You don't hold any {ticker}.", ephemeral=True)
+            return
+        shares = position["quantity"]
+    success, msg, realized_pl = sell_holding(user_id, ticker, shares, price)
+    if success:
+        emoji = "📗" if realized_pl > 0 else "📕" if realized_pl < 0 else "✅"
+        await interaction.response.send_message(f"{emoji} {msg}")
+    else:
+        await interaction.response.send_message(msg, ephemeral=True)
+
+
+@bot.tree.command(name="portfolio", description="View your stock portfolio with avg costs and P/L")
+async def slash_portfolio(interaction: discord.Interaction):
+    await asyncio.to_thread(migrate_legacy_holdings, str(interaction.user.id))
+    summary = format_portfolio(str(interaction.user.id))
+    await interaction.response.send_message(summary)
+
+
+@bot.tree.command(name="spent", description="Log an expense")
+@app_commands.describe(amount="Amount in KES", description="What you spent on (e.g. lunch, uber, airtime)")
+async def slash_spent(interaction: discord.Interaction, amount: float, description: str):
+    user_id = str(interaction.user.id)
+    category = _detect_expense_category(description)
+    if log_expense(user_id, amount, description, category):
+        daily = get_daily_spending(user_id)
+        today_total = daily["total"] if daily else amount
+        await interaction.response.send_message(
+            f"💸 **KES {amount:,.2f}** on {description} ({category})\n"
+            f"📊 Today: KES {today_total:,.2f}"
+        )
+    else:
+        await interaction.response.send_message("Couldn't save that. Try again?", ephemeral=True)
+
+
+@bot.tree.command(name="budget", description="View your monthly budget summary")
+async def slash_budget(interaction: discord.Interaction):
+    user_id = str(interaction.user.id)
+    summary = format_full_budget_summary(user_id)
+    await interaction.response.send_message(summary)
+
+
+@bot.tree.command(name="price", description="Check live stock price")
+@app_commands.describe(ticker="Stock ticker (e.g. SCOM, AAPL, BTC-USD)")
+async def slash_price(interaction: discord.Interaction, ticker: str):
+    await interaction.response.defer()
+    result = await asyncio.to_thread(get_stock_price, ticker.upper())
+    if result:
+        await interaction.followup.send(result)
+    else:
+        await interaction.followup.send(f"Couldn't find prices for {ticker.upper()} right now.")
+
+
+@bot.tree.command(name="convert", description="Convert between currencies")
+@app_commands.describe(amount="Amount to convert", from_currency="Convert from (e.g. USD)", to_currency="Convert to (e.g. KES)")
+async def slash_convert(interaction: discord.Interaction, amount: float, from_currency: str, to_currency: str):
+    await interaction.response.defer()
+    result, error = await asyncio.to_thread(convert_currency, amount, from_currency, to_currency)
+    if result:
+        await interaction.followup.send(format_currency_result(result))
+    else:
+        await interaction.followup.send(f"Couldn't convert: {error}")
+
+
+@bot.tree.command(name="remind", description="Set a reminder")
+@app_commands.describe(time="When (e.g. 5pm, in 2 hours, tomorrow 9am)", task="What to remember")
+async def slash_remind(interaction: discord.Interaction, time: str, task: str):
+    eat_zone = pytz.timezone('Africa/Nairobi')
+    parsed_time = dateparser.parse(
+        time,
+        settings={'PREFER_DATES_FROM': 'future', 'TIMEZONE': 'Africa/Nairobi', 'RETURN_AS_TIMEZONE_AWARE': True}
+    )
+    if parsed_time and task:
+        user_id = str(interaction.user.id)
+        channel_id = str(interaction.channel_id)
+        if add_reminder(user_id, channel_id, parsed_time, task):
+            time_str = parsed_time.strftime("%I:%M %p on %b %d")
+            await interaction.response.send_message(f"⏰ Got it! I'll remind you: **{task}** at **{time_str}** (EAT)")
+        else:
+            await interaction.response.send_message("Couldn't set that reminder. Try again?", ephemeral=True)
+    else:
+        await interaction.response.send_message("Couldn't understand the time. Try: `5pm`, `in 2 hours`, `tomorrow 9am`", ephemeral=True)
+
+
+@bot.tree.command(name="news", description="Get latest news on a topic")
+@app_commands.describe(topic="News topic (e.g. Kenya, technology, sports)")
+async def slash_news(interaction: discord.Interaction, topic: str = "Kenya"):
+    await interaction.response.defer()
+    news, _ = await asyncio.to_thread(get_latest_news, topic, max_results=5)
+    if news:
+        # Truncate for slash command (max 2000 chars)
+        if len(news) > 1900:
+            news = news[:1900] + "\n..."
+        await interaction.followup.send(news)
+    else:
+        await interaction.followup.send(f"Couldn't fetch news for '{topic}' right now.")
+
+
+@bot.tree.command(name="pnl", description="View your portfolio profit/loss summary")
+async def slash_pnl(interaction: discord.Interaction):
+    summary = format_pnl_summary(str(interaction.user.id))
+    await interaction.response.send_message(summary)
+
+
+@bot.tree.command(name="transactions", description="View your buy/sell transaction history")
+@app_commands.describe(ticker="Filter by ticker (optional)")
+async def slash_transactions(interaction: discord.Interaction, ticker: str = None):
+    summary = format_transactions(str(interaction.user.id), ticker)
+    await interaction.response.send_message(summary)
+
+
+@bot.tree.command(name="apptoken", description="Generate a login token for the Emily Journal PWA")
+async def slash_apptoken(interaction: discord.Interaction):
+    token = generate_app_token(str(interaction.user.id), interaction.user.display_name)
+    if token:
+        await interaction.response.send_message(
+            f"🔑 **Your Journal App Token**\n\n"
+            f"||{token}||\n\n"
+            f"Open the journal app and paste this token to log in.\n"
+            f"_This token expires in 30 days. Keep it private!_",
+            ephemeral=True
+        )
+    else:
+        await interaction.response.send_message("Couldn't generate token. Try again?", ephemeral=True)
+
+
+@bot.tree.command(name="settings", description="View all server settings and feature toggles")
+async def slash_settings(interaction: discord.Interaction):
+    if not interaction.user.guild_permissions.manage_guild:
+        await interaction.response.send_message("You need **Manage Server** permission!", ephemeral=True)
+        return
+    summary = format_settings(str(interaction.guild_id))
+    await interaction.response.send_message(summary)
+
+
+@bot.tree.command(name="search", description="Search across your journal, expenses, goals, and reminders")
+@app_commands.describe(query="What to search for (e.g. transport, savings, stressed)")
+async def slash_search(interaction: discord.Interaction, query: str):
+    await interaction.response.defer()
+    results = await asyncio.to_thread(search_user_data, str(interaction.user.id), query)
+    summary = format_search_results(query, results)
+    if len(summary) > 1900:
+        summary = summary[:1900] + "\n..."
+    await interaction.followup.send(summary)
+
+
+@bot.tree.command(name="mydata", description="See what data Emily has stored about you")
+async def slash_mydata(interaction: discord.Interaction):
+    summary = format_data_summary(str(interaction.user.id))
+    await interaction.response.send_message(summary, ephemeral=True)
+
+
+@bot.tree.command(name="exportdata", description="Export all your data as a JSON file")
+async def slash_exportdata(interaction: discord.Interaction):
+    await interaction.response.defer(ephemeral=True)
+    data = await asyncio.to_thread(export_user_data, str(interaction.user.id))
+    if not data:
+        await interaction.followup.send("Couldn't export your data. Try again?")
+        return
+    try:
+        json_str = json.dumps(data, default=str, indent=2)
+        file = discord.File(io.BytesIO(json_str.encode()), filename=f"emily_data_{interaction.user.id}.json")
+        await interaction.followup.send("📦 **Your Emily Data Export:**", file=file)
+    except Exception as e:
+        logger.error(f"Slash export error: {e}")
+        await interaction.followup.send("Something went wrong. Try `!exportdata` instead.")
+
+
+@bot.tree.command(name="toggle", description="Toggle a feature on/off")
+@app_commands.describe(feature="Feature name: news, finance, movies, music, learning, digest, scripture, nudges")
+@app_commands.choices(feature=[
+    app_commands.Choice(name=f["label"], value=k) for k, f in FEATURE_TOGGLES.items()
+])
+async def slash_toggle(interaction: discord.Interaction, feature: app_commands.Choice[str]):
+    if not interaction.user.guild_permissions.manage_guild:
+        await interaction.response.send_message("You need **Manage Server** permission!", ephemeral=True)
+        return
+    success, new_state, label = toggle_feature(str(interaction.guild_id), feature.value)
+    if success:
+        icon = "✅" if new_state else "❌"
+        await interaction.response.send_message(f"{icon} {label} is now **{'ON' if new_state else 'OFF'}**")
+    else:
+        await interaction.response.send_message(label, ephemeral=True)
 
 
 # ══════════════════════════════════════════════

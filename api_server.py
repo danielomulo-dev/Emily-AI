@@ -22,6 +22,30 @@ EAT_ZONE = pytz.timezone('Africa/Nairobi')
 # Falls back to '*' if not set (for local dev)
 ALLOWED_ORIGIN = os.getenv("JOURNAL_APP_URL", "*")
 
+# ══════════════════════════════════════════════
+# OBSERVABILITY — shared bot status (updated by main.py)
+# ══════════════════════════════════════════════
+bot_status = {
+    "started_at": None,
+    "last_message_at": None,
+    "messages_processed": 0,
+    "commands_processed": 0,
+    "errors_count": 0,
+    "task_health": {},  # {task_name: {"last_run": datetime, "errors": int}}
+}
+
+
+def update_task_health(task_name, success=True):
+    """Called from main.py background tasks to record health."""
+    now = datetime.now(EAT_ZONE)
+    if task_name not in bot_status["task_health"]:
+        bot_status["task_health"][task_name] = {"last_run": None, "errors": 0, "runs": 0}
+    entry = bot_status["task_health"][task_name]
+    entry["last_run"] = now.isoformat()
+    entry["runs"] = entry.get("runs", 0) + 1
+    if not success:
+        entry["errors"] = entry.get("errors", 0) + 1
+
 # ── MongoDB (auto-reconnecting for API thread) ──
 _api_client = None
 _api_db = None
@@ -689,6 +713,21 @@ class EmilyAPIHandler(BaseHTTPRequestHandler):
         # Health check
         if path == "/" or path == "/health":
             self._send_json({"status": "ok", "service": "emily-ai"})
+            return
+
+        # Detailed status (no auth required — for monitoring)
+        if path == "/status":
+            db = _get_db()
+            self._send_json({
+                "status": "ok",
+                "service": "emily-ai",
+                "db_connected": db is not None,
+                "started_at": bot_status.get("started_at"),
+                "messages_processed": bot_status.get("messages_processed", 0),
+                "commands_processed": bot_status.get("commands_processed", 0),
+                "errors_count": bot_status.get("errors_count", 0),
+                "tasks": bot_status.get("task_health", {}),
+            })
             return
 
         # ── AUTH REQUIRED ROUTES ──

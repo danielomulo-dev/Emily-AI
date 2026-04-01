@@ -3,6 +3,7 @@ import io
 import random
 import logging
 import calendar
+import time
 import requests
 from datetime import datetime
 import pytz
@@ -13,9 +14,13 @@ EAT_ZONE = pytz.timezone('Africa/Nairobi')
 
 
 # ══════════════════════════════════════════════
-# CURRENCY CONVERTER (live rates)
+# CURRENCY CONVERTER (live rates, cached 1hr)
 # ══════════════════════════════════════════════
 CURRENCY_API_URL = "https://open.er-api.com/v6/latest/{base}"
+
+# Cache: {base_currency: {"rates": {...}, "time": timestamp}}
+_currency_cache = {}
+_CURRENCY_CACHE_TTL = 3600  # 1 hour
 
 # Common currency pairs for Kenya
 CURRENCY_ALIASES = {
@@ -31,24 +36,30 @@ CURRENCY_ALIASES = {
 
 
 def convert_currency(amount, from_currency, to_currency):
-    """Convert between currencies using live exchange rates."""
+    """Convert between currencies using live exchange rates (cached 1hr)."""
     try:
         from_c = CURRENCY_ALIASES.get(from_currency.upper(), from_currency.upper())
         to_c = CURRENCY_ALIASES.get(to_currency.upper(), to_currency.upper())
 
-        response = requests.get(CURRENCY_API_URL.format(base=from_c), timeout=10)
-        data = response.json()
+        # Check cache first
+        cached = _currency_cache.get(from_c)
+        if cached and time.time() - cached["time"] < _CURRENCY_CACHE_TTL:
+            rates = cached["rates"]
+            updated = cached.get("updated", "cached")
+        else:
+            response = requests.get(CURRENCY_API_URL.format(base=from_c), timeout=10)
+            data = response.json()
+            if data.get("result") != "success":
+                return None, f"Couldn't fetch rates for {from_c}"
+            rates = data.get("rates", {})
+            updated = data.get("time_last_update_utc", "unknown")
+            _currency_cache[from_c] = {"rates": rates, "updated": updated, "time": time.time()}
 
-        if data.get("result") != "success":
-            return None, f"Couldn't fetch rates for {from_c}"
-
-        rates = data.get("rates", {})
         if to_c not in rates:
             return None, f"Unknown currency: {to_c}"
 
         rate = rates[to_c]
         converted = amount * rate
-        last_updated = data.get("time_last_update_utc", "unknown")
 
         result = {
             "amount": amount,
@@ -56,13 +67,13 @@ def convert_currency(amount, from_currency, to_currency):
             "to": to_c,
             "rate": rate,
             "converted": converted,
-            "updated": last_updated,
+            "updated": updated,
         }
         return result, None
 
     except Exception as e:
         logger.error(f"Currency conversion error: {e}")
-        return None, f"Currency conversion failed: {e}"
+        return None, f"Currency conversion failed"
 
 
 def format_currency_result(result):

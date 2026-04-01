@@ -23,6 +23,8 @@ PyNaCl
 # === Document Processing ===
 pypdf
 python-docx
+python-pptx
+openpyxl
 fpdf2
 
 # === Video ===
