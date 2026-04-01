@@ -24,3 +24,5 @@ Thumbs.db
 
 # Voice temp files
 reply_*.mp3
+.env
+.env.local
