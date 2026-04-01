@@ -24,7 +24,7 @@ try:
     mongo_client = MongoClient(
         os.getenv("MONGO_URI"),
         tlsCAFile=certifi.where(),
-        serverSelectionTimeoutMS=5000,
+        serverSelectionTimeoutMS=30000,
     )
     mongo_client.admin.command('ping')
     db = mongo_client["emily_brain_db"]

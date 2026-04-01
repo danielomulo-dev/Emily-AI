@@ -26,7 +26,7 @@ try:
     mongo_client = MongoClient(
         os.getenv("MONGO_URI"),
         tlsCAFile=certifi.where(),
-        serverSelectionTimeoutMS=5000,
+        serverSelectionTimeoutMS=30000,
         connectTimeoutMS=5000,
     )
     mongo_client.admin.command('ping')
