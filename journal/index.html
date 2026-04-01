@@ -329,6 +329,45 @@ textarea.journal-input::placeholder{color:var(--text-muted)}
 .dash-daily-bar{flex:1;border-radius:4px 4px 0 0;transition:height .5s ease;min-height:3px;position:relative}
 .dash-daily-bar .ddb-lbl{position:absolute;bottom:-14px;left:50%;transform:translateX(-50%);font-size:8px;color:var(--text-muted);white-space:nowrap}
 
+/* ═══ WELLNESS SUMMARY ═══ */
+.wellness-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin:8px 0}
+.wellness-item{background:var(--bg);border-radius:14px;padding:14px 8px;text-align:center;border:1px solid var(--border)}
+.wellness-item .wi-icon{font-size:22px;line-height:1}
+.wellness-item .wi-val{font-family:'Lora',serif;font-size:22px;font-weight:700;margin-top:4px}
+.wellness-item .wi-lbl{font-size:9px;color:var(--text-dim);margin-top:2px;letter-spacing:.3px;text-transform:uppercase}
+.wellness-streak{display:flex;justify-content:center;gap:16px;margin-top:8px;font-size:11px;color:var(--text-dim)}
+.wellness-streak span{display:flex;align-items:center;gap:4px}
+
+/* ═══ SVG TREND CHARTS ═══ */
+.trend-svg-wrap{position:relative;width:100%;padding:4px 0}
+.trend-svg-wrap svg{width:100%;display:block}
+.trend-svg-wrap .tsw-labels{display:flex;justify-content:space-between;font-size:9px;color:var(--text-muted);margin-top:2px;padding:0 4px}
+.trend-legend{display:flex;gap:12px;margin-bottom:6px;font-size:10px;color:var(--text-dim)}
+.trend-legend span{display:flex;align-items:center;gap:4px}
+.trend-legend span::before{content:'';width:10px;height:3px;border-radius:2px;display:inline-block}
+
+/* ═══ MONTH COMPARISON ═══ */
+.month-bars{display:flex;align-items:flex-end;gap:10px;height:80px;padding:8px 4px 0}
+.month-col{flex:1;display:flex;flex-direction:column;align-items:center;gap:4px}
+.month-bar{width:100%;border-radius:6px 6px 0 0;min-height:4px;transition:height .6s cubic-bezier(.23,1,.32,1)}
+.month-lbl{font-size:10px;color:var(--text-dim);font-weight:500}
+.month-val{font-size:9px;color:var(--text-muted);font-variant-numeric:tabular-nums}
+
+/* ═══ PORTFOLIO DONUT ═══ */
+.donut-wrap{display:flex;align-items:center;gap:16px;margin:8px 0}
+.donut-wrap svg{flex-shrink:0}
+.donut-legend{flex:1;font-size:11px}
+.donut-legend-item{display:flex;align-items:center;gap:6px;margin-bottom:5px}
+.donut-legend-item .dl-dot{width:10px;height:10px;border-radius:50%;flex-shrink:0}
+.donut-legend-item .dl-name{flex:1;color:var(--text-dim);text-transform:capitalize}
+.donut-legend-item .dl-val{font-weight:600;font-variant-numeric:tabular-nums}
+
+/* ═══ SLEEP TREND ═══ */
+.sleep-summary{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px}
+.sleep-summary .ss-card{background:var(--bg);border-radius:12px;padding:12px;text-align:center;border:1px solid var(--border)}
+.sleep-summary .ss-val{font-family:'Lora',serif;font-size:22px;font-weight:700}
+.sleep-summary .ss-lbl{font-size:10px;color:var(--text-dim);margin-top:2px}
+
 /* ═══ DIARY SEARCH & EXPORT ═══ */
 .diary-toolbar{display:flex;gap:8px;margin-bottom:8px}
 .diary-search{flex:1;background:var(--card);border:1.5px solid var(--border);border-radius:14px;padding:12px 14px 12px 40px;color:var(--text);font-size:14px;font-family:'Plus Jakarta Sans',sans-serif;outline:none;transition:border .25s;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' fill='%234a5b6e' viewBox='0 0 16 16'%3E%3Cpath d='M11.742 10.344a6.5 6.5 0 1 0-1.397 1.398h-.001l3.85 3.85a1 1 0 0 0 1.415-1.414l-3.85-3.85zm-5.242.656a5 5 0 1 1 0-10 5 5 0 0 1 0 10z'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:14px center}
@@ -701,16 +740,34 @@ textarea.journal-input::placeholder{color:var(--text-muted)}
 <div id="moodScreen" class="screen">
   <div class="header anim-1"><div class="greeting" style="font-size:24px">Dashboard 📊</div></div>
 
+  <!-- Weekly Wellness Summary -->
+  <div class="trend-card anim-1" id="dashWellnessCard">
+    <h3>🌟 This Week</h3>
+    <div id="dashWellnessContent"><div class="spin-wrap"><div class="spin"></div></div></div>
+  </div>
+
   <!-- Budget Overview -->
-  <div class="trend-card anim-2" id="dashBudgetCard">
+  <div class="trend-card anim-2" style="margin-top:14px" id="dashBudgetCard">
     <h3>💰 Budget</h3>
     <div id="dashBudgetContent"><div class="spin-wrap"><div class="spin"></div></div></div>
+  </div>
+
+  <!-- Month-over-Month -->
+  <div class="trend-card anim-2" style="margin-top:14px" id="dashMonthCard">
+    <h3>📅 Monthly Trend</h3>
+    <div id="dashMonthContent"><div class="spin-wrap"><div class="spin"></div></div></div>
   </div>
 
   <!-- Portfolio -->
   <div class="trend-card anim-3" style="margin-top:14px" id="dashPortfolioCard">
     <h3>📈 Portfolio</h3>
     <div id="dashPortfolioContent"><div class="spin-wrap"><div class="spin"></div></div></div>
+  </div>
+
+  <!-- Sleep Trends -->
+  <div class="trend-card anim-3" style="margin-top:14px" id="dashSleepCard">
+    <h3>😴 Sleep Trends</h3>
+    <div id="dashSleepContent"><div class="spin-wrap"><div class="spin"></div></div></div>
   </div>
 
   <!-- Goals -->
@@ -1376,10 +1433,57 @@ async function loadMood(){
   }catch(e){console.error(e)}
 
   // Load dashboard panels
+  loadDashWellness();
   loadDashBudget();
+  loadDashMonthTrend();
   loadDashPortfolio();
+  loadDashSleep();
   loadDashGoals();
   loadInsights();
+}
+
+// ═══ SVG CHART HELPERS ═══
+function svgLinePath(points,w,h,pad){
+  // points: [{x:0-1, y:0-1}] → SVG path string
+  if(points.length<2)return '';
+  const sx=i=>pad+(points[i].x*(w-pad*2));
+  const sy=i=>pad+((1-points[i].y)*(h-pad*2));
+  let d=`M${sx(0)},${sy(0)}`;
+  for(let i=1;i<points.length;i++){
+    // Smooth cubic bezier
+    const cpx=(sx(i-1)+sx(i))/2;
+    d+=` C${cpx},${sy(i-1)} ${cpx},${sy(i)} ${sx(i)},${sy(i)}`;
+  }
+  return d;
+}
+function svgAreaPath(points,w,h,pad){
+  const line=svgLinePath(points,w,h,pad);
+  if(!line)return '';
+  const sx=i=>pad+(points[i].x*(w-pad*2));
+  return line+` L${sx(points.length-1)},${h-pad} L${sx(0)},${h-pad} Z`;
+}
+
+// ═══ DASHBOARD: WELLNESS SUMMARY ═══
+async function loadDashWellness(){
+  const el=document.getElementById('dashWellnessContent');
+  try{
+    const d=await api('GET','/api/dashboard/wellness');
+    const w=d.wellness;
+    if(!w){el.innerHTML='<div class="dash-empty">Not enough data yet. Keep journaling!</div>';return}
+    const moodColor=w.avg_mood>=4?'var(--success)':w.avg_mood>=3?'var(--accent)':'var(--danger)';
+    const sleepColor=w.avg_sleep_hours>=7?'var(--success)':w.avg_sleep_hours>=5.5?'var(--accent)':'var(--danger)';
+    let html=`<div class="wellness-grid">`;
+    html+=`<div class="wellness-item"><div class="wi-icon">${w.avg_mood?M[Math.round(w.avg_mood)]:'—'}</div><div class="wi-val" style="color:${moodColor}">${w.avg_mood||'—'}</div><div class="wi-lbl">Mood</div></div>`;
+    html+=`<div class="wellness-item"><div class="wi-icon">😴</div><div class="wi-val" style="color:${sleepColor}">${w.avg_sleep_hours?w.avg_sleep_hours+'h':'—'}</div><div class="wi-lbl">Sleep</div></div>`;
+    html+=`<div class="wellness-item"><div class="wi-icon">💸</div><div class="wi-val">KES ${w.week_spent?w.week_spent.toLocaleString():'0'}</div><div class="wi-lbl">Spent</div></div>`;
+    html+=`</div>`;
+    html+=`<div class="wellness-streak">`;
+    if(w.journal_streak>0)html+=`<span>🔥 ${w.journal_streak}-day streak</span>`;
+    if(w.gratitude_days>0)html+=`<span>🙏 ${w.gratitude_days} gratitude day${w.gratitude_days!==1?'s':''}</span>`;
+    if(w.mood_entries>0)html+=`<span>📝 ${w.mood_entries} entries</span>`;
+    html+=`</div>`;
+    el.innerHTML=html;
+  }catch(e){el.innerHTML='<div class="dash-empty">Could not load wellness data.</div>'}
 }
 
 // ═══ DASHBOARD: BUDGET ═══
@@ -1419,17 +1523,28 @@ async function loadDashBudget(){
       }
     }
 
-    // Daily spending mini chart
+    // Daily spending SVG area chart
     const daily=b.daily_spending||[];
     if(daily.length>2){
       const maxD=Math.max(...daily.map(d=>d.total),1);
+      const pts=daily.map((d,i)=>({x:i/(daily.length-1),y:d.total/maxD}));
+      const W=320,H=70,P=4;
+      const area=svgAreaPath(pts,W,H,P);
+      const line=svgLinePath(pts,W,H,P);
       html+=`<div style="font-size:11px;color:var(--text-dim);margin-top:12px">Daily spending (14 days)</div>`;
-      html+=`<div class="dash-daily-chart">`;
-      for(const d of daily){
-        const h=Math.max((d.total/maxD)*100,5);
-        const dd=d.date.slice(5);
-        html+=`<div class="dash-daily-bar" style="height:${h}%;background:var(--accent);opacity:${0.4+0.6*(d.total/maxD)}"><div class="ddb-lbl">${dd}</div></div>`;
+      html+=`<div class="trend-svg-wrap"><svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">`;
+      html+=`<path d="${area}" fill="var(--accent)" fill-opacity="0.15"/>`;
+      html+=`<path d="${line}" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linecap="round"/>`;
+      // Dots on data points
+      for(let i=0;i<pts.length;i++){
+        const cx=P+(pts[i].x*(W-P*2));
+        const cy=P+((1-pts[i].y)*(H-P*2));
+        if(i===pts.length-1||i===0||i===Math.floor(pts.length/2)){
+          html+=`<circle cx="${cx}" cy="${cy}" r="3" fill="var(--accent)"/>`;
+        }
       }
+      html+=`</svg>`;
+      html+=`<div class="tsw-labels"><span>${daily[0].date.slice(5)}</span><span>${daily[daily.length-1].date.slice(5)}</span></div>`;
       html+=`</div>`;
     }
 
@@ -1449,9 +1564,36 @@ async function loadDashPortfolio(){
       el.innerHTML='<div class="dash-empty">No holdings. Add stocks with <b>!buy</b> on Discord.</div>';
       return;
     }
-    let html=`<div style="text-align:center;margin-bottom:10px"><div class="dash-big-pct">KES ${d.total_value.toLocaleString()}</div><div class="dash-big-label">${d.holding_count} holding${d.holding_count!==1?'s':''} · cost basis</div></div>`;
+    let html=`<div style="text-align:center;margin-bottom:10px"><div class="dash-big-pct">KES ${d.total_value.toLocaleString()}</div><div class="dash-big-label">${d.holding_count} holding${d.holding_count!==1?'s':''} · cost basis${d.total_realized_pl?' · P/L: KES '+d.total_realized_pl.toLocaleString():''}</div></div>`;
+
+    // Donut chart (if 2+ holdings)
+    if(holdings.length>=2){
+      const donutColors=['var(--accent)','var(--success)','var(--mood-2)','var(--mood-4)','var(--mood-5)','var(--mood-3)'];
+      const total=d.total_value||1;
+      const R=44,CX=50,CY=50,CIRC=2*Math.PI*R;
+      let offset=0;
+      html+=`<div class="donut-wrap"><svg viewBox="0 0 100 100" width="100" height="100">`;
+      for(let i=0;i<holdings.length&&i<6;i++){
+        const pct=holdings[i].value/total;
+        const dash=pct*CIRC;
+        const gap=CIRC-dash;
+        const color=donutColors[i%donutColors.length];
+        html+=`<circle cx="${CX}" cy="${CY}" r="${R}" fill="none" stroke="${color}" stroke-width="10" stroke-dasharray="${dash} ${gap}" stroke-dashoffset="${-offset}" transform="rotate(-90 ${CX} ${CY})" stroke-linecap="round"/>`;
+        offset+=dash;
+      }
+      html+=`</svg><div class="donut-legend">`;
+      for(let i=0;i<holdings.length&&i<6;i++){
+        const color=donutColors[i%donutColors.length];
+        const pct=Math.round((holdings[i].value/total)*100);
+        html+=`<div class="donut-legend-item"><div class="dl-dot" style="background:${color}"></div><div class="dl-name">${esc(holdings[i].symbol)}</div><div class="dl-val">${pct}%</div></div>`;
+      }
+      html+=`</div></div>`;
+    }
+
     for(const h of holdings){
-      html+=`<div class="dash-holding"><div><div class="dh-sym">${esc(h.symbol)}</div><div class="dh-detail">${h.quantity} shares @ KES ${h.buy_price.toLocaleString()}</div></div><div class="dh-val">KES ${h.value.toLocaleString()}</div></div>`;
+      const plColor=h.realized_pl>0?'var(--success)':'var(--danger)';
+      const plBadge=h.realized_pl?` <span style="color:${plColor};font-size:10px">(P/L: ${h.realized_pl>0?'+':''}${h.realized_pl.toLocaleString()})</span>`:'';
+      html+=`<div class="dash-holding"><div><div class="dh-sym">${esc(h.symbol)}</div><div class="dh-detail">${h.quantity} shares @ KES ${h.buy_price.toLocaleString()}${plBadge}</div></div><div class="dh-val">KES ${h.value.toLocaleString()}</div></div>`;
     }
     el.innerHTML=html;
   }catch(e){
@@ -1485,6 +1627,123 @@ async function loadDashGoals(){
     el.innerHTML=html;
   }catch(e){
     el.innerHTML='<div class="dash-empty">Could not load goals.</div>';
+  }
+}
+
+// ═══ DASHBOARD: MONTH-OVER-MONTH ═══
+async function loadDashMonthTrend(){
+  const el=document.getElementById('dashMonthContent');
+  try{
+    const d=await api('GET','/api/dashboard/budget-history?months=4');
+    const months=d.months||[];
+    if(!months.length||months.every(m=>m.total_spent===0)){
+      el.innerHTML='<div class="dash-empty">No spending history yet.</div>';
+      return;
+    }
+    const maxM=Math.max(...months.map(m=>m.total_spent),1);
+    const barColors=['var(--text-muted)','var(--text-muted)','var(--text-muted)','var(--accent)'];
+    let html=`<div class="month-bars">`;
+    for(let i=0;i<months.length;i++){
+      const m=months[i];
+      const h=Math.max((m.total_spent/maxM)*100,4);
+      const isLast=i===months.length-1;
+      const color=isLast?'var(--accent)':'var(--text-muted)';
+      const opacity=isLast?1:0.4;
+      html+=`<div class="month-col"><div class="month-val">KES ${m.total_spent>=1000?(m.total_spent/1000).toFixed(1)+'k':m.total_spent.toLocaleString()}</div><div class="month-bar" style="height:${h}%;background:${color};opacity:${opacity}"></div><div class="month-lbl">${m.label}</div></div>`;
+    }
+    html+=`</div>`;
+
+    // Change indicator
+    if(months.length>=2){
+      const curr=months[months.length-1].total_spent;
+      const prev=months[months.length-2].total_spent;
+      if(prev>0){
+        const change=Math.round(((curr-prev)/prev)*100);
+        const arrow=change>0?'↑':'↓';
+        const color=change>0?'var(--danger)':'var(--success)';
+        html+=`<div style="text-align:center;margin-top:8px;font-size:12px;color:${color}">${arrow} ${Math.abs(change)}% vs last month</div>`;
+      }
+    }
+    el.innerHTML=html;
+  }catch(e){
+    el.innerHTML='<div class="dash-empty">Could not load monthly trend.</div>';
+  }
+}
+
+// ═══ DASHBOARD: SLEEP TRENDS ═══
+async function loadDashSleep(){
+  const el=document.getElementById('dashSleepContent');
+  try{
+    const d=await api('GET','/api/journal/sleep?days=14');
+    const entries=(d.sleep||[]).reverse(); // oldest first for chart
+    if(!entries.length){
+      el.innerHTML='<div class="dash-empty">No sleep data yet. Log with the 😴 tab on the home screen.</div>';
+      return;
+    }
+    // Summary stats
+    const avgH=entries.reduce((s,e)=>s+(e.hours||0),0)/entries.length;
+    const avgQ=entries.reduce((s,e)=>s+(e.quality||3),0)/entries.length;
+    const sleepColor=avgH>=7?'var(--success)':avgH>=5.5?'var(--accent)':'var(--danger)';
+    const qualEmoji=['','😫','😴','😐','😊','🤩'];
+    let html=`<div class="sleep-summary">`;
+    html+=`<div class="ss-card"><div class="ss-val" style="color:${sleepColor}">${avgH.toFixed(1)}h</div><div class="ss-lbl">Avg Hours</div></div>`;
+    html+=`<div class="ss-card"><div class="ss-val">${qualEmoji[Math.round(avgQ)]||'😐'} ${avgQ.toFixed(1)}</div><div class="ss-lbl">Avg Quality</div></div>`;
+    html+=`</div>`;
+
+    // SVG dual-line chart: hours (blue) + quality (purple)
+    if(entries.length>=2){
+      const maxH=Math.max(...entries.map(e=>e.hours||0),10);
+      const ptsH=entries.map((e,i)=>({x:i/(entries.length-1),y:(e.hours||0)/maxH}));
+      const ptsQ=entries.map((e,i)=>({x:i/(entries.length-1),y:((e.quality||3)-1)/4})); // 1-5 → 0-1
+      const W=320,H=80,P=6;
+
+      html+=`<div class="trend-legend"><span style="--c:var(--accent)">Hours</span><span style="--c:var(--mood-4)">Quality</span></div>`.replace(/style="--c:([^"]+)"/g,(m,c)=>`style=""><span style="display:inline-block;width:10px;height:3px;border-radius:2px;background:${c};margin-right:4px"></span`);
+
+      // Cleaner legend
+      html=html.replace(/<div class="trend-legend">.*?<\/div>/,'');
+      html+=`<div style="display:flex;gap:12px;margin-bottom:6px;font-size:10px;color:var(--text-dim)"><span><span style="display:inline-block;width:10px;height:3px;border-radius:2px;background:var(--accent);margin-right:3px"></span>Hours</span><span><span style="display:inline-block;width:10px;height:3px;border-radius:2px;background:var(--mood-4);margin-right:3px"></span>Quality</span></div>`;
+
+      html+=`<div class="trend-svg-wrap"><svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">`;
+      // Grid lines
+      for(let y of [0.25,0.5,0.75]){
+        const ly=P+((1-y)*(H-P*2));
+        html+=`<line x1="${P}" y1="${ly}" x2="${W-P}" y2="${ly}" stroke="var(--border)" stroke-width="0.5" stroke-dasharray="3,3"/>`;
+      }
+      // Hours area + line
+      const areaH=svgAreaPath(ptsH,W,H,P);
+      const lineH=svgLinePath(ptsH,W,H,P);
+      html+=`<path d="${areaH}" fill="var(--accent)" fill-opacity="0.1"/>`;
+      html+=`<path d="${lineH}" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linecap="round"/>`;
+      // Quality line
+      const lineQ=svgLinePath(ptsQ,W,H,P);
+      html+=`<path d="${lineQ}" fill="none" stroke="var(--mood-4)" stroke-width="2" stroke-linecap="round" stroke-dasharray="4,3"/>`;
+      // End dots
+      for(const [pts,color] of [[ptsH,'var(--accent)'],[ptsQ,'var(--mood-4)']]){
+        const last=pts[pts.length-1];
+        const cx=P+(last.x*(W-P*2));
+        const cy=P+((1-last.y)*(H-P*2));
+        html+=`<circle cx="${cx}" cy="${cy}" r="3" fill="${color}"/>`;
+      }
+      html+=`</svg>`;
+      const firstDate=entries[0].date_str||'';
+      const lastDate=entries[entries.length-1].date_str||'';
+      html+=`<div class="tsw-labels"><span>${firstDate.slice(5)}</span><span>${lastDate.slice(5)}</span></div>`;
+      html+=`</div>`;
+    }
+
+    // Mini bar view of recent nights
+    html+=`<div style="margin-top:8px;font-size:10px;color:var(--text-dim)">Recent nights</div>`;
+    const recent=entries.slice(-7);
+    for(const e of recent){
+      const pct=Math.min(((e.hours||0)/10)*100,100);
+      const c=e.hours>=7?'var(--success)':e.hours>=5.5?'var(--accent)':'var(--danger)';
+      const day=(e.date_str||'').slice(5);
+      html+=`<div style="display:flex;align-items:center;gap:6px;margin:3px 0"><div style="width:40px;font-size:10px;color:var(--text-muted);text-align:right">${day}</div><div style="flex:1;height:14px;background:var(--bg);border-radius:7px;overflow:hidden;border:1px solid var(--border)"><div style="height:100%;width:${pct}%;background:${c};border-radius:7px;display:flex;align-items:center;justify-content:flex-end;padding-right:6px;font-size:9px;font-weight:600;color:#000">${e.hours}h</div></div><div style="font-size:12px">${qualEmoji[e.quality||3]}</div></div>`;
+    }
+
+    el.innerHTML=html;
+  }catch(e){
+    el.innerHTML='<div class="dash-empty">Could not load sleep data.</div>';
   }
 }
 

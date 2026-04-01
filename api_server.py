@@ -658,6 +658,107 @@ def api_get_dashboard_goals(user_id):
         return {"goals": [], "active_count": 0, "completed_count": 0}
 
 
+def api_get_dashboard_budget_history(user_id, months=4):
+    """Get month-over-month budget spending for trend comparison."""
+    db = _get_db()
+    if db is None:
+        return {"months": []}
+    try:
+        now = datetime.now(EAT_ZONE)
+        results = []
+        for i in range(months):
+            dt = now - timedelta(days=30 * i)
+            ms = dt.strftime("%Y-%m")
+            pipeline = [
+                {"$match": {"user_id": str(user_id), "month_str": ms}},
+                {"$group": {"_id": None, "total": {"$sum": "$amount"}, "count": {"$sum": 1}}},
+            ]
+            agg = list(db["budgets"].aggregate(pipeline))
+            total = round(agg[0]["total"], 2) if agg else 0
+            count = agg[0]["count"] if agg else 0
+            results.append({"month": ms, "label": dt.strftime("%b"), "total_spent": total, "transactions": count})
+        results.reverse()
+        return {"months": results}
+    except Exception as e:
+        logger.error(f"Dashboard budget history error: {e}")
+        return {"months": []}
+
+
+def api_get_dashboard_wellness(user_id):
+    """Get weekly wellness summary — mood, sleep, spending combined."""
+    db = _get_db()
+    if db is None:
+        return {"wellness": None}
+    try:
+        now = datetime.now(EAT_ZONE)
+        week_ago = now - timedelta(days=7)
+
+        # Mood this week
+        mood_entries = list(db["journal"].find(
+            {"user_id": str(user_id), "date": {"$gte": week_ago}},
+            {"mood_score": 1, "_id": 0}
+        ))
+        mood_scores = [e.get("mood_score", 3) for e in mood_entries]
+        avg_mood = round(sum(mood_scores) / len(mood_scores), 1) if mood_scores else 0
+
+        # Sleep this week
+        sleep_entries = list(db["sleep"].find(
+            {"user_id": str(user_id), "date": {"$gte": week_ago}},
+            {"quality": 1, "hours": 1, "_id": 0}
+        ))
+        avg_sleep_hrs = round(sum(e.get("hours", 0) for e in sleep_entries) / len(sleep_entries), 1) if sleep_entries else 0
+        avg_sleep_q = round(sum(e.get("quality", 3) for e in sleep_entries) / len(sleep_entries), 1) if sleep_entries else 0
+
+        # Spending this week
+        spend_pipeline = [
+            {"$match": {"user_id": str(user_id), "date": {"$gte": week_ago}}},
+            {"$group": {"_id": None, "total": {"$sum": "$amount"}, "count": {"$sum": 1}}},
+        ]
+        spend_agg = list(db["budgets"].aggregate(spend_pipeline))
+        week_spent = round(spend_agg[0]["total"], 2) if spend_agg else 0
+        week_txns = spend_agg[0]["count"] if spend_agg else 0
+
+        # Journal streak
+        dates = sorted(set(
+            e.get("date_str", "") for e in db["journal"].find(
+                {"user_id": str(user_id), "date": {"$gte": now - timedelta(days=30)}},
+                {"date_str": 1, "_id": 0}
+            )
+        ), reverse=True)
+        today = now.strftime("%Y-%m-%d")
+        yesterday = (now - timedelta(days=1)).strftime("%Y-%m-%d")
+        streak = 0
+        if dates and (dates[0] == today or dates[0] == yesterday):
+            streak = 1
+            for i in range(1, len(dates)):
+                prev = datetime.strptime(dates[i - 1], "%Y-%m-%d")
+                curr = datetime.strptime(dates[i], "%Y-%m-%d")
+                if (prev - curr).days == 1:
+                    streak += 1
+                else:
+                    break
+
+        # Gratitude count this week
+        grat_count = db["gratitude"].count_documents(
+            {"user_id": str(user_id), "date": {"$gte": week_ago}}
+        )
+
+        return {"wellness": {
+            "avg_mood": avg_mood,
+            "mood_entries": len(mood_scores),
+            "avg_sleep_hours": avg_sleep_hrs,
+            "avg_sleep_quality": avg_sleep_q,
+            "sleep_entries": len(sleep_entries),
+            "week_spent": week_spent,
+            "week_transactions": week_txns,
+            "journal_streak": streak,
+            "gratitude_days": grat_count,
+        }}
+    except Exception as e:
+        logger.error(f"Dashboard wellness error: {e}")
+        return {"wellness": None}
+
+
 # ══════════════════════════════════════════════
 # HTTP API HANDLER
 # ══════════════════════════════════════════════
@@ -782,6 +883,15 @@ class EmilyAPIHandler(BaseHTTPRequestHandler):
 
         elif path == "/api/dashboard/goals":
             data = api_get_dashboard_goals(user_id)
+            self._send_json(data)
+
+        elif path == "/api/dashboard/budget-history":
+            months = int(params.get("months", [4])[0])
+            data = api_get_dashboard_budget_history(user_id, months=months)
+            self._send_json(data)
+
+        elif path == "/api/dashboard/wellness":
+            data = api_get_dashboard_wellness(user_id)
             self._send_json(data)
 
         else:
