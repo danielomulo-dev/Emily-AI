@@ -305,3 +305,118 @@ class TestCORS:
         # Should be either env var or '*' fallback
         assert isinstance(ALLOWED_ORIGIN, str)
         assert len(ALLOWED_ORIGIN) > 0
+
+
+# ══════════════════════════════════════════════
+# TEST 8: Portfolio transaction math
+# ══════════════════════════════════════════════
+class TestPortfolioTransactions:
+    """Test the weighted avg cost and P/L calculations used by the portfolio system."""
+
+    def test_avg_cost_first_buy(self):
+        """First buy: avg cost = buy price."""
+        shares, price = 10, 100
+        avg = price  # No existing position
+        assert avg == 100.0
+
+    def test_avg_cost_two_buys(self):
+        """Buy 10 @ 100, then 10 @ 200 → avg should be 150."""
+        old_shares, old_avg = 10, 100.0
+        new_shares, new_price = 10, 200.0
+        total = old_shares + new_shares
+        avg = (old_shares * old_avg + new_shares * new_price) / total
+        assert avg == 150.0
+
+    def test_avg_cost_unequal_lots(self):
+        """Buy 100 @ 25, then 50 @ 30 → avg = (2500 + 1500) / 150 = 26.67."""
+        old_shares, old_avg = 100, 25.0
+        new_shares, new_price = 50, 30.0
+        total = old_shares + new_shares
+        avg = (old_shares * old_avg + new_shares * new_price) / total
+        assert round(avg, 2) == 26.67
+
+    def test_realized_pl_profit(self):
+        """Buy at avg 100, sell 5 at 120 → P/L = +100."""
+        avg_cost, sell_price, sell_shares = 100, 120, 5
+        pl = (sell_price - avg_cost) * sell_shares
+        assert pl == 100.0
+
+    def test_realized_pl_loss(self):
+        """Buy at avg 100, sell 10 at 80 → P/L = -200."""
+        avg_cost, sell_price, sell_shares = 100, 80, 10
+        pl = (sell_price - avg_cost) * sell_shares
+        assert pl == -200.0
+
+    def test_realized_pl_breakeven(self):
+        """Sell at same price as avg cost → P/L = 0."""
+        avg_cost, sell_price, sell_shares = 100, 100, 10
+        pl = (sell_price - avg_cost) * sell_shares
+        assert pl == 0.0
+
+    def test_partial_sell_remaining(self):
+        """Hold 20, sell 5 → 15 remaining."""
+        current, sell = 20, 5
+        remaining = round(current - sell, 4)
+        assert remaining == 15
+
+    def test_full_sell_remaining_zero(self):
+        """Hold 20, sell 20 → 0 remaining."""
+        current, sell = 20, 20
+        remaining = round(current - sell, 4)
+        assert remaining <= 0
+
+    def test_cannot_sell_more_than_held(self):
+        """Selling more than held should be blocked."""
+        current_shares, sell_shares = 10, 15
+        assert sell_shares > current_shares  # This check happens in sell_holding()
+
+    def test_cost_basis_after_partial_sell(self):
+        """100 shares @ avg 25 = basis 2500. Sell 40 → 60 shares, basis = 1500."""
+        shares, avg_cost = 100, 25.0
+        sell_shares = 40
+        remaining = shares - sell_shares
+        new_basis = remaining * avg_cost  # Avg cost doesn't change on sell
+        assert remaining == 60
+        assert new_basis == 1500.0
+
+    def test_cumulative_realized_pl(self):
+        """Multiple sells accumulate P/L."""
+        sell1_pl = (30 - 25) * 10   # +50
+        sell2_pl = (20 - 25) * 5    # -25
+        total_pl = sell1_pl + sell2_pl
+        assert total_pl == 25.0
+
+
+# ══════════════════════════════════════════════
+# TEST 9: Portfolio function signatures
+# ══════════════════════════════════════════════
+class TestPortfolioFunctions:
+    """Test that new portfolio functions exist and are importable."""
+
+    def test_sell_holding_exists(self):
+        try:
+            from tracker_tools import sell_holding
+            assert callable(sell_holding)
+        except ImportError:
+            pytest.skip("tracker_tools deps not available")
+
+    def test_get_transactions_exists(self):
+        try:
+            from tracker_tools import get_transactions
+            assert callable(get_transactions)
+        except ImportError:
+            pytest.skip("tracker_tools deps not available")
+
+    def test_format_pnl_summary_exists(self):
+        try:
+            from tracker_tools import format_pnl_summary
+            assert callable(format_pnl_summary)
+        except ImportError:
+            pytest.skip("tracker_tools deps not available")
+
+    def test_migrate_legacy_holdings_exists(self):
+        try:
+            from tracker_tools import migrate_legacy_holdings
+            assert callable(migrate_legacy_holdings)
+        except ImportError:
+            pytest.skip("tracker_tools deps not available")

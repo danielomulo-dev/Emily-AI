@@ -575,24 +575,37 @@ def api_get_dashboard_budget(user_id):
 
 
 def api_get_dashboard_portfolio(user_id):
-    """Get portfolio dashboard data."""
+    """Get portfolio dashboard data with P/L info."""
     db = _get_db()
     if db is None:
         return {"portfolio": [], "total_value": 0}
     try:
         holdings = list(db["portfolios"].find(
-            {"user_id": str(user_id)},
-            {"_id": 0, "ticker": 1, "shares": 1, "buy_price": 1, "added_at": 1}
+            {"user_id": str(user_id), "shares": {"$gt": 0}},
+            {"_id": 0}
         ))
         total_value = 0
+        total_realized = 0
         for h in holdings:
             h["symbol"] = h.get("ticker", "?")
             h["quantity"] = h.get("shares", 0)
-            h["value"] = round(h.get("shares", 0) * h.get("buy_price", 0), 2)
+            h["avg_cost"] = h.get("avg_cost", h.get("buy_price", 0))
+            h["buy_price"] = h["avg_cost"]
+            h["total_cost_basis"] = round(h.get("shares", 0) * h["avg_cost"], 2)
+            h["realized_pl"] = h.get("realized_pl", 0)
+            h["value"] = h["total_cost_basis"]
             total_value += h["value"]
+            total_realized += h["realized_pl"]
             if isinstance(h.get("added_at"), datetime):
                 h["added_at"] = h["added_at"].isoformat()
-        return {"portfolio": holdings, "total_value": round(total_value, 2), "holding_count": len(holdings)}
+            if isinstance(h.get("updated_at"), datetime):
+                h["updated_at"] = h["updated_at"].isoformat()
+        return {
+            "portfolio": holdings,
+            "total_value": round(total_value, 2),
+            "total_realized_pl": round(total_realized, 2),
+            "holding_count": len(holdings),
+        }
     except Exception as e:
         logger.error(f"Dashboard portfolio error: {e}")
         return {"portfolio": [], "total_value": 0, "holding_count": 0}

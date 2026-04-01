@@ -17,6 +17,7 @@ db = None
 budgets_col = None
 income_col = None
 portfolio_col = None
+portfolio_txn_col = None
 reminders_col = None
 server_settings_col = None
 todos_col = None
@@ -34,6 +35,7 @@ try:
     budgets_col = db["budgets"]
     income_col = db["income"]
     portfolio_col = db["portfolios"]
+    portfolio_txn_col = db["portfolio_transactions"]
     reminders_col = db["reminders"]
     server_settings_col = db["server_settings"]
     todos_col = db["todos"]
@@ -43,6 +45,7 @@ try:
     budgets_col.create_index([("user_id", ASCENDING), ("date", ASCENDING)])
     income_col.create_index([("user_id", ASCENDING), ("date", ASCENDING)])
     portfolio_col.create_index([("user_id", ASCENDING)])
+    portfolio_txn_col.create_index([("user_id", ASCENDING), ("ticker", ASCENDING), ("timestamp", ASCENDING)])
     reminders_col.create_index([("remind_at", ASCENDING), ("status", ASCENDING)])
     server_settings_col.create_index([("guild_id", ASCENDING)])
     todos_col.create_index([("user_id", ASCENDING), ("status", ASCENDING)])
@@ -463,46 +466,167 @@ def format_full_budget_summary(user_id):
 
 
 # ══════════════════════════════════════════════
-# PORTFOLIO TRACKER
+# PORTFOLIO TRACKER (Transaction-Based)
 # ══════════════════════════════════════════════
 def add_holding(user_id, ticker, shares, buy_price, notes=""):
-    """Add a stock holding to portfolio."""
-    if portfolio_col is None:
+    """Buy shares — logs a transaction and updates position with weighted avg cost."""
+    if portfolio_col is None or portfolio_txn_col is None:
         return False
     try:
-        portfolio_col.update_one(
-            {"user_id": str(user_id), "ticker": ticker.upper()},
-            {
-                "$set": {
-                    "ticker": ticker.upper(),
-                    "shares": float(shares),
-                    "buy_price": float(buy_price),
+        user_id = str(user_id)
+        ticker = ticker.upper()
+        shares = float(shares)
+        buy_price = float(buy_price)
+        now = _now()
+
+        # 1. Log the buy transaction
+        portfolio_txn_col.insert_one({
+            "user_id": user_id,
+            "ticker": ticker,
+            "type": "buy",
+            "shares": shares,
+            "price": buy_price,
+            "total": round(shares * buy_price, 2),
+            "notes": notes,
+            "timestamp": now,
+        })
+
+        # 2. Update position with weighted average cost
+        existing = portfolio_col.find_one({"user_id": user_id, "ticker": ticker})
+        if existing and existing.get("shares", 0) > 0:
+            old_shares = float(existing.get("shares", 0))
+            old_avg = float(existing.get("avg_cost", existing.get("buy_price", 0)))
+            old_basis = old_shares * old_avg
+            new_basis = shares * buy_price
+            total_shares = old_shares + shares
+            new_avg = (old_basis + new_basis) / total_shares if total_shares > 0 else buy_price
+            portfolio_col.update_one(
+                {"user_id": user_id, "ticker": ticker},
+                {"$set": {
+                    "shares": round(total_shares, 4),
+                    "avg_cost": round(new_avg, 4),
+                    "buy_price": round(new_avg, 4),  # legacy compat
+                    "total_cost_basis": round(total_shares * new_avg, 2),
+                    "updated_at": now,
+                    "notes": notes if notes else existing.get("notes", ""),
+                }}
+            )
+        else:
+            # New position
+            portfolio_col.update_one(
+                {"user_id": user_id, "ticker": ticker},
+                {"$set": {
+                    "ticker": ticker,
+                    "shares": shares,
+                    "avg_cost": buy_price,
+                    "buy_price": buy_price,  # legacy compat
+                    "total_cost_basis": round(shares * buy_price, 2),
+                    "realized_pl": 0.0,
                     "notes": notes,
-                    "updated_at": _now(),
+                    "updated_at": now,
                 },
                 "$setOnInsert": {
-                    "user_id": str(user_id),
-                    "added_at": _now(),
-                }
-            },
-            upsert=True,
-        )
-        logger.info(f"Portfolio: {user_id} added {shares} shares of {ticker} at {buy_price}")
+                    "user_id": user_id,
+                    "added_at": now,
+                }},
+                upsert=True,
+            )
+
+        logger.info(f"Portfolio BUY: {user_id} +{shares} {ticker} @ {buy_price} (avg updated)")
         return True
     except PyMongoError as e:
-        logger.error(f"Portfolio add error: {e}")
+        logger.error(f"Portfolio buy error: {e}")
         return False
+
+
+def sell_holding(user_id, ticker, shares, sell_price=None):
+    """Sell shares — partial or full. Returns (success, message, realized_pl).
+    
+    If sell_price is None, P/L is recorded as 0 (market price unknown).
+    """
+    if portfolio_col is None or portfolio_txn_col is None:
+        return False, "Database not connected.", 0
+
+    try:
+        user_id = str(user_id)
+        ticker = ticker.upper()
+        shares = float(shares)
+        now = _now()
+
+        # Get current position
+        position = portfolio_col.find_one({"user_id": user_id, "ticker": ticker})
+        if not position or position.get("shares", 0) <= 0:
+            return False, f"You don't hold any {ticker}.", 0
+
+        current_shares = float(position.get("shares", 0))
+        if shares > current_shares:
+            return False, f"You only have {current_shares:.0f} shares of {ticker}.", 0
+
+        avg_cost = float(position.get("avg_cost", position.get("buy_price", 0)))
+
+        # Calculate realized P/L
+        realized_pl = 0.0
+        if sell_price is not None:
+            sell_price = float(sell_price)
+            realized_pl = round((sell_price - avg_cost) * shares, 2)
+
+        # 1. Log the sell transaction
+        portfolio_txn_col.insert_one({
+            "user_id": user_id,
+            "ticker": ticker,
+            "type": "sell",
+            "shares": shares,
+            "price": sell_price or 0,
+            "total": round(shares * (sell_price or 0), 2),
+            "realized_pl": realized_pl,
+            "avg_cost_at_sell": avg_cost,
+            "timestamp": now,
+        })
+
+        # 2. Update position
+        remaining = round(current_shares - shares, 4)
+        old_realized = float(position.get("realized_pl", 0))
+
+        if remaining <= 0:
+            # Fully sold — remove position
+            portfolio_col.delete_one({"user_id": user_id, "ticker": ticker})
+            action = "fully sold"
+        else:
+            # Partial sell — avg_cost stays the same
+            portfolio_col.update_one(
+                {"user_id": user_id, "ticker": ticker},
+                {"$set": {
+                    "shares": remaining,
+                    "total_cost_basis": round(remaining * avg_cost, 2),
+                    "realized_pl": round(old_realized + realized_pl, 2),
+                    "updated_at": now,
+                }}
+            )
+            action = f"partial sell, {remaining:.0f} remaining"
+
+        pl_str = ""
+        if sell_price is not None:
+            pl_str = f" | P/L: KES {realized_pl:+,.2f}"
+        msg = f"Sold {shares:.0f} shares of {ticker} ({action}){pl_str}"
+        logger.info(f"Portfolio SELL: {user_id} -{shares} {ticker} @ {sell_price or 'market'}{pl_str}")
+        return True, msg, realized_pl
+
+    except PyMongoError as e:
+        logger.error(f"Portfolio sell error: {e}")
+        return False, "Database error.", 0
 
 
 def remove_holding(user_id, ticker):
-    """Remove a stock from portfolio."""
+    """Remove entire holding (legacy compat — calls sell for all shares)."""
     if portfolio_col is None:
         return False
     try:
-        result = portfolio_col.delete_one({
-            "user_id": str(user_id),
-            "ticker": ticker.upper(),
-        })
+        position = portfolio_col.find_one({"user_id": str(user_id), "ticker": ticker.upper()})
+        if position and position.get("shares", 0) > 0:
+            success, _, _ = sell_holding(user_id, ticker, position["shares"])
+            return success
+        # Fallback: just delete
+        result = portfolio_col.delete_one({"user_id": str(user_id), "ticker": ticker.upper()})
         return result.deleted_count > 0
     except PyMongoError as e:
         logger.error(f"Portfolio remove error: {e}")
@@ -510,14 +634,25 @@ def remove_holding(user_id, ticker):
 
 
 def get_portfolio(user_id):
-    """Get all holdings for a user."""
+    """Get all holdings for a user. Returns normalized fields:
+    symbol, quantity, buy_price, avg_cost, total_cost_basis,
+    realized_pl, value, notes, added_at
+    """
     if portfolio_col is None:
         return []
     try:
         holdings = list(portfolio_col.find(
-            {"user_id": str(user_id)},
-            {"_id": 0, "ticker": 1, "shares": 1, "buy_price": 1, "notes": 1, "added_at": 1}
+            {"user_id": str(user_id), "shares": {"$gt": 0}},
+            {"_id": 0}
         ))
+        for h in holdings:
+            h["symbol"] = h.get("ticker", "?")
+            h["quantity"] = h.get("shares", 0)
+            h["avg_cost"] = h.get("avg_cost", h.get("buy_price", 0))
+            h["buy_price"] = h["avg_cost"]  # Keep legacy field in sync
+            h["total_cost_basis"] = round(h.get("shares", 0) * h["avg_cost"], 2)
+            h["realized_pl"] = h.get("realized_pl", 0)
+            h["value"] = round(h.get("shares", 0) * h["avg_cost"], 2)
         return holdings
     except PyMongoError as e:
         logger.error(f"Portfolio fetch error: {e}")
@@ -525,27 +660,182 @@ def get_portfolio(user_id):
 
 
 def format_portfolio(user_id):
-    """Generate formatted portfolio summary."""
+    """Generate formatted portfolio summary with P/L info."""
     holdings = get_portfolio(user_id)
     if not holdings:
-        return "Your portfolio is empty. Tell me what stocks you own!"
+        return "Your portfolio is empty. Add stocks with `!buy SCOM 100 25.50`"
 
     lines = ["📈 **Your Portfolio**\n"]
     total_invested = 0
+    total_realized = 0
 
     for h in holdings:
-        ticker = h["ticker"]
-        shares = h["shares"]
-        price = h["buy_price"]
-        invested = shares * price
-        total_invested += invested
+        sym = h["symbol"]
+        qty = h["quantity"]
+        avg = h["avg_cost"]
+        basis = h["total_cost_basis"]
+        realized = h.get("realized_pl", 0)
+        total_invested += basis
+        total_realized += realized
         notes = f" ({h['notes']})" if h.get("notes") else ""
-        lines.append(f"• **{ticker}**: {shares:.0f} shares @ KES {price:,.2f} = KES {invested:,.2f}{notes}")
+        lines.append(
+            f"• **{sym}**: {qty:.0f} shares @ avg KES {avg:,.2f} "
+            f"(basis: KES {basis:,.2f}){notes}"
+        )
 
-    lines.append(f"\n**Total invested:** KES {total_invested:,.2f}")
+    lines.append(f"\n**Cost basis:** KES {total_invested:,.2f}")
     lines.append(f"**Holdings:** {len(holdings)} stocks")
-    lines.append("\n*Use [STOCK: TICKER] tags to check current prices against your buy prices!*")
+    if total_realized != 0:
+        emoji = "📗" if total_realized > 0 else "📕"
+        lines.append(f"{emoji} **Realized P/L:** KES {total_realized:+,.2f}")
+    lines.append("\n_Check live prices: `!price SCOM` · Sell: `!sell SCOM 5 30`_")
     return "\n".join(lines)
+
+
+def get_transactions(user_id, ticker=None, limit=20):
+    """Get recent portfolio transactions. Optionally filter by ticker."""
+    if portfolio_txn_col is None:
+        return []
+    try:
+        query = {"user_id": str(user_id)}
+        if ticker:
+            query["ticker"] = ticker.upper()
+        txns = list(portfolio_txn_col.find(
+            query, {"_id": 0}
+        ).sort("timestamp", -1).limit(limit))
+        return txns
+    except PyMongoError as e:
+        logger.error(f"Transaction fetch error: {e}")
+        return []
+
+
+def format_transactions(user_id, ticker=None):
+    """Format transaction history."""
+    txns = get_transactions(user_id, ticker, limit=15)
+    if not txns:
+        title = f"for {ticker.upper()}" if ticker else ""
+        return f"No transactions found {title}. Start with `!buy SCOM 10 27`"
+
+    title = f"for **{ticker.upper()}**" if ticker else ""
+    lines = [f"📋 **Transaction History** {title}\n"]
+    for t in txns:
+        ts = t.get("timestamp")
+        date_str = ts.strftime("%b %d") if ts else "?"
+        emoji = "🟢" if t["type"] == "buy" else "🔴"
+        price_str = f"@ KES {t['price']:,.2f}" if t.get("price") else ""
+        pl_str = ""
+        if t["type"] == "sell" and t.get("realized_pl"):
+            pl_str = f" (P/L: KES {t['realized_pl']:+,.2f})"
+        lines.append(
+            f"{emoji} {date_str} **{t['type'].upper()}** {t['shares']:.0f} "
+            f"{t['ticker']} {price_str}{pl_str}"
+        )
+    return "\n".join(lines)
+
+
+def get_pnl_summary(user_id):
+    """Get profit/loss summary across all holdings and transactions."""
+    holdings = get_portfolio(user_id)
+    txns = get_transactions(user_id, limit=1000)
+
+    total_realized = sum(
+        t.get("realized_pl", 0)
+        for t in txns if t.get("type") == "sell" and t.get("realized_pl")
+    )
+    total_cost_basis = sum(h.get("total_cost_basis", 0) for h in holdings)
+    total_shares_value = total_cost_basis  # Without live prices, value = cost basis
+
+    return {
+        "holdings_count": len(holdings),
+        "total_cost_basis": round(total_cost_basis, 2),
+        "total_realized_pl": round(total_realized, 2),
+        "total_transactions": len(txns),
+        "total_buys": sum(1 for t in txns if t["type"] == "buy"),
+        "total_sells": sum(1 for t in txns if t["type"] == "sell"),
+    }
+
+
+def format_pnl_summary(user_id):
+    """Format P/L summary for Discord."""
+    s = get_pnl_summary(user_id)
+    if s["holdings_count"] == 0 and s["total_transactions"] == 0:
+        return "No portfolio activity yet. Start with `!buy SCOM 10 27`"
+
+    emoji = "📗" if s["total_realized_pl"] >= 0 else "📕"
+    lines = [
+        "📊 **Portfolio P/L Summary**\n",
+        f"**Active positions:** {s['holdings_count']}",
+        f"**Cost basis:** KES {s['total_cost_basis']:,.2f}",
+        f"{emoji} **Realized P/L:** KES {s['total_realized_pl']:+,.2f}",
+        f"\n**Transactions:** {s['total_transactions']} ({s['total_buys']} buys, {s['total_sells']} sells)",
+        "\n_For live unrealized P/L, check `!portfolio` after fetching prices with `!price`_",
+    ]
+    return "\n".join(lines)
+
+
+def migrate_legacy_holdings(user_id=None):
+    """One-time migration: add avg_cost and transaction records for existing holdings.
+    If user_id is None, migrates all users.
+    """
+    if portfolio_col is None or portfolio_txn_col is None:
+        return 0
+
+    try:
+        query = {}
+        if user_id:
+            query["user_id"] = str(user_id)
+
+        # Find holdings without avg_cost (legacy)
+        holdings = list(portfolio_col.find({
+            **query,
+            "avg_cost": {"$exists": False},
+            "shares": {"$gt": 0},
+        }))
+
+        migrated = 0
+        for h in holdings:
+            uid = h["user_id"]
+            ticker = h["ticker"]
+            shares = float(h.get("shares", 0))
+            price = float(h.get("buy_price", 0))
+
+            # Check if transaction already exists (idempotent)
+            existing_txn = portfolio_txn_col.find_one({
+                "user_id": uid, "ticker": ticker, "type": "buy",
+                "notes": "legacy_migration"
+            })
+            if existing_txn:
+                continue
+
+            # Create buy transaction
+            portfolio_txn_col.insert_one({
+                "user_id": uid,
+                "ticker": ticker,
+                "type": "buy",
+                "shares": shares,
+                "price": price,
+                "total": round(shares * price, 2),
+                "notes": "legacy_migration",
+                "timestamp": h.get("added_at", _now()),
+            })
+
+            # Update position with new fields
+            portfolio_col.update_one(
+                {"_id": h["_id"]},
+                {"$set": {
+                    "avg_cost": price,
+                    "total_cost_basis": round(shares * price, 2),
+                    "realized_pl": 0.0,
+                    "updated_at": _now(),
+                }}
+            )
+            migrated += 1
+
+        logger.info(f"Portfolio migration: {migrated} holdings migrated")
+        return migrated
+    except PyMongoError as e:
+        logger.error(f"Portfolio migration error: {e}")
+        return 0
 
 
 # ══════════════════════════════════════════════

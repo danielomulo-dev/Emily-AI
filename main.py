@@ -36,6 +36,8 @@ from tracker_tools import (
     delete_last_income, INCOME_CATEGORIES,
     recategorize_expenses,
     add_holding, remove_holding, get_portfolio, format_portfolio,
+    sell_holding, get_transactions, format_transactions,
+    get_pnl_summary, format_pnl_summary, migrate_legacy_holdings,
     add_reminder, get_due_reminders, mark_reminder_done, get_user_reminders,
     cancel_reminder,
     add_todo, complete_todo, remove_todo, get_todos, clear_done_todos, format_todos,
@@ -4163,32 +4165,80 @@ async def cmd_delincome(ctx):
 
 @bot.command(name="buy")
 async def cmd_buy(ctx, ticker: str, shares: str, price: str):
-    """Add a stock holding. Usage: !buy SCOM 100 25.50"""
+    """Buy shares — adds to position with avg cost tracking. Usage: !buy SCOM 100 25.50"""
     try:
         s = float(shares)
         p = float(price.replace(",", ""))
+        if s <= 0 or p <= 0:
+            await ctx.reply("Shares and price must be positive numbers!")
+            return
         if add_holding(str(ctx.author.id), ticker.upper(), s, p):
             total = s * p
-            await ctx.reply(f"✅ Added: **{s:.0f} shares of {ticker.upper()}** at KES {p:,.2f} (Total: KES {total:,.2f})")
+            # Show updated position
+            portfolio = get_portfolio(str(ctx.author.id))
+            position = next((h for h in portfolio if h["symbol"] == ticker.upper()), None)
+            avg_str = f" | Avg cost: KES {position['avg_cost']:,.2f}" if position else ""
+            held_str = f" | Now holding: {position['quantity']:.0f} shares" if position else ""
+            await ctx.reply(
+                f"✅ Bought **{s:.0f} shares of {ticker.upper()}** at KES {p:,.2f} "
+                f"(KES {total:,.2f}){avg_str}{held_str}"
+            )
         else:
-            await ctx.reply("Couldn't add that holding. Try again?")
+            await ctx.reply("Couldn't record that purchase. Try again?")
     except ValueError:
         await ctx.reply("Format: `!buy SCOM 100 25.50`")
 
 
 @bot.command(name="sell")
-async def cmd_sell(ctx, ticker: str):
-    """Remove a stock holding."""
-    if remove_holding(str(ctx.author.id), ticker.upper()):
-        await ctx.reply(f"✅ Removed **{ticker.upper()}** from your portfolio.")
-    else:
-        await ctx.reply(f"Couldn't find {ticker.upper()} in your portfolio.")
+async def cmd_sell(ctx, ticker: str, shares: str = None, price: str = None):
+    """Sell shares (partial or full). Usage: !sell SCOM 5 | !sell SCOM 5 30 | !sell SCOM"""
+    user_id = str(ctx.author.id)
+    ticker = ticker.upper()
+
+    try:
+        # If no shares specified, sell all
+        if shares is None:
+            portfolio = get_portfolio(user_id)
+            position = next((h for h in portfolio if h["symbol"] == ticker), None)
+            if not position:
+                await ctx.reply(f"You don't hold any {ticker}.")
+                return
+            shares_f = position["quantity"]
+        else:
+            shares_f = float(shares)
+
+        sell_price = float(price.replace(",", "")) if price else None
+
+        success, msg, realized_pl = sell_holding(user_id, ticker, shares_f, sell_price)
+        if success:
+            emoji = "📗" if realized_pl > 0 else "📕" if realized_pl < 0 else "✅"
+            await ctx.reply(f"{emoji} {msg}")
+        else:
+            await ctx.reply(msg)
+    except ValueError:
+        await ctx.reply("Format: `!sell SCOM 5` or `!sell SCOM 5 30` (with sell price)")
 
 
 @bot.command(name="portfolio")
 async def cmd_portfolio(ctx):
-    """View portfolio."""
+    """View portfolio with average costs and P/L."""
+    # Run migration for legacy holdings (idempotent, runs once)
+    await asyncio.to_thread(migrate_legacy_holdings, str(ctx.author.id))
     summary = format_portfolio(str(ctx.author.id))
+    await ctx.send(summary)
+
+
+@bot.command(name="transactions", aliases=["txn", "txns"])
+async def cmd_transactions(ctx, ticker: str = None):
+    """View transaction history. Usage: !transactions | !transactions SCOM"""
+    summary = format_transactions(str(ctx.author.id), ticker)
+    await ctx.send(summary)
+
+
+@bot.command(name="pnl", aliases=["pl", "profitloss"])
+async def cmd_pnl(ctx):
+    """View profit/loss summary."""
+    summary = format_pnl_summary(str(ctx.author.id))
     await ctx.send(summary)
 
 
