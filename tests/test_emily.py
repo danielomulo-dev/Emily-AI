@@ -420,3 +420,68 @@ class TestPortfolioFunctions:
             assert callable(migrate_legacy_holdings)
         except ImportError:
             pytest.skip("tracker_tools deps not available")
+
+
+# ══════════════════════════════════════════════
+# TEST 10: Slash commands exist in source
+# ══════════════════════════════════════════════
+class TestSlashCommands:
+    """Verify slash commands are registered in main.py source."""
+
+    def _get_main_source(self):
+        main_path = os.path.join(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+            "main.py"
+        )
+        if not os.path.exists(main_path):
+            pytest.skip("main.py not found")
+        with open(main_path) as f:
+            return f.read()
+
+    def test_slash_buy_exists(self):
+        src = self._get_main_source()
+        assert 'bot.tree.command(name="buy"' in src
+
+    def test_slash_sell_exists(self):
+        src = self._get_main_source()
+        assert 'bot.tree.command(name="sell"' in src
+
+    def test_slash_portfolio_exists(self):
+        src = self._get_main_source()
+        assert 'bot.tree.command(name="portfolio"' in src
+
+    def test_slash_spent_exists(self):
+        src = self._get_main_source()
+        assert 'bot.tree.command(name="spent"' in src
+
+    def test_slash_budget_exists(self):
+        src = self._get_main_source()
+        assert 'bot.tree.command(name="budget"' in src
+
+    def test_slash_price_exists(self):
+        src = self._get_main_source()
+        assert 'bot.tree.command(name="price"' in src
+
+    def test_slash_convert_exists(self):
+        src = self._get_main_source()
+        assert 'bot.tree.command(name="convert"' in src
+
+    def test_slash_remind_exists(self):
+        src = self._get_main_source()
+        assert 'bot.tree.command(name="remind"' in src
+
+    def test_slash_apptoken_is_ephemeral(self):
+        """apptoken slash command should send the token as ephemeral (private) message."""
+        src = self._get_main_source()
+        idx = src.find('bot.tree.command(name="apptoken"')
+        assert idx > 0, "Slash apptoken command not found"
+        section = src[idx:idx+600]
+        assert "ephemeral=True" in section
+
+    def test_tree_sync_in_on_ready(self):
+        src = self._get_main_source()
+        assert "bot.tree.sync()" in src
+
+    def test_app_commands_imported(self):
+        src = self._get_main_source()
+        assert "from discord import app_commands" in src
