@@ -7516,6 +7516,8 @@ def _detect_expense_category(description):
             "safaricom", "airtel", "telkom", "bill", "subscription", "netflix", "spotify",
             "dstv", "showmax", "paybill", "water bill", "garbage", "sewer",
             "insurance", "nhif", "shif", "mortgage", "loan repay", "repair",
+            "loan", "repayment", "installment", "instalment", "refund",
+            "stima", "helb", "tala", "branch", "fuliza", "okoa",
         ]),
         # Transport
         ("transport", [
@@ -7524,9 +7526,9 @@ def _detect_expense_category(description):
         ]),
         # Savings & investments (check BEFORE food — "Enweath" contains "eat" which would false-match food)
         ("savings", [
-            "save", "saving", "invest", "sacco", "deposit", "m-shwari", "mshwari",
+            "save", "saving", "invest", "deposit", "m-shwari", "mshwari",
             "enweath", "money market", "fixed deposit", "shares", "stocks",
-            "treasury", "t-bill",
+            "treasury", "t-bill", "sacco contribution", "sacco savings",
         ]),
         # Food & groceries (removed "eat" — too many false positives: heater, enweath, etc.)
         ("food", [
@@ -7545,11 +7547,11 @@ def _detect_expense_category(description):
             "dental", "gym", "clinic", "chemist", "prescription",
             "health", "therapy", "checkup",
         ]),
-        # Entertainment
+        # Entertainment — removed "fun" (false-matches "refund", "fund", "function")
         ("entertainment", [
             "movie", "cinema", "concert", "drinks", "bar", "club", "party",
-            "game", "bet", "sportpesa", "fun", "event", "show", "ticket",
-            "birthday party", "celebration", "outing",
+            "game", "bet", "sportpesa", "event", "show", "ticket",
+            "birthday party", "celebration", "outing", "night out",
         ]),
         # Airtime & data (separate from shopping — these are utility costs)
         ("bills", [
@@ -7576,7 +7578,7 @@ def _detect_expense_category(description):
         return "shopping"
 
     # Money transfers → general
-    if any(k in desc for k in ["sent", "send", "loan", "helping", "contribution", "tip"]):
+    if any(k in desc for k in ["sent", "send", "helping", "contribution", "tip"]):
         return "general"
 
     return "general"
@@ -7588,7 +7590,10 @@ async def _smart_categorize(description):
     """
     result = await gpt_mini_classify(
         f"Categorize this expense into ONE word from: food, transport, bills, shopping, "
-        f"entertainment, health, savings, general.\n\nExpense: {description}\n\nCategory:",
+        f"entertainment, health, savings, general.\n"
+        f"Note: loan repayments, SACCO loans, HELB, Tala, Fuliza, rent = bills. "
+        f"SACCO contributions/deposits = savings.\n\n"
+        f"Expense: {description}\n\nCategory:",
         max_tokens=10,
     )
     if result:
