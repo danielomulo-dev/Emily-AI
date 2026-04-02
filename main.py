@@ -1538,9 +1538,26 @@ IMPORTANT:
                         final_text += f"\n[IMG: {search_term}]"
                         logger.info(f"Image tag fallback injected: [IMG: {search_term}]")
 
+        # ── STOCK TAG: validate symbol before lookup ──
+        # Common English words that are also stock tickers — reject unless clearly stock-related
+        _FAKE_TICKERS = {
+            "you", "it", "a", "an", "all", "are", "be", "do", "he", "she", "has", "was",
+            "now", "for", "out", "can", "may", "one", "two", "see", "say", "own", "any",
+            "big", "fun", "man", "run", "old", "new", "go", "so", "on", "at", "or", "by",
+            "no", "me", "we", "us", "up", "him", "her", "its", "who", "how", "why", "did",
+            "the", "this", "that", "love", "life", "play", "good", "well", "real", "true",
+            "open", "turn", "fast", "best", "ever", "care", "mind", "live", "nice", "cool",
+            "ride", "trip", "beat", "hero", "star", "show",
+        }
+        def _safe_stock_lookup(symbol):
+            sym = symbol.strip().upper()
+            if sym.lower() in _FAKE_TICKERS and len(sym) <= 4:
+                return None  # Skip — almost certainly not a stock request
+            return get_stock_price(symbol) or f"*(Couldn't get price for {symbol}.)*"
+
         final_text, s = await _process_all_tags(
             r'\[\s*STOCK:\s*(.*?)\s*\]', final_text,
-            lambda x: get_stock_price(x) or f"*(Couldn't get price for {x}.)*"
+            _safe_stock_lookup
         )
         final_text += s
         final_text, g = await _process_all_tags(
