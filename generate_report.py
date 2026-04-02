@@ -1,0 +1,571 @@
+"""
+Expense Report PDF — Clean professional dashboard layout.
+"""
+import math
+from reportlab.lib.pagesizes import A4
+from reportlab.lib.colors import HexColor
+from reportlab.pdfgen import canvas
+
+W, H = A4
+MARGIN = 40
+CARD_W = W - 2 * MARGIN
+PAD = 16
+R = 8
+
+# Colors
+BG       = HexColor("#F5F7FB")
+WHITE    = HexColor("#FFFFFF")
+NAVY     = HexColor("#0F172A")
+PRIMARY  = HexColor("#2563EB")
+BORDER   = HexColor("#E2E8F0")
+BORDER_L = HexColor("#F1F5F9")
+TXT      = HexColor("#111827")
+TXT2     = HexColor("#64748B")
+TXT3     = HexColor("#94A3B8")
+GREEN    = HexColor("#10B981")
+RED      = HexColor("#EF4444")
+AMBER    = HexColor("#F59E0B")
+PURPLE   = HexColor("#8B5CF6")
+TEAL     = HexColor("#14B8A6")
+PINK     = HexColor("#EC4899")
+ORANGE   = HexColor("#F97316")
+
+F  = "Helvetica"
+FB = "Helvetica-Bold"
+
+CAT_STYLE = {
+    "bills":         (PRIMARY,  HexColor("#EFF6FF"), HexColor("#1E40AF")),
+    "general":       (TXT2,     HexColor("#F8FAFC"), HexColor("#475569")),
+    "savings":       (GREEN,    HexColor("#ECFDF5"), HexColor("#047857")),
+    "shopping":      (PURPLE,   HexColor("#F5F3FF"), HexColor("#6D28D9")),
+    "food":          (AMBER,    HexColor("#FFFBEB"), HexColor("#B45309")),
+    "transport":     (TEAL,     HexColor("#F0FDFA"), HexColor("#0F766E")),
+    "health":        (PINK,     HexColor("#FDF2F8"), HexColor("#BE185D")),
+    "entertainment": (ORANGE,   HexColor("#FFF7ED"), HexColor("#C2410C")),
+}
+
+PAGE = [0]
+
+# ════════════════ DATA ════════════════
+DATA = {
+    "month": "April 2026",
+    "generated": "02 Apr 2026, 09:49 AM EAT",
+    "user": "dan.ai",
+    "total_spent": 46915, "total_budget": 108128, "remaining": 61213,
+    "transactions": 26, "days_remaining": 28,
+    "daily_allowance": 2186, "daily_avg": 23458,
+    "categories": [
+        {"name":"bills","amount":26497,"pct":56.5,"count":9,"avg":2944,"largest":"house rent","largest_amt":16000},
+        {"name":"general","amount":17478,"pct":37.3,"count":12,"avg":1456,"largest":"janey","largest_amt":6600},
+        {"name":"savings","amount":2500,"pct":5.3,"count":2,"avg":1250,"largest":"Sacco savings","largest_amt":2000},
+        {"name":"shopping","amount":260,"pct":0.6,"count":2,"avg":130,"largest":"weed","largest_amt":140},
+        {"name":"food","amount":180,"pct":0.4,"count":1,"avg":180,"largest":"meat","largest_amt":180},
+    ],
+    "daily_spending": [
+        {"date":"Apr 01","amount":42078},
+        {"date":"Apr 02","amount":4837},
+    ],
+    "monthly_history": [
+        {"month":"Jan","spent":78420,"budget":105000},
+        {"month":"Feb","spent":92150,"budget":105000},
+        {"month":"Mar","spent":86730,"budget":108128},
+        {"month":"Apr","spent":46915,"budget":108128},
+    ],
+    "top5": [
+        {"desc":"house rent","cat":"bills","date":"2026-04-01","amount":16000,"pct":34.1},
+        {"desc":"janey","cat":"general","date":"2026-04-01","amount":6600,"pct":14.1},
+        {"desc":"kate","cat":"general","date":"2026-04-01","amount":6000,"pct":12.8},
+        {"desc":"Stima Sacco loan","cat":"bills","date":"2026-04-02","amount":4237,"pct":9.0},
+        {"desc":"mkopa loan","cat":"bills","date":"2026-04-01","amount":3000,"pct":6.4},
+    ],
+    "recurring": [{"item":"Janey","times":4,"total":6953,"avg":1738}],
+    "cat_transactions": {
+        "bills": [("2026-04-01","house rent",16000),("2026-04-02","Stima Sacco loan",4237),
+                  ("2026-04-01","mkopa loan",3000),("2026-04-01","DTB loan repayment",2000),
+                  ("2026-04-01","loan refund",1000),("2026-04-01","electricity tokens",100),
+                  ("2026-04-02","electricity tokens",100),("2026-04-01","airtime",50),("2026-04-01","airtime",10)],
+        "general": [("2026-04-01","janey",6600),("2026-04-01","kate",6000),("2026-04-01","passion cake",1500),
+                    ("2026-04-01","openAI credits",796),("2026-04-01","openAI credits",796),
+                    ("2026-04-01","kate",659),("2026-04-01","pesticides",400),("2026-04-01","Koyeb server",237),
+                    ("2026-04-01","janey",200),("2026-04-01","Mongo database",137),
+                    ("2026-04-01","janey",100),("2026-04-01","janey",53)],
+        "savings": [("2026-04-01","Sacco savings",2000),("2026-04-02","Sacco savings",500)],
+        "shopping": [("2026-04-01","weed",140),("2026-04-01","weed",120)],
+        "food": [("2026-04-01","meat",180)],
+    },
+    "all_transactions": [
+        ("2026-04-01","airtime","bills",10),("2026-04-01","Sacco savings","savings",2000),
+        ("2026-04-01","DTB loan repayment","bills",2000),("2026-04-01","kate","general",6000),
+        ("2026-04-01","meat","food",180),("2026-04-01","mkopa loan","bills",3000),
+        ("2026-04-01","electricity tokens","bills",100),("2026-04-01","Koyeb server","general",237),
+        ("2026-04-01","janey","general",53),("2026-04-01","weed","shopping",140),
+        ("2026-04-01","weed","shopping",120),("2026-04-01","Mongo database","general",137),
+        ("2026-04-01","janey","general",100),("2026-04-01","janey","general",200),
+        ("2026-04-01","openAI credits","general",796),("2026-04-01","openAI credits","general",796),
+        ("2026-04-01","house rent","bills",16000),("2026-04-01","janey","general",6600),
+        ("2026-04-01","airtime","bills",50),("2026-04-01","passion cake","general",1500),
+        ("2026-04-01","kate","general",659),("2026-04-01","pesticides","general",400),
+        ("2026-04-01","loan refund","bills",1000),("2026-04-02","Stima Sacco loan","bills",4237),
+        ("2026-04-02","Sacco savings","savings",500),("2026-04-02","electricity tokens","bills",100),
+    ],
+}
+
+# ════════════════ HELPERS ════════════════
+def fmt(n): return f"KES {n:,.0f}"
+
+def rrect(c, x, y, w, h, r=R, fill=WHITE, stroke=None):
+    p = c.beginPath()
+    p.roundRect(x, y, w, h, r)
+    c.setFillColor(fill)
+    if stroke:
+        c.setStrokeColor(stroke); c.setLineWidth(0.5)
+        c.drawPath(p, fill=1, stroke=1)
+    else:
+        c.drawPath(p, fill=1, stroke=0)
+
+def pill(c, x, y, text, bg, fg, fs=7.5):
+    c.setFont(FB, fs)
+    tw = c.stringWidth(text, FB, fs)
+    pw, ph = tw + 12, fs + 7
+    rrect(c, x, y - 1, pw, ph, r=ph/2, fill=bg)
+    c.setFillColor(fg)
+    c.drawString(x + 6, y + 1.5, text)
+    return pw
+
+def footer(c, n):
+    c.setFont(F, 7); c.setFillColor(TXT3)
+    c.drawString(MARGIN, 22, "Generated by Emily AI — Your Kenyan Financial Companion")
+    c.drawRightString(W - MARGIN, 22, f"Page {n}")
+
+def new_page(c):
+    PAGE[0] += 1
+    if PAGE[0] > 1: c.showPage()
+    c.setFillColor(BG); c.rect(0, 0, W, H, fill=1, stroke=0)
+    footer(c, PAGE[0])
+    return H - MARGIN
+
+def section(c, y, title):
+    c.setFont(FB, 12); c.setFillColor(TXT)
+    c.drawString(MARGIN, y, title)
+    return y - 14
+
+def progress_bar(c, x, y, w, h, pct, bg_color=BORDER_L, fill_color=GREEN):
+    """Clean progress bar with proper rounded caps."""
+    rrect(c, x, y, w, h, r=h/2, fill=bg_color)
+    fill_w = max(h, w * min(pct, 100) / 100)
+    rrect(c, x, y, fill_w, h, r=h/2, fill=fill_color)
+
+# ════════════════ PAGE 1: DASHBOARD ════════════════
+def page1(c):
+    d = DATA
+    y = new_page(c)
+
+    # Header
+    rrect(c, MARGIN, y - 44, CARD_W, 44, fill=WHITE, stroke=BORDER)
+    c.setFont(FB, 15); c.setFillColor(TXT)
+    c.drawString(MARGIN + PAD, y - 28, "Expense Report")
+    c.setFont(F, 10); c.setFillColor(PRIMARY)
+    c.drawString(MARGIN + PAD + c.stringWidth("Expense Report  ", FB, 15), y - 28, d["month"])
+    c.setFont(F, 8); c.setFillColor(TXT2)
+    c.drawRightString(W - MARGIN - PAD, y - 22, f"Prepared for {d['user']}")
+    c.drawRightString(W - MARGIN - PAD, y - 34, d["generated"])
+    y -= 56
+
+    # Navy KPI strip
+    sh = 62
+    rrect(c, MARGIN, y - sh, CARD_W, sh, fill=NAVY)
+    kpis = [
+        ("TOTAL SPENT", fmt(d["total_spent"]), RED),
+        ("BUDGET", fmt(d["total_budget"]), TXT3),
+        ("REMAINING", fmt(d["remaining"]), GREEN),
+        ("TRANSACTIONS", str(d["transactions"]), PRIMARY),
+        ("DAILY AVG", fmt(d["daily_avg"]), AMBER),
+    ]
+    cw = CARD_W / len(kpis)
+    for i, (lbl, val, clr) in enumerate(kpis):
+        cx = MARGIN + cw * i + cw / 2
+        c.setFont(F, 6.5); c.setFillColor(TXT3); c.drawCentredString(cx, y - 18, lbl)
+        c.setFont(FB, 13); c.setFillColor(clr); c.drawCentredString(cx, y - 36, val)
+    c.setStrokeColor(HexColor("#1E293B")); c.setLineWidth(0.5)
+    for i in range(1, len(kpis)):
+        lx = MARGIN + cw * i; c.line(lx, y - 10, lx, y - sh + 10)
+    y -= sh + 10
+
+    # Budget progress
+    ph = 62
+    rrect(c, MARGIN, y - ph, CARD_W, ph, fill=WHITE, stroke=BORDER)
+    pct = d["total_spent"] / d["total_budget"] * 100
+    bc = GREEN if pct < 50 else AMBER if pct < 80 else RED
+    c.setFont(FB, 10); c.setFillColor(TXT)
+    c.drawString(MARGIN + PAD, y - 16, "Budget Progress")
+    c.setFont(FB, 10); c.setFillColor(bc)
+    c.drawRightString(W - MARGIN - PAD, y - 16, f"{pct:.1f}%")
+    progress_bar(c, MARGIN + PAD, y - 34, CARD_W - 2*PAD, 10, pct, BORDER_L, bc)
+    c.setFont(F, 7.5); c.setFillColor(TXT2)
+    c.drawString(MARGIN + PAD, y - 52, f"{fmt(d['total_spent'])} of {fmt(d['total_budget'])}")
+    c.drawRightString(W - MARGIN - PAD, y - 52,
+                      f"{d['days_remaining']} days left  |  Allowance: {fmt(d['daily_allowance'])}/day")
+    y -= ph + 10
+
+    # ── Two columns: Spending trend + Donut ──
+    col_gap = 10
+    col_w = (CARD_W - col_gap) / 2
+    box_h = 140
+
+    # LEFT: Daily spending as horizontal bar chart
+    rrect(c, MARGIN, y - box_h, col_w, box_h, fill=WHITE, stroke=BORDER)
+    c.setFont(FB, 10); c.setFillColor(TXT)
+    c.drawString(MARGIN + PAD, y - 16, "Daily Spending")
+    daily = d["daily_spending"]
+    if daily:
+        max_a = max(s["amount"] for s in daily) or 1
+        bar_x = MARGIN + PAD + 46
+        bar_max_w = col_w - PAD * 2 - 56
+        bar_h = 16
+        start_y = y - 36
+        for i, s in enumerate(daily):
+            by = start_y - i * (bar_h + 18)
+            c.setFont(F, 8); c.setFillColor(TXT2)
+            c.drawRightString(bar_x - 6, by + 3, s["date"])
+            rrect(c, bar_x, by, bar_max_w, bar_h, r=4, fill=BORDER_L)
+            fw = max(bar_h, bar_max_w * s["amount"] / max_a)
+            rrect(c, bar_x, by, fw, bar_h, r=4, fill=PRIMARY)
+            val_text = fmt(s["amount"])
+            c.setFont(FB, 8)
+            val_tw = c.stringWidth(val_text, FB, 8)
+            if fw > val_tw + 16:
+                c.setFillColor(WHITE)
+                c.drawRightString(bar_x + fw - 6, by + 3, val_text)
+            else:
+                c.setFillColor(TXT)
+                c.drawString(bar_x + fw + 6, by + 3, val_text)
+
+    # RIGHT: Donut chart
+    dx = MARGIN + col_w + col_gap
+    rrect(c, dx, y - box_h, col_w, box_h, fill=WHITE, stroke=BORDER)
+    c.setFont(FB, 10); c.setFillColor(TXT)
+    c.drawString(dx + PAD, y - 16, "Category Split")
+
+    cats = d["categories"]
+    total = d["total_spent"] or 1
+    donut_cx = dx + col_w * 0.30
+    donut_cy = y - box_h / 2 - 8
+    outer_r, inner_r = 42, 28
+    start_angle = 90
+    for cat in cats:
+        accent = CAT_STYLE.get(cat["name"], (TXT2,))[0]
+        sweep = (cat["amount"] / total) * 360
+        if sweep < 0.3: start_angle += sweep; continue
+        c.saveState(); c.setFillColor(accent); c.setStrokeColor(WHITE); c.setLineWidth(1.5)
+        p = c.beginPath()
+        steps = max(int(sweep / 2), 6)
+        for s in range(steps + 1):
+            a = math.radians(start_angle + sweep * s / steps)
+            ax, ay = donut_cx + outer_r * math.cos(a), donut_cy + outer_r * math.sin(a)
+            if s == 0: p.moveTo(donut_cx, donut_cy); p.lineTo(ax, ay)
+            else: p.lineTo(ax, ay)
+        p.close(); c.drawPath(p, fill=1, stroke=1); c.restoreState()
+        start_angle += sweep
+    c.setFillColor(WHITE); c.circle(donut_cx, donut_cy, inner_r, fill=1, stroke=0)
+    c.setFont(FB, 9); c.setFillColor(TXT); c.drawCentredString(donut_cx, donut_cy + 2, fmt(total))
+    c.setFont(F, 6); c.setFillColor(TXT2); c.drawCentredString(donut_cx, donut_cy - 8, "Total Spent")
+
+    # Legend
+    lx = donut_cx + outer_r + 18
+    ly = donut_cy + (len(cats) * 15) / 2
+    for cat in cats:
+        accent = CAT_STYLE.get(cat["name"], (TXT2,))[0]
+        pct_val = cat["pct"]
+        if pct_val < 0.3: continue
+        c.setFillColor(accent); c.circle(lx + 3, ly + 1, 3, fill=1, stroke=0)
+        c.setFont(F, 8); c.setFillColor(TXT)
+        c.drawString(lx + 10, ly - 2, f"{cat['name'].title()} {pct_val:.0f}%")
+        ly -= 15
+
+    y -= box_h + 10
+
+    # ── Month-over-month ──
+    monthly = d.get("monthly_history", [])
+    if monthly:
+        mh = 110
+        rrect(c, MARGIN, y - mh, CARD_W, mh, fill=WHITE, stroke=BORDER)
+        c.setFont(FB, 10); c.setFillColor(TXT)
+        c.drawString(MARGIN + PAD, y - 16, "Monthly Comparison")
+        # Legend chips
+        c.setFillColor(PRIMARY); c.rect(W - MARGIN - PAD - 100, y - 15, 8, 8, fill=1, stroke=0)
+        c.setFont(F, 7); c.setFillColor(TXT2); c.drawString(W - MARGIN - PAD - 89, y - 14, "Spent")
+        c.setFillColor(BORDER_L); c.rect(W - MARGIN - PAD - 52, y - 15, 8, 8, fill=1, stroke=0)
+        c.setFont(F, 7); c.setFillColor(TXT2); c.drawString(W - MARGIN - PAD - 41, y - 14, "Budget")
+
+        max_v = max(m["budget"] for m in monthly) or 1
+        chart_x = MARGIN + PAD
+        chart_base = y - mh + 30
+        chart_h = mh - 60
+        mcw = (CARD_W - 2 * PAD) / len(monthly)
+        for i, m in enumerate(monthly):
+            bx = chart_x + mcw * i + mcw * 0.2
+            bw = mcw * 0.6
+            is_curr = i == len(monthly) - 1
+            # Budget
+            bgh = (m["budget"] / max_v) * chart_h
+            rrect(c, bx, chart_base, bw, bgh, r=3, fill=BORDER_L)
+            # Spent
+            sph = (m["spent"] / max_v) * chart_h
+            rrect(c, bx, chart_base, bw, sph, r=3, fill=PRIMARY if is_curr else HexColor("#CBD5E1"))
+            # Labels
+            c.setFont(FB if is_curr else F, 7.5)
+            c.setFillColor(TXT if is_curr else TXT2)
+            c.drawCentredString(bx + bw/2, chart_base + sph + 4, f"{m['spent']/1000:.0f}k")
+            c.setFont(FB if is_curr else F, 8)
+            c.setFillColor(PRIMARY if is_curr else TXT2)
+            c.drawCentredString(bx + bw/2, chart_base - 12, m["month"])
+
+        if len(monthly) >= 2:
+            cur, prev = monthly[-1]["spent"], monthly[-2]["spent"]
+            if prev > 0:
+                chg = ((cur - prev) / prev) * 100
+                c.setFont(FB, 8); c.setFillColor(GREEN if chg < 0 else RED)
+                c.drawCentredString(MARGIN + CARD_W/2, chart_base - 24,
+                                    f"{'+'if chg>0 else ''}{chg:.0f}% vs {monthly[-2]['month']}")
+        y -= mh + 10
+
+    # ── Category leaderboard ──
+    y = section(c, y, "Spending by Category")
+    top3 = cats[:3]
+    gap = 8
+    cw3 = (CARD_W - gap * 2) / 3
+    ch3 = 80
+    for i, cat in enumerate(top3):
+        cx = MARGIN + i * (cw3 + gap)
+        accent, bg_l, fg = CAT_STYLE.get(cat["name"], (TXT2, BORDER_L, TXT))
+        rrect(c, cx, y - ch3, cw3, ch3, fill=bg_l, stroke=accent)
+        # Accent left edge
+        c.setFillColor(accent); c.rect(cx, y - ch3, 3, ch3, fill=1, stroke=0)
+        c.setFont(FB, 10); c.setFillColor(fg)
+        c.drawString(cx + 12, y - 16, cat["name"].title())
+        c.setFont(F, 7); c.setFillColor(TXT2)
+        c.drawString(cx + 12, y - 28, f"{cat['count']} transactions")
+        c.setFont(FB, 15); c.setFillColor(fg)
+        c.drawString(cx + 12, y - 48, fmt(cat["amount"]))
+        c.setFont(FB, 8); c.setFillColor(accent)
+        c.drawString(cx + 12, y - 62, f"{cat['pct']}%")
+        progress_bar(c, cx + 42, y - 62, cw3 - 58, 7, cat["pct"], BORDER_L, accent)
+    y -= ch3 + 8
+
+    rest = cats[3:]
+    if rest:
+        rw = (CARD_W - gap * (len(rest)-1)) / max(len(rest), 1)
+        rh = 34
+        for i, cat in enumerate(rest):
+            rx = MARGIN + i * (rw + gap)
+            accent, bg_l, fg = CAT_STYLE.get(cat["name"], (TXT2, BORDER_L, TXT))
+            rrect(c, rx, y - rh, rw, rh, fill=WHITE, stroke=BORDER)
+            c.setFillColor(accent); c.rect(rx, y - rh, 3, rh, fill=1, stroke=0)
+            c.setFont(FB, 9); c.setFillColor(fg); c.drawString(rx + 12, y - 14, cat["name"].title())
+            c.setFont(F, 8); c.setFillColor(TXT2)
+            c.drawString(rx + 12, y - 26, f"{fmt(cat['amount'])}  ({cat['pct']}%)")
+            c.setFont(F, 7); c.setFillColor(TXT3); c.drawRightString(rx + rw - 10, y - 14, f"{cat['count']} txn")
+
+# ════════════════ PAGE 2: INSIGHTS ════════════════
+def page2(c):
+    d = DATA
+    y = new_page(c)
+    y = section(c, y, "Top 5 Biggest Expenses")
+
+    for i, exp in enumerate(d["top5"]):
+        ch = 46
+        rrect(c, MARGIN, y - ch, CARD_W, ch, fill=WHITE, stroke=BORDER)
+        accent = CAT_STYLE.get(exp["cat"], (TXT2,))[0]
+        # Rank
+        bx, by = MARGIN + 14, y - ch/2
+        c.setFillColor(accent); c.circle(bx, by, 11, fill=1, stroke=0)
+        c.setFont(FB, 11); c.setFillColor(WHITE); c.drawCentredString(bx, by - 4, str(i+1))
+        # Info
+        c.setFont(FB, 10); c.setFillColor(TXT)
+        c.drawString(MARGIN + 34, y - 16, exp["desc"].title())
+        px = MARGIN + 34
+        bg_l, fg = CAT_STYLE.get(exp["cat"], (TXT2, BORDER_L, TXT))[1:]
+        pw = pill(c, px, y - 33, exp["cat"].title(), bg_l, fg)
+        c.setFont(F, 8); c.setFillColor(TXT2)
+        c.drawString(px + pw + 6, y - 31, f"{exp['date']}  |  {exp['pct']}% of total")
+        # Amount
+        c.setFont(FB, 13); c.setFillColor(TXT)
+        c.drawRightString(W - MARGIN - PAD, y - 20, fmt(exp["amount"]))
+        y -= ch + 5
+    y -= 8
+
+    # Recurring
+    y = section(c, y, "Recurring Items")
+    recs = d["recurring"]
+    rh = 28 + len(recs) * 24
+    rrect(c, MARGIN, y - rh, CARD_W, rh, fill=WHITE, stroke=BORDER)
+    hx = MARGIN + PAD; hy = y - 18
+    c.setFont(FB, 8); c.setFillColor(TXT2)
+    for lbl, lx in [("ITEM", hx), ("FREQUENCY", hx+180), ("TOTAL", hx+280)]:
+        c.drawString(lx, hy, lbl)
+    c.drawRightString(W - MARGIN - PAD, hy, "AVG")
+    ry = hy - 22
+    for r in recs:
+        c.setFont(F, 9); c.setFillColor(TXT); c.drawString(hx, ry, r["item"])
+        c.setFillColor(TXT2); c.drawString(hx+180, ry, f"{r['times']}x")
+        c.setFillColor(TXT); c.drawString(hx+280, ry, fmt(r["total"]))
+        c.setFillColor(TXT2); c.drawRightString(W - MARGIN - PAD, ry, fmt(r["avg"]))
+        ry -= 24
+    y -= rh + 12
+
+    # Observations
+    y = section(c, y, "Key Observations")
+    obs = [
+        f"Bills dominate at 56.5% — house rent alone is 34% of total spend.",
+        f"43% of budget used with 28 days left. Daily allowance: {fmt(DATA['daily_allowance'])}.",
+        f"'Janey' is recurring (4 txn, {fmt(6953)}) — consider consolidating.",
+        f"Savings at 5.3% — financial advisors recommend 15-20% target.",
+    ]
+    oh = 14 + len(obs) * 17
+    rrect(c, MARGIN, y - oh, CARD_W, oh, fill=HexColor("#EFF6FF"), stroke=PRIMARY)
+    oy = y - 14
+    for o in obs:
+        c.setFont(F, 8.5); c.setFillColor(HexColor("#1E40AF"))
+        c.drawString(MARGIN + PAD + 4, oy, o); oy -= 17
+
+# ════════════════ CATEGORY PAGES ════════════════
+def cat_card(c, y, cat, txns):
+    accent, bg_l, fg = CAT_STYLE.get(cat["name"], (TXT2, BORDER_L, TXT))
+    row_h = 20
+    hdr_h = 76
+    tbl_hdr = 28
+    tbl_h = tbl_hdr + len(txns) * row_h
+    card_h = hdr_h + tbl_h + 10
+
+    if y - card_h < 50: y = new_page(c)
+
+    rrect(c, MARGIN, y - card_h, CARD_W, card_h, fill=WHITE, stroke=BORDER)
+    # Accent bar
+    c.setFillColor(accent); c.rect(MARGIN, y - card_h, 4, card_h, fill=1, stroke=0)
+
+    tx = MARGIN + PAD + 6
+    c.setFont(FB, 13); c.setFillColor(fg); c.drawString(tx, y - 20, cat["name"].title())
+    c.setFont(FB, 15); c.setFillColor(TXT); c.drawRightString(W-MARGIN-PAD, y - 20, fmt(cat["amount"]))
+    c.setFont(F, 8.5); c.setFillColor(TXT2)
+    c.drawString(tx, y - 38,
+        f"{cat['pct']}% of total  |  {cat['count']} transactions  |  Avg: {fmt(cat['avg'])}  |  Largest: {cat['largest']} ({fmt(cat['largest_amt'])})")
+    progress_bar(c, tx, y - 56, CARD_W - 2*PAD - 12, 8, cat["pct"], BORDER_L, accent)
+
+    # Table header
+    thy = y - hdr_h
+    tbl_hdr_h = 28
+    rrect(c, MARGIN + 8, thy - tbl_hdr_h, CARD_W - 16, tbl_hdr_h, r=4, fill=HexColor("#F8FAFC"))
+    c.setFont(FB, 8.5); c.setFillColor(HexColor("#475569"))
+    mid = thy - tbl_hdr_h/2 - 3
+    c.drawString(tx, mid, "DATE")
+    c.drawString(tx + 100, mid, "DESCRIPTION")
+    c.drawRightString(W - MARGIN - PAD, mid, "AMOUNT (KES)")
+
+    ry = thy - tbl_hdr_h - 4
+    for idx, (date, desc, amt) in enumerate(txns):
+        if idx % 2 == 0:
+            c.setFillColor(HexColor("#FAFBFD"))
+            c.rect(MARGIN + 8, ry - 5, CARD_W - 16, row_h, fill=1, stroke=0)
+        c.setFont(F, 8.5); c.setFillColor(TXT2); c.drawString(tx, ry, date)
+        c.setFillColor(TXT); c.drawString(tx + 100, ry, desc[:36])
+        c.setFont(FB, 8.5); c.setFillColor(TXT); c.drawRightString(W-MARGIN-PAD, ry, f"{amt:,.0f}")
+        ry -= row_h
+    return y - card_h - 12
+
+def cat_pages(c):
+    y = new_page(c)
+    y = section(c, y, "Category Breakdown")
+    for cat in DATA["categories"]:
+        txns = DATA["cat_transactions"].get(cat["name"], [])
+        if not txns: continue
+        y = cat_card(c, y, cat, txns)
+        if y < 100: y = new_page(c)
+
+# ════════════════ TRANSACTIONS PAGE ════════════════
+def txn_page(c):
+    d = DATA
+    y = new_page(c)
+    y = section(c, y, "All Transactions")
+    row_h = 20
+
+    def tbl_hdr(y):
+        hh = 32
+        rrect(c, MARGIN, y - hh, CARD_W, hh, r=5, fill=NAVY)
+        c.setFont(FB, 8.5); c.setFillColor(WHITE)
+        tx = MARGIN + PAD
+        mid = y - hh/2 - 3
+        c.drawString(tx, mid, "#")
+        c.drawString(tx + 22, mid, "DATE")
+        c.drawString(tx + 110, mid, "DESCRIPTION")
+        c.drawString(tx + 290, mid, "CATEGORY")
+        c.drawRightString(W - MARGIN - PAD, mid, "AMOUNT (KES)")
+        return y - hh
+
+    # Card bg
+    rows_fit = min(len(d["all_transactions"]), 30)
+    card_h = 32 + rows_fit * row_h + 4
+    rrect(c, MARGIN, y - card_h, CARD_W, card_h, fill=WHITE, stroke=BORDER)
+    ty = tbl_hdr(y)
+    tx = MARGIN + PAD
+
+    for idx, (date, desc, cat_name, amt) in enumerate(d["all_transactions"]):
+        if ty - row_h < 75:
+            y = new_page(c)
+            y = section(c, y, "All Transactions (continued)")
+            remaining = len(d["all_transactions"]) - idx
+            card_h = 32 + min(remaining, 30) * row_h + 4
+            rrect(c, MARGIN, y - card_h, CARD_W, card_h, fill=WHITE, stroke=BORDER)
+            ty = tbl_hdr(y)
+
+        ry = ty - 4
+        if idx % 2 == 0:
+            c.setFillColor(HexColor("#FAFBFD"))
+            c.rect(MARGIN + 2, ry - 5, CARD_W - 4, row_h, fill=1, stroke=0)
+        c.setFont(F, 8); c.setFillColor(TXT3); c.drawString(tx, ry, str(idx+1))
+        c.setFillColor(TXT2); c.drawString(tx + 22, ry, date)
+        c.setFont(F, 9); c.setFillColor(TXT); c.drawString(tx + 110, ry, desc[:28])
+        accent, bg_l, fg = CAT_STYLE.get(cat_name, (TXT2, BORDER_L, TXT))
+        pill(c, tx + 290, ry - 2, cat_name.title(), bg_l, fg)
+        c.setFont(FB, 9); c.setFillColor(TXT)
+        c.drawRightString(W - MARGIN - PAD, ry, f"{amt:,.0f}")
+        ty -= row_h
+
+    # Totals
+    if ty - 130 < 60: y = new_page(c); ty = y
+    ty -= 14
+    c.setFont(FB, 10); c.setFillColor(TXT); c.drawString(MARGIN, ty, "Category Totals")
+    ty -= 8
+    sh = 28 + len(d["categories"]) * 24 + 28
+    rrect(c, MARGIN, ty - sh, CARD_W, sh, fill=WHITE, stroke=BORDER)
+    hx = MARGIN + PAD; hy = ty - 20
+    c.setFont(FB, 8); c.setFillColor(TXT2)
+    c.drawString(hx, hy, "CATEGORY"); c.drawString(hx+150, hy, "AMOUNT")
+    c.drawString(hx+280, hy, "% OF TOTAL"); c.drawRightString(W-MARGIN-PAD, hy, "TRANSACTIONS")
+    sry = hy - 24
+    for cat in d["categories"]:
+        accent, bg_l, fg = CAT_STYLE.get(cat["name"], (TXT2, BORDER_L, TXT))
+        pill(c, hx, sry - 2, cat["name"].title(), bg_l, fg, fs=8)
+        c.setFont(FB, 9); c.setFillColor(TXT); c.drawString(hx+150, sry, fmt(cat["amount"]))
+        c.setFont(F, 9); c.setFillColor(TXT2); c.drawString(hx+280, sry, f"{cat['pct']}%")
+        c.drawRightString(W-MARGIN-PAD, sry, str(cat["count"]))
+        sry -= 24
+    # Total line
+    c.setStrokeColor(BORDER); c.setLineWidth(0.5)
+    c.line(hx, sry + 10, W-MARGIN-PAD, sry + 10)
+    c.setFont(FB, 9); c.setFillColor(TXT)
+    c.drawString(hx, sry - 6, "TOTAL")
+    c.drawString(hx+150, sry - 6, fmt(d["total_spent"]))
+    c.drawString(hx+280, sry - 6, "100%")
+    c.drawRightString(W-MARGIN-PAD, sry - 6, str(d["transactions"]))
+
+# ════════════════ MAIN ════════════════
+def generate(path):
+    c = canvas.Canvas(path, pagesize=A4)
+    c.setTitle("Expense Report — April 2026")
+    c.setAuthor("Emily AI")
+    page1(c); page2(c); cat_pages(c); txn_page(c)
+    c.save()
+    print(f"Done: {path}")
+
+if __name__ == "__main__":
+    generate("/home/claude/expense_report_v3.pdf")
