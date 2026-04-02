@@ -46,69 +46,8 @@ CAT_STYLE = {
 
 PAGE = [0]
 
-# ════════════════ DATA ════════════════
-DATA = {
-    "month": "April 2026",
-    "generated": "02 Apr 2026, 09:49 AM EAT",
-    "user": "dan.ai",
-    "total_spent": 46915, "total_budget": 108128, "remaining": 61213,
-    "transactions": 26, "days_remaining": 28,
-    "daily_allowance": 2186, "daily_avg": 23458,
-    "categories": [
-        {"name":"bills","amount":26497,"pct":56.5,"count":9,"avg":2944,"largest":"house rent","largest_amt":16000},
-        {"name":"general","amount":17478,"pct":37.3,"count":12,"avg":1456,"largest":"janey","largest_amt":6600},
-        {"name":"savings","amount":2500,"pct":5.3,"count":2,"avg":1250,"largest":"Sacco savings","largest_amt":2000},
-        {"name":"shopping","amount":260,"pct":0.6,"count":2,"avg":130,"largest":"weed","largest_amt":140},
-        {"name":"food","amount":180,"pct":0.4,"count":1,"avg":180,"largest":"meat","largest_amt":180},
-    ],
-    "daily_spending": [
-        {"date":"Apr 01","amount":42078},
-        {"date":"Apr 02","amount":4837},
-    ],
-    "monthly_history": [
-        {"month":"Jan","spent":78420,"budget":105000},
-        {"month":"Feb","spent":92150,"budget":105000},
-        {"month":"Mar","spent":86730,"budget":108128},
-        {"month":"Apr","spent":46915,"budget":108128},
-    ],
-    "top5": [
-        {"desc":"house rent","cat":"bills","date":"2026-04-01","amount":16000,"pct":34.1},
-        {"desc":"janey","cat":"general","date":"2026-04-01","amount":6600,"pct":14.1},
-        {"desc":"kate","cat":"general","date":"2026-04-01","amount":6000,"pct":12.8},
-        {"desc":"Stima Sacco loan","cat":"bills","date":"2026-04-02","amount":4237,"pct":9.0},
-        {"desc":"mkopa loan","cat":"bills","date":"2026-04-01","amount":3000,"pct":6.4},
-    ],
-    "recurring": [{"item":"Janey","times":4,"total":6953,"avg":1738}],
-    "cat_transactions": {
-        "bills": [("2026-04-01","house rent",16000),("2026-04-02","Stima Sacco loan",4237),
-                  ("2026-04-01","mkopa loan",3000),("2026-04-01","DTB loan repayment",2000),
-                  ("2026-04-01","loan refund",1000),("2026-04-01","electricity tokens",100),
-                  ("2026-04-02","electricity tokens",100),("2026-04-01","airtime",50),("2026-04-01","airtime",10)],
-        "general": [("2026-04-01","janey",6600),("2026-04-01","kate",6000),("2026-04-01","passion cake",1500),
-                    ("2026-04-01","openAI credits",796),("2026-04-01","openAI credits",796),
-                    ("2026-04-01","kate",659),("2026-04-01","pesticides",400),("2026-04-01","Koyeb server",237),
-                    ("2026-04-01","janey",200),("2026-04-01","Mongo database",137),
-                    ("2026-04-01","janey",100),("2026-04-01","janey",53)],
-        "savings": [("2026-04-01","Sacco savings",2000),("2026-04-02","Sacco savings",500)],
-        "shopping": [("2026-04-01","weed",140),("2026-04-01","weed",120)],
-        "food": [("2026-04-01","meat",180)],
-    },
-    "all_transactions": [
-        ("2026-04-01","airtime","bills",10),("2026-04-01","Sacco savings","savings",2000),
-        ("2026-04-01","DTB loan repayment","bills",2000),("2026-04-01","kate","general",6000),
-        ("2026-04-01","meat","food",180),("2026-04-01","mkopa loan","bills",3000),
-        ("2026-04-01","electricity tokens","bills",100),("2026-04-01","Koyeb server","general",237),
-        ("2026-04-01","janey","general",53),("2026-04-01","weed","shopping",140),
-        ("2026-04-01","weed","shopping",120),("2026-04-01","Mongo database","general",137),
-        ("2026-04-01","janey","general",100),("2026-04-01","janey","general",200),
-        ("2026-04-01","openAI credits","general",796),("2026-04-01","openAI credits","general",796),
-        ("2026-04-01","house rent","bills",16000),("2026-04-01","janey","general",6600),
-        ("2026-04-01","airtime","bills",50),("2026-04-01","passion cake","general",1500),
-        ("2026-04-01","kate","general",659),("2026-04-01","pesticides","general",400),
-        ("2026-04-01","loan refund","bills",1000),("2026-04-02","Stima Sacco loan","bills",4237),
-        ("2026-04-02","Sacco savings","savings",500),("2026-04-02","electricity tokens","bills",100),
-    ],
-}
+# ════════════════ DATA (set by generate_bytes) ════════════════
+DATA = {}
 
 # ════════════════ HELPERS ════════════════
 def fmt(n): return f"KES {n:,.0f}"
@@ -558,14 +497,31 @@ def txn_page(c):
     c.drawString(hx+280, sry - 6, "100%")
     c.drawRightString(W-MARGIN-PAD, sry - 6, str(d["transactions"]))
 
+
 # ════════════════ MAIN ════════════════
-def generate(path):
+def generate(path, data=None):
+    """Generate PDF to file."""
+    if data:
+        global DATA
+        DATA = data
+    PAGE[0] = 0
     c = canvas.Canvas(path, pagesize=A4)
-    c.setTitle("Expense Report — April 2026")
+    c.setTitle(f"Expense Report")
     c.setAuthor("Emily AI")
     page1(c); page2(c); cat_pages(c); txn_page(c)
     c.save()
-    print(f"Done: {path}")
 
-if __name__ == "__main__":
-    generate("/home/claude/expense_report_v3.pdf")
+
+def generate_bytes(data):
+    """Generate PDF from data dict, return bytes."""
+    import io
+    global DATA
+    DATA = data
+    PAGE[0] = 0
+    buf = io.BytesIO()
+    c = canvas.Canvas(buf, pagesize=A4)
+    c.setTitle("Expense Report")
+    c.setAuthor("Emily AI")
+    page1(c); page2(c); cat_pages(c); txn_page(c)
+    c.save()
+    return buf.getvalue()

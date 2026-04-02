@@ -415,644 +415,177 @@ def format_comparison(results, principal, months):
 # ══════════════════════════════════════════════
 
 # Color palette for the report
-_COLORS = {
-    "primary":    (26, 115, 232),    # Blue
-    "success":    (52, 168, 83),     # Green
-    "warning":    (251, 188, 4),     # Amber
-    "danger":     (234, 67, 53),     # Red
-    "dark":       (32, 33, 36),      # Near-black
-    "gray":       (95, 99, 104),     # Gray text
-    "light_gray": (218, 220, 224),   # Borders
-    "bg_light":   (248, 249, 250),   # Light background
-    "white":      (255, 255, 255),
-}
 
-# Category colors for chart bars
-_CAT_COLORS = [
-    (26, 115, 232),   # Blue
-    (234, 67, 53),    # Red
-    (251, 188, 4),    # Amber
-    (52, 168, 83),    # Green
-    (156, 39, 176),   # Purple
-    (255, 112, 67),   # Orange
-    (0, 172, 193),    # Teal
-    (121, 85, 72),    # Brown
-    (96, 125, 139),   # Blue-gray
-    (233, 30, 99),    # Pink
-]
-
-
+# ══════════════════════════════════════════════
+# PDF EXPENSE REPORT (uses generate_report.py)
+# ══════════════════════════════════════════════
 def generate_expense_pdf(user_name, monthly_data, budget_limit=None, income_data=None):
-    """Generate a professional PDF expense report with visual charts. Returns bytes."""
+    """Generate a professional PDF expense report. Returns bytes."""
     try:
-        from fpdf import FPDF
+        from generate_report import generate_bytes
+        import calendar
 
         now = datetime.now(EAT_ZONE)
         month_name = now.strftime("%B %Y")
 
         if not monthly_data or not monthly_data.get("entries"):
-            pdf = FPDF()
-            pdf.add_page()
-            pdf.set_font("Helvetica", "", 12)
-            pdf.cell(0, 10, "No expenses recorded this month.", ln=True)
-            return pdf.output()
+            return None
 
         total = monthly_data["total"]
         count = monthly_data["count"]
-        categories = monthly_data.get("by_category", {})
-        daily = monthly_data.get("by_day", {})
+        categories_raw = monthly_data.get("by_category", {})
+        daily_raw = monthly_data.get("by_day", {})
         entries = monthly_data.get("entries", [])
-        sorted_cats = sorted(categories.items(), key=lambda x: -x[1])
 
-        # Income data
-        total_income = 0
-        income_entries = []
-        if income_data:
-            total_income = income_data.get("total", 0)
-            income_entries = income_data.get("entries", [])
-
-        # Budget calculations — budget_limit should already be effective (base + income)
-        remaining = (budget_limit - total) if budget_limit else None
-        budget_pct = (total / budget_limit * 100) if budget_limit else 0
+        # Budget calculations
+        total_income = income_data.get("total", 0) if income_data else 0
+        effective = budget_limit or 0
+        remaining = (effective - total) if effective else 0
+        budget_pct = (total / effective * 100) if effective > 0 else 0
         day_of_month = now.day
         days_in_month = calendar.monthrange(now.year, now.month)[1]
         days_left = max(days_in_month - day_of_month, 1)
         daily_avg = total / max(day_of_month, 1)
-        daily_allowance = remaining / days_left if remaining and remaining > 0 else 0
-        net_balance = total_income - total  # Income minus expenses
+        daily_allowance = remaining / days_left if remaining > 0 else 0
 
-        pdf = FPDF()
-        pdf.set_auto_page_break(auto=True, margin=20)
-        pw = 190  # Page width (usable)
+        # ── Build categories list ──
+        sorted_cats = sorted(categories_raw.items(), key=lambda x: -x[1])
+        categories = []
+        for cat_name, cat_amount in sorted_cats:
+            pct = round((cat_amount / total * 100), 1) if total > 0 else 0
+            cat_entries = [e for e in entries if e.get("category", "general") == cat_name]
+            cat_count = len(cat_entries)
+            cat_avg = round(cat_amount / cat_count) if cat_count > 0 else 0
+            largest_entry = max(cat_entries, key=lambda e: e.get("amount", 0)) if cat_entries else {}
+            categories.append({
+                "name": cat_name,
+                "amount": cat_amount,
+                "pct": pct,
+                "count": cat_count,
+                "avg": cat_avg,
+                "largest": largest_entry.get("description", "")[:25],
+                "largest_amt": largest_entry.get("amount", 0),
+            })
 
-        # ────────────────────────────────
-        # PAGE 1: Cover + Summary
-        # ────────────────────────────────
-        pdf.add_page()
+        # ── Build category transactions ──
+        cat_transactions = {}
+        for cat_name, _ in sorted_cats:
+            cat_entries = [e for e in entries if e.get("category", "general") == cat_name]
+            cat_entries.sort(key=lambda e: -e.get("amount", 0))
+            cat_transactions[cat_name] = [
+                (e.get("date_str", ""), e.get("description", ""), e.get("amount", 0))
+                for e in cat_entries
+            ]
 
-        # Header bar
-        pdf.set_fill_color(*_COLORS["primary"])
-        pdf.rect(0, 0, 210, 45, "F")
-        pdf.set_text_color(*_COLORS["white"])
-        pdf.set_font("Helvetica", "B", 22)
-        pdf.set_y(10)
-        pdf.cell(0, 10, f"Expense Report", ln=True, align="C")
-        pdf.set_font("Helvetica", "", 13)
-        pdf.cell(0, 8, f"{month_name}", ln=True, align="C")
-        pdf.set_font("Helvetica", "", 9)
-        pdf.cell(0, 6, f"Prepared for {user_name} by Emily AI  |  {now.strftime('%d %b %Y, %I:%M %p')}", ln=True, align="C")
+        # ── Daily spending ──
+        daily_spending = []
+        for date_str, amt in sorted(daily_raw.items()):
+            # Convert "2026-04-01" to "Apr 01"
+            try:
+                dt = datetime.strptime(date_str, "%Y-%m-%d")
+                label = dt.strftime("%b %d")
+            except Exception:
+                label = date_str[-5:]
+            daily_spending.append({"date": label, "amount": round(amt)})
 
-        pdf.set_text_color(*_COLORS["dark"])
-        pdf.ln(10)
-
-        # ── Summary Cards ──
-        if total_income > 0:
-            # 4 cards if we have income data
-            card_w = pw / 4
-        else:
-            card_w = pw / 3
-        card_h = 22
-        y_start = pdf.get_y()
-
-        def _draw_card(x, y, label, value, color):
-            pdf.set_fill_color(*_COLORS["bg_light"])
-            pdf.set_draw_color(*_COLORS["light_gray"])
-            pdf.rect(x, y, card_w - 2, card_h, "DF")
-            pdf.set_xy(x + 2, y + 2)
-            pdf.set_font("Helvetica", "", 7)
-            pdf.set_text_color(*_COLORS["gray"])
-            pdf.cell(card_w - 6, 5, label, ln=True)
-            pdf.set_xy(x + 2, y + 8)
-            pdf.set_font("Helvetica", "B", 12)
-            pdf.set_text_color(*color)
-            pdf.cell(card_w - 6, 10, value)
-            pdf.set_text_color(*_COLORS["dark"])
-
-        col = 0
-        if total_income > 0:
-            _draw_card(10 + card_w * col, y_start, "INCOME", f"KES {total_income:,.0f}", _COLORS["success"])
-            col += 1
-
-        _draw_card(10 + card_w * col, y_start, "TOTAL SPENT", f"KES {total:,.0f}", _COLORS["danger"])
-        col += 1
-        _draw_card(10 + card_w * col, y_start, "TRANSACTIONS", f"{count}", _COLORS["primary"])
-        col += 1
-
-        if budget_limit:
-            r_color = _COLORS["success"] if remaining and remaining > 0 else _COLORS["danger"]
-            _draw_card(10 + card_w * col, y_start, "REMAINING", f"KES {remaining:,.0f}" if remaining else "N/A", r_color)
-        else:
-            _draw_card(10 + card_w * col, y_start, "DAILY AVG", f"KES {daily_avg:,.0f}", _COLORS["warning"])
-
-        pdf.set_y(y_start + card_h + 5)
-
-        # ── Net Balance (Income - Expenses) ──
-        if total_income > 0:
-            bal_color = _COLORS["success"] if net_balance >= 0 else _COLORS["danger"]
-            bal_sign = "+" if net_balance >= 0 else ""
-            pdf.set_font("Helvetica", "B", 9)
-            pdf.set_text_color(*bal_color)
-            pdf.cell(0, 5, f"Net Balance (Income - Expenses): KES {bal_sign}{net_balance:,.0f}", ln=True)
-            pdf.set_text_color(*_COLORS["dark"])
-            pdf.ln(3)
-
-        # ── Budget Progress Bar ──
-        if budget_limit:
-            pdf.set_font("Helvetica", "B", 11)
-            budget_label = "Budget Progress"
-            if total_income > 0:
-                base_limit = budget_limit - total_income
-                budget_label += f" (Base: KES {base_limit:,.0f} + Income: KES {total_income:,.0f})"
-            pdf.cell(0, 8, budget_label, ln=True)
-
-            bar_w = pw
-            bar_h = 12
-            bar_y = pdf.get_y()
-
-            # Background
-            pdf.set_fill_color(*_COLORS["light_gray"])
-            pdf.rect(10, bar_y, bar_w, bar_h, "F")
-
-            # Filled portion
-            fill_w = min(budget_pct / 100, 1.0) * bar_w
-            if budget_pct > 90:
-                pdf.set_fill_color(*_COLORS["danger"])
-            elif budget_pct > 70:
-                pdf.set_fill_color(*_COLORS["warning"])
-            else:
-                pdf.set_fill_color(*_COLORS["success"])
-            if fill_w > 0:
-                pdf.rect(10, bar_y, fill_w, bar_h, "F")
-
-            # Label on bar
-            pdf.set_xy(10, bar_y + 1)
-            pdf.set_font("Helvetica", "B", 9)
-            pdf.set_text_color(*_COLORS["white"] if budget_pct > 15 else _COLORS["dark"])
-            pdf.cell(bar_w, bar_h - 2, f"  KES {total:,.0f} of KES {budget_limit:,.0f} ({budget_pct:.0f}%)", align="L")
-            pdf.set_text_color(*_COLORS["dark"])
-            pdf.set_y(bar_y + bar_h + 3)
-
-            # Daily allowance info
-            pdf.set_font("Helvetica", "", 9)
-            pdf.set_text_color(*_COLORS["gray"])
-            pdf.cell(0, 5, f"{days_left} days remaining  |  Daily allowance: KES {daily_allowance:,.0f}  |  Daily avg so far: KES {daily_avg:,.0f}", ln=True)
-            pdf.set_text_color(*_COLORS["dark"])
-            pdf.ln(5)
-
-        # ────────────────────────────────
-        # CATEGORY BREAKDOWN (horizontal bars)
-        # ────────────────────────────────
-        pdf.set_font("Helvetica", "B", 13)
-        pdf.cell(0, 10, "Spending by Category", ln=True)
-        pdf.ln(2)
-
-        if sorted_cats:
-            max_amount = sorted_cats[0][1] if sorted_cats else 1
-            bar_max_w = 100  # Max bar width in mm
-
-            for idx, (cat, amount) in enumerate(sorted_cats):
-                pct = (amount / total * 100) if total > 0 else 0
-                bar_w = (amount / max_amount) * bar_max_w if max_amount > 0 else 0
-                color = _CAT_COLORS[idx % len(_CAT_COLORS)]
-                y = pdf.get_y()
-
-                # Category name + percentage
-                pdf.set_font("Helvetica", "B", 9)
-                pdf.set_xy(10, y)
-                pdf.cell(40, 6, f"{cat.title()}", align="L")
-
-                # Bar
-                pdf.set_fill_color(*color)
-                bar_x = 52
-                if bar_w > 0:
-                    pdf.rect(bar_x, y + 0.5, bar_w, 5, "F")
-
-                # Amount label
-                pdf.set_font("Helvetica", "", 8)
-                pdf.set_xy(bar_x + bar_w + 2, y)
-                pdf.cell(40, 6, f"KES {amount:,.0f} ({pct:.0f}%)")
-
-                pdf.set_y(y + 8)
-
-        pdf.ln(5)
-
-        # ────────────────────────────────
-        # DAILY SPENDING (vertical-ish bars)
-        # ────────────────────────────────
-        if daily:
-            pdf.set_font("Helvetica", "B", 13)
-            pdf.cell(0, 10, "Daily Spending", ln=True)
-            pdf.ln(2)
-
-            sorted_days = sorted(daily.items())
-            max_day_amount = max(daily.values()) if daily else 1
-            bar_max_w = 90
-
-            for day_str, amount in sorted_days:
-                y = pdf.get_y()
-                bar_w = (amount / max_day_amount) * bar_max_w if max_day_amount > 0 else 0
-
-                # Date
-                pdf.set_font("Helvetica", "", 8)
-                pdf.set_xy(10, y)
-                # Shorten date: "2026-03-07" -> "Mar 07"
-                try:
-                    from datetime import datetime as _dt
-                    short_date = _dt.strptime(day_str, "%Y-%m-%d").strftime("%b %d")
-                except Exception:
-                    short_date = day_str
-                pdf.cell(22, 5, short_date, align="L")
-
-                # Bar
-                bar_x = 34
-                # Color by amount relative to daily average
-                if amount > daily_avg * 2:
-                    pdf.set_fill_color(*_COLORS["danger"])
-                elif amount > daily_avg * 1.3:
-                    pdf.set_fill_color(*_COLORS["warning"])
-                else:
-                    pdf.set_fill_color(*_COLORS["success"])
-
-                if bar_w > 0:
-                    pdf.rect(bar_x, y + 0.5, bar_w, 4, "F")
-
-                # Amount
-                pdf.set_font("Helvetica", "", 8)
-                pdf.set_xy(bar_x + bar_w + 2, y)
-                pdf.cell(30, 5, f"KES {amount:,.0f}")
-
-                pdf.set_y(y + 6.5)
-
-        # ────────────────────────────────
-        # PAGE 2+: CATEGORY DETAIL BREAKDOWN
-        # ────────────────────────────────
-        pdf.add_page()
-
-        pdf.set_fill_color(*_COLORS["primary"])
-        pdf.rect(0, 0, 210, 20, "F")
-        pdf.set_text_color(*_COLORS["white"])
-        pdf.set_font("Helvetica", "B", 14)
-        pdf.set_y(5)
-        pdf.cell(0, 10, "Category Breakdown", ln=True, align="C")
-        pdf.set_text_color(*_COLORS["dark"])
-        pdf.ln(8)
-
-        # Group entries by category
-        cat_entries = {}
-        for entry in entries:
-            cat = entry.get("category", "general").title()
-            if cat not in cat_entries:
-                cat_entries[cat] = []
-            cat_entries[cat].append(entry)
-
-        for cat_idx, (cat, amount) in enumerate(sorted_cats):
-            cat_title = cat.title()
-            pct = (amount / total * 100) if total > 0 else 0
-            color = _CAT_COLORS[cat_idx % len(_CAT_COLORS)]
-            these_entries = cat_entries.get(cat_title, [])
-            cat_count = len(these_entries)
-            cat_avg = amount / cat_count if cat_count > 0 else 0
-
-            # Check if we need a new page (need at least 60mm for header + a few rows)
-            if pdf.get_y() > 230:
-                pdf.add_page()
-
-            y = pdf.get_y()
-
-            # Category header bar
-            pdf.set_fill_color(*color)
-            pdf.rect(10, y, pw, 10, "F")
-            pdf.set_text_color(*_COLORS["white"])
-            pdf.set_font("Helvetica", "B", 10)
-            pdf.set_xy(12, y + 1)
-            pdf.cell(80, 8, f"{cat_title}")
-            pdf.set_font("Helvetica", "B", 10)
-            pdf.set_xy(130, y + 1)
-            pdf.cell(70, 8, f"KES {amount:,.0f}  ({pct:.1f}%)", align="R")
-            pdf.set_text_color(*_COLORS["dark"])
-            pdf.set_y(y + 12)
-
-            # Stats row
-            pdf.set_font("Helvetica", "", 8)
-            pdf.set_text_color(*_COLORS["gray"])
-            pdf.cell(60, 5, f"{cat_count} transactions  |  Avg: KES {cat_avg:,.0f}")
-
-            # Find largest in this category
-            if these_entries:
-                largest = max(these_entries, key=lambda e: e.get("amount", 0))
-                largest_desc = largest.get("description", "")[:25]
-                largest_amt = largest.get("amount", 0)
-                pdf.cell(0, 5, f"Largest: {largest_desc} (KES {largest_amt:,.0f})", align="R")
-            pdf.ln()
-            pdf.set_text_color(*_COLORS["dark"])
-
-            # Transaction table for this category
-            col_w = [25, 95, 40]  # Date, Description, Amount
-            pdf.set_fill_color(*_COLORS["bg_light"])
-            pdf.set_font("Helvetica", "B", 8)
-            pdf.set_text_color(*_COLORS["gray"])
-            pdf.cell(col_w[0], 5, "Date", fill=True)
-            pdf.cell(col_w[1], 5, "Description", fill=True)
-            pdf.cell(col_w[2], 5, "Amount (KES)", fill=True, align="R")
-            pdf.ln()
-            pdf.set_text_color(*_COLORS["dark"])
-
-            # Sort entries by amount descending
-            sorted_entries = sorted(these_entries, key=lambda e: -e.get("amount", 0))
-
-            for row_idx, entry in enumerate(sorted_entries):
-                if pdf.get_y() > 270:
-                    pdf.add_page()
-
-                date_str = entry.get("date_str", "")
-                desc = entry.get("description", "")
-                if len(desc) > 40:
-                    desc = desc[:38] + ".."
-                amt = entry.get("amount", 0)
-
-                bg = _COLORS["white"] if row_idx % 2 else _COLORS["bg_light"]
-                pdf.set_fill_color(*bg)
-                pdf.set_font("Helvetica", "", 8)
-                pdf.cell(col_w[0], 5, date_str, fill=True)
-                pdf.cell(col_w[1], 5, desc, fill=True)
-
-                # Bold the amount if it's large (> 2x category average)
-                if amt > cat_avg * 2 and cat_count > 2:
-                    pdf.set_font("Helvetica", "B", 8)
-                    pdf.set_text_color(*_COLORS["danger"])
-                else:
-                    pdf.set_font("Helvetica", "", 8)
-                pdf.cell(col_w[2], 5, f"{amt:,.0f}", fill=True, align="R")
-                pdf.set_text_color(*_COLORS["dark"])
-                pdf.ln()
-
-            # Separator
-            pdf.ln(4)
-            pdf.set_draw_color(*_COLORS["light_gray"])
-            pdf.line(10, pdf.get_y(), 200, pdf.get_y())
-            pdf.ln(4)
-
-        # ────────────────────────────────
-        # INSIGHTS PAGE
-        # ────────────────────────────────
-        pdf.add_page()
-
-        pdf.set_fill_color(*_COLORS["primary"])
-        pdf.rect(0, 0, 210, 20, "F")
-        pdf.set_text_color(*_COLORS["white"])
-        pdf.set_font("Helvetica", "B", 14)
-        pdf.set_y(5)
-        pdf.cell(0, 10, "Spending Insights", ln=True, align="C")
-        pdf.set_text_color(*_COLORS["dark"])
-        pdf.ln(8)
-
-        # Top 5 biggest expenses
-        pdf.set_font("Helvetica", "B", 11)
-        pdf.cell(0, 8, "Top 5 Biggest Expenses", ln=True)
-        pdf.ln(2)
-
+        # ── Top 5 expenses ──
         top_entries = sorted(entries, key=lambda e: -e.get("amount", 0))[:5]
-        for idx, entry in enumerate(top_entries):
-            y = pdf.get_y()
-            desc = entry.get("description", "")[:35]
-            amt = entry.get("amount", 0)
-            cat = entry.get("category", "general").title()
-            date_str = entry.get("date_str", "")
-            pct_of_total = (amt / total * 100) if total > 0 else 0
+        top5 = []
+        for e in top_entries:
+            amt = e.get("amount", 0)
+            top5.append({
+                "desc": e.get("description", ""),
+                "cat": e.get("category", "general"),
+                "date": e.get("date_str", ""),
+                "amount": amt,
+                "pct": round((amt / total * 100), 1) if total > 0 else 0,
+            })
 
-            # Rank number
-            pdf.set_font("Helvetica", "B", 16)
-            pdf.set_text_color(*_COLORS["primary"])
-            pdf.set_xy(10, y)
-            pdf.cell(12, 10, f"{idx + 1}")
-
-            # Description + amount
-            pdf.set_text_color(*_COLORS["dark"])
-            pdf.set_font("Helvetica", "B", 10)
-            pdf.set_xy(22, y)
-            pdf.cell(100, 5, desc)
-            pdf.set_font("Helvetica", "B", 10)
-            pdf.set_xy(140, y)
-            pdf.cell(60, 5, f"KES {amt:,.0f}", align="R")
-
-            # Subtitle
-            pdf.set_font("Helvetica", "", 8)
-            pdf.set_text_color(*_COLORS["gray"])
-            pdf.set_xy(22, y + 5)
-            pdf.cell(100, 5, f"{cat}  |  {date_str}  |  {pct_of_total:.1f}% of total")
-            pdf.set_text_color(*_COLORS["dark"])
-            pdf.set_y(y + 12)
-
-        pdf.ln(5)
-
-        # Recurring patterns
-        pdf.set_font("Helvetica", "B", 11)
-        pdf.cell(0, 8, "Recurring Items", ln=True)
-        pdf.ln(2)
-
-        # Find descriptions that appear 3+ times
+        # ── Recurring items (3+ occurrences) ──
         desc_counts = {}
         desc_totals = {}
-        for entry in entries:
-            d = entry.get("description", "").lower().strip()
-            # Normalize common variants
+        for e in entries:
+            d = e.get("description", "").lower().strip()
             for keyword in ["airtime", "electricity tokens", "transport", "weed", "water", "bundles"]:
                 if keyword in d:
                     d = keyword
                     break
             desc_counts[d] = desc_counts.get(d, 0) + 1
-            desc_totals[d] = desc_totals.get(d, 0) + entry.get("amount", 0)
+            desc_totals[d] = desc_totals.get(d, 0) + e.get("amount", 0)
 
-        recurring = [(d, c, desc_totals[d]) for d, c in desc_counts.items() if c >= 3]
-        recurring.sort(key=lambda x: -x[2])
+        recurring = []
+        for d, c in desc_counts.items():
+            if c >= 2:
+                recurring.append({
+                    "item": d.title(),
+                    "times": c,
+                    "total": round(desc_totals[d]),
+                    "avg": round(desc_totals[d] / c),
+                })
+        recurring.sort(key=lambda x: -x["total"])
 
-        if recurring:
-            col_w = [60, 30, 40, 40]
-            pdf.set_fill_color(*_COLORS["dark"])
-            pdf.set_text_color(*_COLORS["white"])
-            pdf.set_font("Helvetica", "B", 8)
-            pdf.cell(col_w[0], 6, "Item", fill=True)
-            pdf.cell(col_w[1], 6, "Times", fill=True, align="C")
-            pdf.cell(col_w[2], 6, "Total (KES)", fill=True, align="R")
-            pdf.cell(col_w[3], 6, "Avg (KES)", fill=True, align="R")
-            pdf.ln()
-            pdf.set_text_color(*_COLORS["dark"])
+        # ── All transactions ──
+        all_transactions = [
+            (e.get("date_str", ""), e.get("description", ""),
+             e.get("category", "general"), e.get("amount", 0))
+            for e in entries
+        ]
 
-            for idx, (desc, count, tot) in enumerate(recurring[:10]):
-                bg = _COLORS["bg_light"] if idx % 2 == 0 else _COLORS["white"]
-                pdf.set_fill_color(*bg)
-                pdf.set_font("Helvetica", "", 8)
-                pdf.cell(col_w[0], 6, desc.title()[:30], fill=True)
-                pdf.cell(col_w[1], 6, f"{count}x", fill=True, align="C")
-                pdf.set_font("Helvetica", "B", 8)
-                pdf.cell(col_w[2], 6, f"{tot:,.0f}", fill=True, align="R")
-                pdf.set_font("Helvetica", "", 8)
-                pdf.cell(col_w[3], 6, f"{tot/count:,.0f}", fill=True, align="R")
-                pdf.ln()
-        else:
-            pdf.set_font("Helvetica", "", 9)
-            pdf.cell(0, 6, "No frequently recurring expenses detected.", ln=True)
+        # ── Monthly history (try to load from MongoDB) ──
+        monthly_history = []
+        try:
+            import certifi
+            from pymongo import MongoClient as _MC
+            import os
+            _client = _MC(os.getenv("MONGO_URI"), tlsCAFile=certifi.where(), serverSelectionTimeoutMS=5000)
+            db = _client["emily_brain_db"]
+            # Get user_id from the first entry
+            uid = entries[0].get("user_id", "") if entries else ""
+            if uid:
+                for i in range(4):
+                    y = now.year
+                    m = now.month - i
+                    while m <= 0:
+                        m += 12
+                        y -= 1
+                    ms = f"{y}-{m:02d}"
+                    label = datetime(y, m, 1).strftime("%b")
+                    pipeline = [
+                        {"$match": {"user_id": str(uid), "month_str": ms}},
+                        {"$group": {"_id": None, "total": {"$sum": "$amount"}}},
+                    ]
+                    agg = list(db["budgets"].aggregate(pipeline))
+                    spent = round(agg[0]["total"], 2) if agg else 0
+                    monthly_history.append({"month": label, "spent": spent, "budget": effective})
+                monthly_history.reverse()
+        except Exception:
+            pass  # Skip month history if DB unavailable
 
-        pdf.ln(5)
+        # ── Assemble data dict ──
+        data = {
+            "month": month_name,
+            "generated": now.strftime("%d %b %Y, %I:%M %p EAT"),
+            "user": user_name,
+            "total_spent": round(total),
+            "total_budget": round(effective),
+            "remaining": round(remaining),
+            "transactions": count,
+            "days_remaining": days_left,
+            "daily_allowance": round(daily_allowance),
+            "daily_avg": round(daily_avg),
+            "categories": categories,
+            "daily_spending": daily_spending,
+            "monthly_history": monthly_history,
+            "top5": top5,
+            "recurring": recurring[:10],
+            "cat_transactions": cat_transactions,
+            "all_transactions": all_transactions,
+        }
 
-        # People you send money to
-        pdf.set_font("Helvetica", "B", 11)
-        pdf.cell(0, 8, "Money Sent to Others", ln=True)
-        pdf.ln(2)
-
-        people_totals = {}
-        for entry in entries:
-            desc = entry.get("description", "").lower()
-            import re as _re2
-            match = _re2.search(r'(?:sent?(?:\s+(?:to|money))?\s+(?:to\s+)?|helping|loaned?(?:\s+to)?)\s+(\w+)', desc)
-            if match:
-                name = match.group(1).title()
-                if name.lower() not in ["money", "a", "the", "my", "to"]:
-                    people_totals[name] = people_totals.get(name, 0) + entry.get("amount", 0)
-
-        if people_totals:
-            sorted_people = sorted(people_totals.items(), key=lambda x: -x[1])
-            for name, total_sent in sorted_people:
-                pdf.set_font("Helvetica", "", 9)
-                pdf.cell(60, 6, f"{name}")
-                pdf.set_font("Helvetica", "B", 9)
-                pdf.cell(40, 6, f"KES {total_sent:,.0f}", align="R")
-                pdf.ln()
-        else:
-            pdf.set_font("Helvetica", "", 9)
-            pdf.cell(0, 6, "No money transfers detected.", ln=True)
-
-        # ────────────────────────────────
-        # TRANSACTIONS TABLE
-        # ────────────────────────────────
-        pdf.add_page()
-
-        pdf.set_fill_color(*_COLORS["primary"])
-        pdf.rect(0, 0, 210, 20, "F")
-        pdf.set_text_color(*_COLORS["white"])
-        pdf.set_font("Helvetica", "B", 14)
-        pdf.set_y(5)
-        pdf.cell(0, 10, "All Transactions", ln=True, align="C")
-        pdf.set_text_color(*_COLORS["dark"])
-        pdf.ln(8)
-
-        # Table header
-        col_widths = [25, 75, 35, 35, 20]  # Date, Description, Category, Amount, #
-        headers = ["Date", "Description", "Category", "Amount (KES)", "#"]
-
-        pdf.set_fill_color(*_COLORS["primary"])
-        pdf.set_text_color(*_COLORS["white"])
-        pdf.set_font("Helvetica", "B", 9)
-        for i, (header, w) in enumerate(zip(headers, col_widths)):
-            align = "R" if header == "Amount (KES)" else "L"
-            pdf.cell(w, 7, header, border=0, fill=True, align=align)
-        pdf.ln()
-
-        pdf.set_text_color(*_COLORS["dark"])
-
-        # Group entries by category for coloring
-        for idx, entry in enumerate(entries):
-            date_str = entry.get("date_str", "N/A")
-            desc = entry.get("description", "N/A")
-            if len(desc) > 32:
-                desc = desc[:30] + ".."
-            cat = entry.get("category", "general").title()
-            amt = entry.get("amount", 0)
-
-            # Alternate row colors
-            if idx % 2 == 0:
-                pdf.set_fill_color(*_COLORS["bg_light"])
-            else:
-                pdf.set_fill_color(*_COLORS["white"])
-
-            pdf.set_font("Helvetica", "", 8)
-            pdf.cell(col_widths[0], 6, date_str, border=0, fill=True)
-            pdf.cell(col_widths[1], 6, desc, border=0, fill=True)
-
-            # Category with colored dot
-            pdf.set_font("Helvetica", "", 8)
-            pdf.cell(col_widths[2], 6, cat, border=0, fill=True)
-
-            pdf.set_font("Helvetica", "", 8)
-            pdf.cell(col_widths[3], 6, f"{amt:,.0f}", border=0, fill=True, align="R")
-
-            pdf.set_font("Helvetica", "", 7)
-            pdf.set_text_color(*_COLORS["gray"])
-            pdf.cell(col_widths[4], 6, f"{idx + 1}", border=0, fill=True, align="C")
-            pdf.set_text_color(*_COLORS["dark"])
-            pdf.ln()
-
-            # Add separator line every row
-            pdf.set_draw_color(*_COLORS["light_gray"])
-            pdf.line(10, pdf.get_y(), 200, pdf.get_y())
-
-        # ── Category Totals Table ──
-        pdf.ln(8)
-        pdf.set_font("Helvetica", "B", 11)
-        pdf.cell(0, 8, "Category Totals", ln=True)
-        pdf.ln(2)
-
-        # Header
-        pdf.set_fill_color(*_COLORS["dark"])
-        pdf.set_text_color(*_COLORS["white"])
-        pdf.set_font("Helvetica", "B", 9)
-        pdf.cell(60, 7, "Category", border=0, fill=True)
-        pdf.cell(40, 7, "Amount", border=0, fill=True, align="R")
-        pdf.cell(30, 7, "% of Total", border=0, fill=True, align="R")
-        pdf.cell(40, 7, "Transactions", border=0, fill=True, align="R")
-        pdf.ln()
-        pdf.set_text_color(*_COLORS["dark"])
-
-        # Count transactions per category
-        cat_counts = {}
-        for entry in entries:
-            c = entry.get("category", "general").title()
-            cat_counts[c] = cat_counts.get(c, 0) + 1
-
-        for idx, (cat, amount) in enumerate(sorted_cats):
-            pct = (amount / total * 100) if total > 0 else 0
-            cat_title = cat.title()
-            tx_count = cat_counts.get(cat_title, 0)
-
-            if idx % 2 == 0:
-                pdf.set_fill_color(*_COLORS["bg_light"])
-            else:
-                pdf.set_fill_color(*_COLORS["white"])
-
-            pdf.set_font("Helvetica", "", 9)
-            pdf.cell(60, 6, cat_title, border=0, fill=True)
-            pdf.set_font("Helvetica", "B", 9)
-            pdf.cell(40, 6, f"KES {amount:,.0f}", border=0, fill=True, align="R")
-            pdf.set_font("Helvetica", "", 9)
-            pdf.cell(30, 6, f"{pct:.1f}%", border=0, fill=True, align="R")
-            pdf.cell(40, 6, f"{tx_count}", border=0, fill=True, align="R")
-            pdf.ln()
-
-        # Total row
-        pdf.set_fill_color(*_COLORS["primary"])
-        pdf.set_text_color(*_COLORS["white"])
-        pdf.set_font("Helvetica", "B", 9)
-        pdf.cell(60, 7, "TOTAL", border=0, fill=True)
-        pdf.cell(40, 7, f"KES {total:,.0f}", border=0, fill=True, align="R")
-        pdf.cell(30, 7, "100%", border=0, fill=True, align="R")
-        pdf.cell(40, 7, f"{count}", border=0, fill=True, align="R")
-        pdf.ln()
-        pdf.set_text_color(*_COLORS["dark"])
-
-        # ── Footer ──
-        pdf.ln(15)
-        pdf.set_draw_color(*_COLORS["light_gray"])
-        pdf.line(10, pdf.get_y(), 200, pdf.get_y())
-        pdf.ln(3)
-        pdf.set_font("Helvetica", "I", 8)
-        pdf.set_text_color(*_COLORS["gray"])
-        pdf.cell(0, 5, "Generated by Emily AI - Your Kenyan Financial Companion", ln=True, align="C")
-        pdf.cell(0, 5, f"Report covers {month_name}  |  Data as of {now.strftime('%d %B %Y, %I:%M %p EAT')}", ln=True, align="C")
-
-        return pdf.output()
+        return generate_bytes(data)
 
     except Exception as e:
-        logger.error(f"PDF generation error: {e}")
+        logger.error(f"PDF generation error: {e}", exc_info=True)
         return None
 
 
