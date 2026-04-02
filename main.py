@@ -4416,6 +4416,55 @@ async def cmd_delincome(ctx):
         await ctx.reply("No income entries to delete!")
 
 
+@bot.command(name="delexpense", aliases=["delexp", "undospent"])
+async def cmd_delexpense(ctx, *, search: str = ""):
+    """Delete an expense. Usage: !delexpense (deletes last) or !delexpense cake"""
+    user_id = str(ctx.author.id)
+    try:
+        import certifi
+        from pymongo import MongoClient as _MC
+        _client = _MC(os.getenv("MONGO_URI"), tlsCAFile=certifi.where(), serverSelectionTimeoutMS=10000)
+        db = _client["emily_brain_db"]
+
+        now = datetime.now(pytz.timezone('Africa/Nairobi'))
+        month_str = now.strftime("%Y-%m")
+
+        if search.strip():
+            # Delete most recent expense matching the description
+            entry = db["budgets"].find_one(
+                {"user_id": user_id, "month_str": month_str,
+                 "description": {"$regex": search.strip(), "$options": "i"}},
+                sort=[("date", -1)]
+            )
+        else:
+            # Delete the most recent expense
+            entry = db["budgets"].find_one(
+                {"user_id": user_id, "month_str": month_str},
+                sort=[("date", -1)]
+            )
+
+        if not entry:
+            await ctx.reply(f"No expense found{' matching: ' + search if search else ''} this month.")
+            return
+
+        desc = entry.get("description", "?")
+        amt = entry.get("amount", 0)
+        cat = entry.get("category", "general")
+
+        db["budgets"].delete_one({"_id": entry["_id"]})
+
+        daily = get_daily_spending(user_id)
+        today_total = daily["total"] if daily else 0
+
+        await ctx.reply(
+            f"🗑️ Deleted: **{desc}** — KES {amt:,.2f} ({cat})\n"
+            f"📊 Today: KES {today_total:,.2f}"
+        )
+    except Exception as e:
+        logger.error(f"Delete expense error: {e}")
+        await ctx.reply("Couldn't delete. Try again?")
+
+
 @bot.command(name="buy")
 async def cmd_buy(ctx, ticker: str, shares: str, price: str):
     """Buy shares — adds to position with avg cost tracking. Usage: !buy SCOM 100 25.50"""
@@ -8333,6 +8382,56 @@ async def slash_budget(interaction: discord.Interaction):
     user_id = str(interaction.user.id)
     summary = format_full_budget_summary(user_id)
     await interaction.response.send_message(summary)
+
+
+@bot.tree.command(name="delexpense", description="Delete an expense (last one, or search by description)")
+@app_commands.describe(search="Optional: description to match (e.g. 'cake'). Leave empty to delete the last expense.")
+async def slash_delexpense(interaction: discord.Interaction, search: str = ""):
+    user_id = str(interaction.user.id)
+    try:
+        import certifi
+        from pymongo import MongoClient as _MC
+        _client = _MC(os.getenv("MONGO_URI"), tlsCAFile=certifi.where(), serverSelectionTimeoutMS=10000)
+        db = _client["emily_brain_db"]
+
+        now = datetime.now(pytz.timezone('Africa/Nairobi'))
+        month_str = now.strftime("%Y-%m")
+
+        if search.strip():
+            entry = db["budgets"].find_one(
+                {"user_id": user_id, "month_str": month_str,
+                 "description": {"$regex": search.strip(), "$options": "i"}},
+                sort=[("date", -1)]
+            )
+        else:
+            entry = db["budgets"].find_one(
+                {"user_id": user_id, "month_str": month_str},
+                sort=[("date", -1)]
+            )
+
+        if not entry:
+            await interaction.response.send_message(
+                f"No expense found{' matching: ' + search if search else ''} this month.",
+                ephemeral=True
+            )
+            return
+
+        desc = entry.get("description", "?")
+        amt = entry.get("amount", 0)
+        cat = entry.get("category", "general")
+
+        db["budgets"].delete_one({"_id": entry["_id"]})
+
+        daily = get_daily_spending(user_id)
+        today_total = daily["total"] if daily else 0
+
+        await interaction.response.send_message(
+            f"🗑️ Deleted: **{desc}** — KES {amt:,.2f} ({cat})\n"
+            f"📊 Today: KES {today_total:,.2f}"
+        )
+    except Exception as e:
+        logger.error(f"Delete expense error: {e}")
+        await interaction.response.send_message("Couldn't delete. Try again?", ephemeral=True)
 
 
 @bot.tree.command(name="price", description="Check live stock price")
