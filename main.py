@@ -4317,6 +4317,108 @@ async def cmd_budget(ctx):
     await ctx.send(summary)
 
 
+@bot.command(name="daily", aliases=["today", "dayreport"])
+async def cmd_daily(ctx, *, date_str: str = ""):
+    """View daily expense report. Usage: !daily (today) or !daily yesterday or !daily 2026-04-01"""
+    async with ctx.typing():
+        try:
+            import certifi
+            from pymongo import MongoClient as _MC
+            _client = _MC(os.getenv("MONGO_URI"), tlsCAFile=certifi.where(), serverSelectionTimeoutMS=10000)
+            db = _client["emily_brain_db"]
+            user_id = str(ctx.author.id)
+            now = datetime.now(pytz.timezone('Africa/Nairobi'))
+
+            # Parse date
+            if not date_str or date_str.lower() in ("today", "now"):
+                target = now
+            elif date_str.lower() in ("yesterday", "yday"):
+                target = now - timedelta(days=1)
+            else:
+                try:
+                    target = datetime.strptime(date_str.strip(), "%Y-%m-%d")
+                except ValueError:
+                    import dateparser
+                    target = dateparser.parse(date_str)
+                    if not target:
+                        await ctx.reply("Couldn't parse that date. Try: `!daily` or `!daily 2026-04-01` or `!daily yesterday`")
+                        return
+
+            day_str = target.strftime("%Y-%m-%d")
+            day_label = target.strftime("%A, %d %B %Y")
+            is_today = day_str == now.strftime("%Y-%m-%d")
+
+            # Query expenses for that day
+            entries = list(db["budgets"].find(
+                {"user_id": user_id, "date_str": day_str}
+            ).sort("date", 1))
+
+            if not entries:
+                await ctx.reply(f"📭 No expenses on **{day_label}**. Clean day!")
+                return
+
+            total = sum(e.get("amount", 0) for e in entries)
+            count = len(entries)
+
+            # Category breakdown
+            cat_totals = {}
+            for e in entries:
+                cat = e.get("category", "general")
+                cat_totals[cat] = cat_totals.get(cat, 0) + e.get("amount", 0)
+            sorted_cats = sorted(cat_totals.items(), key=lambda x: -x[1])
+
+            # Build report
+            report = f"📊 **Daily Report — {day_label}**\n"
+            if is_today:
+                report += f"_As of {now.strftime('%I:%M %p')}_\n"
+            report += f"\n"
+
+            # Summary
+            report += f"💰 **Total: KES {total:,.0f}** across **{count}** transaction{'s' if count != 1 else ''}\n\n"
+
+            # Category breakdown
+            report += "**By Category:**\n"
+            cat_emojis = {
+                "bills": "🧾", "food": "🍽️", "transport": "🚗", "shopping": "🛍️",
+                "entertainment": "🎬", "health": "🏥", "savings": "💰", "general": "📦",
+                "subscriptions": "📱", "transfers": "💸", "personal_care": "💅",
+                "education": "📚", "pets": "🐕", "travel": "✈️",
+            }
+            for cat, amt in sorted_cats:
+                pct = (amt / total * 100) if total > 0 else 0
+                emoji = cat_emojis.get(cat, "📦")
+                report += f"{emoji} {cat.replace('_', ' ').title()}: **KES {amt:,.0f}** ({pct:.0f}%)\n"
+
+            # Individual transactions
+            report += f"\n**Transactions:**\n"
+            for i, e in enumerate(entries, 1):
+                desc = e.get("description", "?")
+                amt = e.get("amount", 0)
+                cat = e.get("category", "general")
+                time_str = ""
+                if e.get("date"):
+                    try:
+                        t = e["date"]
+                        if hasattr(t, 'strftime'):
+                            time_str = f" _({t.strftime('%I:%M %p')})_"
+                    except Exception:
+                        pass
+                report += f"`{i}.` {desc} — **KES {amt:,.0f}** [{cat}]{time_str}\n"
+
+            # Budget context
+            limit = get_effective_budget(user_id)
+            if limit:
+                monthly = get_monthly_spending(user_id)
+                month_total = monthly["total"] if monthly else total
+                month_pct = (month_total / limit * 100) if limit > 0 else 0
+                report += f"\n📈 **Month so far:** KES {month_total:,.0f} / KES {limit:,.0f} ({month_pct:.0f}%)"
+
+            await send_chunked_reply(ctx.message, report)
+        except Exception as e:
+            logger.error(f"Daily report error: {e}", exc_info=True)
+            await ctx.reply("Couldn't generate daily report. Try again?")
+
+
 @bot.command(name="setbudget")
 async def cmd_setbudget(ctx, amount: str):
     """Set monthly budget limit."""
@@ -8382,6 +8484,77 @@ async def slash_budget(interaction: discord.Interaction):
     user_id = str(interaction.user.id)
     summary = format_full_budget_summary(user_id)
     await interaction.response.send_message(summary)
+
+
+@bot.tree.command(name="daily", description="View daily expense breakdown")
+@app_commands.describe(date="Optional: 'yesterday', a date like '2026-04-01', or leave empty for today")
+async def slash_daily(interaction: discord.Interaction, date: str = ""):
+    await interaction.response.defer()
+    try:
+        import certifi
+        from pymongo import MongoClient as _MC
+        _client = _MC(os.getenv("MONGO_URI"), tlsCAFile=certifi.where(), serverSelectionTimeoutMS=10000)
+        db = _client["emily_brain_db"]
+        user_id = str(interaction.user.id)
+        now = datetime.now(pytz.timezone('Africa/Nairobi'))
+
+        if not date or date.lower() in ("today", "now"):
+            target = now
+        elif date.lower() in ("yesterday", "yday"):
+            target = now - timedelta(days=1)
+        else:
+            try:
+                target = datetime.strptime(date.strip(), "%Y-%m-%d")
+            except ValueError:
+                import dateparser
+                target = dateparser.parse(date)
+                if not target:
+                    await interaction.followup.send("Couldn't parse that date. Try `today`, `yesterday`, or `2026-04-01`")
+                    return
+
+        day_str = target.strftime("%Y-%m-%d")
+        day_label = target.strftime("%A, %d %B %Y")
+
+        entries = list(db["budgets"].find(
+            {"user_id": user_id, "date_str": day_str}
+        ).sort("date", 1))
+
+        if not entries:
+            await interaction.followup.send(f"📭 No expenses on **{day_label}**.")
+            return
+
+        total = sum(e.get("amount", 0) for e in entries)
+        count = len(entries)
+
+        cat_totals = {}
+        for e in entries:
+            cat = e.get("category", "general")
+            cat_totals[cat] = cat_totals.get(cat, 0) + e.get("amount", 0)
+        sorted_cats = sorted(cat_totals.items(), key=lambda x: -x[1])
+
+        cat_emojis = {
+            "bills": "🧾", "food": "🍽️", "transport": "🚗", "shopping": "🛍️",
+            "entertainment": "🎬", "health": "🏥", "savings": "💰", "general": "📦",
+            "subscriptions": "📱", "transfers": "💸", "personal_care": "💅",
+            "education": "📚", "pets": "🐕", "travel": "✈️",
+        }
+
+        report = f"📊 **Daily Report — {day_label}**\n\n"
+        report += f"💰 **Total: KES {total:,.0f}** — {count} transaction{'s' if count != 1 else ''}\n\n"
+
+        for cat, amt in sorted_cats:
+            pct = (amt / total * 100) if total > 0 else 0
+            emoji = cat_emojis.get(cat, "📦")
+            report += f"{emoji} {cat.replace('_', ' ').title()}: **KES {amt:,.0f}** ({pct:.0f}%)\n"
+
+        report += f"\n**Transactions:**\n"
+        for i, e in enumerate(entries, 1):
+            report += f"`{i}.` {e.get('description', '?')} — **KES {e.get('amount', 0):,.0f}** [{e.get('category', 'general')}]\n"
+
+        await interaction.followup.send(report)
+    except Exception as e:
+        logger.error(f"Daily slash error: {e}", exc_info=True)
+        await interaction.followup.send("Couldn't generate daily report. Try again?")
 
 
 @bot.tree.command(name="delexpense", description="Delete an expense (last one, or search by description)")
