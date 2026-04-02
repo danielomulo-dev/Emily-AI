@@ -7521,101 +7521,208 @@ async def cmd_rsearch(ctx, *, query: str):
 # EXPENSE CATEGORY DETECTOR
 # ══════════════════════════════════════════════
 def _detect_expense_category(description):
-    """Auto-detect expense category from description."""
-    desc = description.lower()
+    """Auto-detect expense category from description.
+    14 categories with phrase-first matching and disambiguation.
+    Priority: phrases (longest first) → single keywords → fallback.
+    """
+    desc = description.lower().strip()
 
-    # Priority-ordered categories — more specific matches first
-    # Each keyword is checked with word boundary awareness where needed
-    categories = [
-        # Bills & utilities (check FIRST — "buying electricity tokens" should be bills, not shopping)
+    # ── PHASE 1: Multi-word phrase matching (highest priority, longest first) ──
+    phrases = [
+        # Transfers — check FIRST (these are not "spending")
+        ("transfers", ["sent to", "send to", "transfer to", "transfer from", "send money",
+                       "received from", "bank transfer", "mpesa to", "helping out"]),
+        # Travel — check BEFORE transport ("uber to airport" = travel, not transport)
+        ("travel", ["trip to airport", "uber to airport", "bolt to airport",
+                     "flight to", "hotel booking", "visa fee", "boarding pass",
+                     "safari trip", "beach holiday", "travel insurance"]),
+        # Subscriptions — check BEFORE general ("openai credits" = subscriptions)
+        ("subscriptions", ["openai credits", "openai credit", "google one", "youtube premium",
+                           "apple music", "icloud storage", "github pro", "monthly plan",
+                           "annual plan", "family plan", "data plan"]),
+        # Pets — check BEFORE food ("dog food" = pets, not food)
+        ("pets", ["dog food", "cat food", "pet food", "pet shop", "vet clinic",
+                  "vet visit", "pet grooming", "pet vaccination", "dog treats",
+                  "cat litter", "pet medicine", "pet supplies"]),
+        # Bills — multi-word phrases
+        ("bills", ["water bill", "gas bill", "electricity tokens", "power tokens",
+                   "loan repayment", "loan repay", "sacco loan", "dtb loan",
+                   "mkopa loan", "m-kopa loan", "mortgage payment", "insurance premium",
+                   "data bundle", "sms token"]),
+        # Savings — multi-word phrases
+        ("savings", ["sacco contribution", "sacco savings", "fixed deposit",
+                     "money market", "treasury bill", "mutual fund"]),
+        # Food — multi-word phrases
+        ("food", ["passion cake", "birthday cake", "ice cream", "nyama choma",
+                  "chips mayai", "take away", "take-away", "dine in",
+                  "sukuma wiki"]),
+        # Personal care
+        ("personal_care", ["hair salon", "nail salon", "skin care", "face cream"]),
+        # Education
+        ("education", ["school fees", "tuition fees", "exam fee", "course fee",
+                       "text book", "textbook purchase"]),
+    ]
+
+    for cat, phrase_list in phrases:
+        for phrase in phrase_list:
+            if phrase in desc:
+                return cat
+
+    # ── PHASE 2: Single keyword matching (priority-ordered) ──
+    keywords = [
+        # Transfers (person-to-person — early detection)
+        ("transfers", [
+            "transfer", "sent", "send", "harambee", "fundraiser",
+            "donation", "charity", "tithe", "offering", "zakat", "sadaka",
+            "contribution", "church", "mosque",
+        ]),
+        # Bills & utilities & rent & loans & insurance
         ("bills", [
-            "rent", "electricity", "electric", "tokens", "kplc", "wifi", "internet",
-            "safaricom", "airtel", "telkom", "bill", "subscription", "netflix", "spotify",
-            "dstv", "showmax", "paybill", "water bill", "garbage", "sewer",
-            "insurance", "nhif", "shif", "mortgage", "loan repay", "repair",
-            "loan", "repayment", "installment", "instalment", "refund",
+            "rent", "landlord", "electricity", "electric", "tokens", "kplc", "prepaid",
+            "postpaid", "wifi", "internet", "broadband", "safaricom", "airtel", "telkom",
+            "bill", "paybill", "garbage", "sewer", "sewage", "refuse", "trash",
+            "mortgage", "loan", "repayment", "installment", "instalment", "refund",
             "stima", "helb", "tala", "branch", "fuliza", "okoa",
+            "insurance", "nhif", "shif", "premium", "policy", "renewal", "cover",
+            "license", "permit", "fine", "penalty", "tax",
+            "plumber", "electrician", "handyman", "maintenance",
+            "airtime", "bundles", "recharge", "top up",
+            "fee", "charge", "overdraft", "commission",
         ]),
-        # Transport
+        # Travel & lodging (before transport)
+        ("travel", [
+            "flight", "airline", "airport", "hotel", "lodge", "airbnb",
+            "booking", "reservation", "visa", "tour", "safari", "boarding",
+            "expedia", "agoda",
+        ]),
+        # Transport & fuel
         ("transport", [
-            "uber", "bolt", "taxi", "matatu", "bus", "fare", "fuel", "petrol",
-            "parking", "bodaboda", "boda", "sgr", "flight", "airfare", "transport",
+            "uber", "bolt", "taxi", "cab", "matatu", "bus", "fare", "fuel", "petrol",
+            "diesel", "parking", "bodaboda", "boda", "sgr", "train", "rail",
+            "transport", "commute", "toll", "metro", "subway",
+            "car wash", "oil change", "tyre", "tire", "mechanic",
+            "shell", "total", "filling station", "gas station",
         ]),
-        # Savings & investments (check BEFORE food — "Enweath" contains "eat" which would false-match food)
+        # Subscriptions & software (before general — catches tech spending)
+        ("subscriptions", [
+            "subscription", "netflix", "spotify", "dstv", "showmax",
+            "hulu", "disney", "youtube", "icloud",
+            "koyeb", "mongo", "github", "notion", "aws", "azure",
+            "digitalocean", "hosting", "domain", "server",
+            "openai", "credits", "license", "billing",
+        ]),
+        # Savings & investments
         ("savings", [
             "save", "saving", "invest", "deposit", "m-shwari", "mshwari",
-            "enweath", "money market", "fixed deposit", "shares", "stocks",
-            "treasury", "t-bill", "sacco contribution", "sacco savings",
+            "enweath", "shares", "stocks", "treasury", "t-bill",
+            "broker", "etf", "bond", "mmf",
         ]),
-        # Food & groceries (removed "eat" — too many false positives: heater, enweath, etc.)
+        # Pets
+        ("pets", [
+            "vet", "veterinary", "kennel", "puppy", "kitten",
+            "pet", "dog", "cat", "parrot", "fish tank", "aquarium",
+        ]),
+        # Food & groceries & coffee (big list)
         ("food", [
-            "lunch", "dinner", "breakfast", "snack", "coffee", "tea", "meal", "restaurant",
+            "lunch", "dinner", "breakfast", "snack", "coffee", "tea", "latte",
+            "cappuccino", "espresso", "americano", "chai", "matcha", "barista",
+            "meal", "restaurant", "eatery", "canteen", "catering", "buffet",
             "java", "kfc", "pizza", "burger", "fries", "chapati", "ugali", "nyama",
             "mandazi", "samosa", "food", "supper", "brunch", "rice", "flour",
             "bread", "milk", "maziwa", "mala", "meat", "chicken", "fish", "vegetables",
             "tomato", "onion", "avocado", "fruit", "sugar", "salt", "oil", "spice",
             "cinnamon", "yoghurt", "yogurt", "juice", "soda", "cooking", "cook",
-            "grocery", "minced", "wheat", "eggs", "cabbage", "potato", "beans",
+            "grocery", "groceries", "supermarket", "naivas", "carrefour", "quickmart",
+            "minced", "wheat", "eggs", "cabbage", "potato", "beans",
             "lemon", "garlic", "ginger", "pepper",
+            "cake", "pastry", "biscuit", "cookie", "donut", "chocolate", "dessert",
+            "smokies", "sausage", "bacon", "chips", "pilau", "biryani", "mukimo",
+            "githeri", "matoke", "sukuma", "kachumbari", "bhajia", "mahamri",
+            "shawarma", "sushi", "bbq", "grill", "takeout", "bakery",
+            "butchery", "market",
+            "zomato", "glovo", "uber eats", "bolt food", "jumia food",
+            "fresh", "organic",
         ]),
         # Health & medicine
         ("health", [
-            "hospital", "doctor", "pharmacy", "medicine", "medication", "medical", "nhif",
-            "dental", "gym", "clinic", "chemist", "prescription",
-            "health", "therapy", "checkup",
+            "hospital", "doctor", "pharmacy", "medicine", "medication", "medical",
+            "dental", "dentist", "gym", "clinic", "chemist", "prescription",
+            "health", "therapy", "checkup", "lab test", "x-ray", "scan",
+            "optician", "glasses", "vaccination",
         ]),
-        # Entertainment — removed "fun" (false-matches "refund", "fund", "function")
+        # Education
+        ("education", [
+            "tuition", "school", "university", "college", "course", "exam",
+            "registration", "textbook", "stationery", "udemy", "coursera",
+            "certification", "bootcamp", "training",
+        ]),
+        # Personal care
+        ("personal_care", [
+            "salon", "barber", "haircut", "braids", "spa", "massage",
+            "cosmetics", "makeup", "skincare", "beauty", "nails",
+            "manicure", "pedicure", "shaving", "grooming",
+        ]),
+        # Entertainment & alcohol
         ("entertainment", [
-            "movie", "cinema", "concert", "drinks", "bar", "club", "party",
-            "game", "bet", "sportpesa", "event", "show", "ticket",
-            "birthday party", "celebration", "outing", "night out",
+            "movie", "cinema", "concert", "drinks", "bar", "pub", "club", "party",
+            "game", "bet", "sportpesa", "event", "ticket", "theatre", "arcade",
+            "steam", "playstation", "xbox", "nintendo",
+            "liquor", "wine", "beer", "spirits", "whisky", "vodka", "gin",
+            "celebration", "outing", "night out",
         ]),
-        # Airtime & data (separate from shopping — these are utility costs)
-        ("bills", [
-            "airtime", "bundles", "data bundle", "sms token",
-        ]),
-        # Shopping (check LAST — catch-all for purchases that don't fit above)
+        # Shopping & retail (catch-all for purchases)
         ("shopping", [
-            "clothes", "shoes", "shopping", "naivas", "carrefour", "quickmart",
-            "supermarket", "mall", "purchase", "gift", "earphones", "headphones",
+            "clothes", "clothing", "shoes", "sneakers", "shopping", "mall",
+            "purchase", "gift", "present", "earphones", "headphones",
             "phone", "laptop", "charger", "case", "bag", "shirt", "trouser",
-            "dress", "basin", "remote", "batteries", "lighter", "soap",
-            "lotion", "perfume", "deodorant", "dispenser", "weed",
+            "jeans", "dress", "fashion", "boutique", "zara",
+            "basin", "remote", "batteries", "lighter",
+            "furniture", "sofa", "mattress", "curtains", "appliance",
+            "microwave", "fridge", "stove", "kitchenware",
+            "amazon", "jumia", "ebay", "retail", "order",
+            "iphone", "ipad", "macbook", "samsung", "tablet",
+            "apple store", "google store",
+            "soap", "lotion", "perfume", "deodorant", "dispenser", "weed",
         ]),
     ]
 
-    # Check each category in priority order
-    for cat, keywords in categories:
-        if any(k in desc for k in keywords):
+    for cat, kw_list in keywords:
+        if any(k in desc for k in kw_list):
             return cat
 
-    # If description starts with "buying" but didn't match anything above,
-    # it's probably shopping
+    # ── PHASE 3: Pattern fallbacks ──
     if desc.startswith("buying") or desc.startswith("bought"):
         return "shopping"
-
-    # Money transfers → general
-    if any(k in desc for k in ["sent", "send", "helping", "contribution", "tip"]):
-        return "general"
 
     return "general"
 
 
 async def _smart_categorize(description):
-    """Use GPT-4.1-mini for expense categorization when regex fails.
-    ~$0.0004 per call — 10x cheaper than Claude.
-    """
+    """Use GPT-4.1-mini for expense categorization when regex fails."""
     result = await gpt_mini_classify(
-        f"Categorize this expense into ONE word from: food, transport, bills, shopping, "
-        f"entertainment, health, savings, general.\n"
-        f"Note: loan repayments, SACCO loans, HELB, Tala, Fuliza, rent = bills. "
-        f"SACCO contributions/deposits = savings.\n\n"
+        f"Categorize this expense into exactly ONE word from: "
+        f"food, transport, travel, bills, shopping, entertainment, health, "
+        f"savings, subscriptions, transfers, personal_care, education, pets, general.\n\n"
+        f"Rules:\n"
+        f"- Loan repayments, SACCO loans, HELB, Tala, Fuliza, rent, utilities, insurance = bills\n"
+        f"- SACCO contributions/deposits, investments = savings\n"
+        f"- Netflix, Spotify, OpenAI, Koyeb, hosting, SaaS = subscriptions\n"
+        f"- Sending money to people, donations, charity, harambee = transfers\n"
+        f"- Flights, hotels, safaris, airport = travel\n"
+        f"- Uber, matatu, fuel, daily commute = transport\n"
+        f"- Vet, dog food, pet supplies = pets\n"
+        f"- Salon, barber, spa, cosmetics = personal_care\n"
+        f"- Tuition, courses, books, school fees = education\n\n"
         f"Expense: {description}\n\nCategory:",
         max_tokens=10,
     )
     if result:
-        cat = result.lower().strip().rstrip('.')
-        valid = {"food", "transport", "bills", "shopping", "entertainment", "health", "savings", "general"}
+        cat = result.lower().strip().rstrip('.').replace(' ', '_')
+        valid = {
+            "food", "transport", "travel", "bills", "shopping", "entertainment",
+            "health", "savings", "subscriptions", "transfers", "personal_care",
+            "education", "pets", "general",
+        }
         if cat in valid:
             return cat
     return None

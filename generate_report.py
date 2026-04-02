@@ -42,6 +42,12 @@ CAT_STYLE = {
     "transport":     (TEAL,     HexColor("#F0FDFA"), HexColor("#0F766E")),
     "health":        (PINK,     HexColor("#FDF2F8"), HexColor("#BE185D")),
     "entertainment": (ORANGE,   HexColor("#FFF7ED"), HexColor("#C2410C")),
+    "subscriptions": (HexColor("#6366F1"), HexColor("#EEF2FF"), HexColor("#4338CA")),
+    "transfers":     (HexColor("#0EA5E9"), HexColor("#F0F9FF"), HexColor("#0369A1")),
+    "personal_care": (HexColor("#D946EF"), HexColor("#FDF4FF"), HexColor("#A21CAF")),
+    "education":     (HexColor("#059669"), HexColor("#ECFDF5"), HexColor("#047857")),
+    "pets":          (HexColor("#EA580C"), HexColor("#FFF7ED"), HexColor("#9A3412")),
+    "travel":        (HexColor("#2563EB"), HexColor("#EFF6FF"), HexColor("#1E40AF")),
 }
 
 PAGE = [0]
