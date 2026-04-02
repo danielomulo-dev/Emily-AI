@@ -475,11 +475,10 @@ def txn_page(c):
         c.drawRightString(W - MARGIN - PAD, ry, f"{amt:,.0f}")
         ty -= row_h
 
-    # Totals
-    if ty - 130 < 60: y = new_page(c); ty = y
-    ty -= 14
-    c.setFont(FB, 10); c.setFillColor(TXT); c.drawString(MARGIN, ty, "Category Totals")
-    ty -= 8
+    # ── Category Totals (own page) ──
+    ty = new_page(c)
+    ty = section(c, ty, "Category Totals")
+    ty -= 4
     sh = 28 + len(d["categories"]) * 24 + 28
     rrect(c, MARGIN, ty - sh, CARD_W, sh, fill=WHITE, stroke=BORDER)
     hx = MARGIN + PAD; hy = ty - 20
