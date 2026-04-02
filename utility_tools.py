@@ -515,7 +515,7 @@ def generate_expense_pdf(user_name, monthly_data, budget_limit=None, income_data
 
         recurring = []
         for d, c in desc_counts.items():
-            if c >= 2:
+            if c >= 3:
                 recurring.append({
                     "item": d.title(),
                     "times": c,
