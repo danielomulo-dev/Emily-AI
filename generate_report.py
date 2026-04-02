@@ -424,7 +424,6 @@ def cat_pages(c):
         txns = DATA["cat_transactions"].get(cat["name"], [])
         if not txns: continue
         y = cat_card(c, y, cat, txns)
-        if y < 100: y = new_page(c)
 
 # ════════════════ TRANSACTIONS PAGE ════════════════
 def txn_page(c):
@@ -475,7 +474,10 @@ def txn_page(c):
         c.drawRightString(W - MARGIN - PAD, ry, f"{amt:,.0f}")
         ty -= row_h
 
-    # ── Category Totals (own page) ──
+
+# ════════════════ CATEGORY TOTALS PAGE ════════════════
+def totals_page(c):
+    d = DATA
     ty = new_page(c)
     ty = section(c, ty, "Category Totals")
     ty -= 4
@@ -493,7 +495,6 @@ def txn_page(c):
         c.setFont(F, 9); c.setFillColor(TXT2); c.drawString(hx+280, sry, f"{cat['pct']}%")
         c.drawRightString(W-MARGIN-PAD, sry, str(cat["count"]))
         sry -= 24
-    # Total line
     c.setStrokeColor(BORDER); c.setLineWidth(0.5)
     c.line(hx, sry + 10, W-MARGIN-PAD, sry + 10)
     c.setFont(FB, 9); c.setFillColor(TXT)
@@ -513,7 +514,7 @@ def generate(path, data=None):
     c = canvas.Canvas(path, pagesize=A4)
     c.setTitle(f"Expense Report")
     c.setAuthor("Emily AI")
-    page1(c); page2(c); cat_pages(c); txn_page(c)
+    page1(c); page2(c); cat_pages(c); txn_page(c); totals_page(c)
     c.save()
 
 
@@ -527,6 +528,6 @@ def generate_bytes(data):
     c = canvas.Canvas(buf, pagesize=A4)
     c.setTitle("Expense Report")
     c.setAuthor("Emily AI")
-    page1(c); page2(c); cat_pages(c); txn_page(c)
+    page1(c); page2(c); cat_pages(c); txn_page(c); totals_page(c)
     c.save()
     return buf.getvalue()
