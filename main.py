@@ -1146,6 +1146,25 @@ async def extract_and_fetch_urls(text):
 # STOCK DETECTOR
 # ══════════════════════════════════════════════
 def _detect_stock_query(text):
+    _COMMON_WORDS = {
+        "you", "it", "a", "an", "all", "are", "be", "do", "he", "she", "has", "was",
+        "now", "for", "out", "can", "may", "one", "two", "see", "say", "own", "any",
+        "big", "fun", "man", "run", "old", "new", "go", "so", "on", "at", "or", "by",
+        "no", "me", "we", "us", "up", "him", "her", "its", "who", "how", "why", "did",
+        "the", "this", "that", "love", "life", "play", "good", "well", "real", "true",
+        "open", "turn", "fast", "best", "ever", "care", "mind", "live", "nice", "cool",
+        "ride", "trip", "beat", "hero", "star", "show", "full", "next", "last", "just",
+        "more", "some", "them", "then", "than", "very", "much", "what", "with", "will",
+        "from", "have", "here", "been", "each", "make", "like", "long", "look", "many",
+        "come", "made", "find", "back", "only", "know", "take", "want", "give", "tell",
+        "also", "use", "work", "call", "need", "way", "day", "get", "set", "put", "let",
+        "try", "ask", "pay", "buy", "end", "cut", "add", "got", "yes", "yet", "ago",
+        "per", "few", "far", "fit", "hit", "lot", "low", "key", "won", "ran", "bit",
+        "top", "gap", "aim", "lay", "due", "raw", "fed", "net", "ten", "six", "job",
+        "share", "pull", "push", "drop", "pick", "send", "move", "keep", "help",
+        "change", "changes", "script", "edit", "final", "version",
+        "price", "stock", "value", "check", "about", "doing", "trading",
+    }
     patterns = [
         r'(?:current\s+)?(?:price|stock|shares?|value)\s+(?:of\s+|for\s+)?["\']?(\w[\w\s&]*\w?)["\']?',
         r'["\']?(\w[\w\s&]*\w?)["\']?\s+(?:stock|shares?|price|current price)',
@@ -1157,17 +1176,21 @@ def _detect_stock_query(text):
         match = re.search(pattern, text, re.IGNORECASE)
         if match:
             raw = match.group(1).strip().upper()
+            if raw.lower() in _COMMON_WORDS:
+                continue
             if raw in NAME_TO_TICKER:
                 return NAME_TO_TICKER[raw]
             if len(raw) <= 6 and raw.isalpha():
-                return raw
+                if raw.lower() not in _COMMON_WORDS:
+                    return raw
             for word in raw.split():
                 if word in NAME_TO_TICKER:
                     return NAME_TO_TICKER[word]
     dollar_match = re.search(r'\$(\w{1,6})', text.upper())
     if dollar_match:
         ticker = dollar_match.group(1)
-        return NAME_TO_TICKER.get(ticker, ticker)
+        if ticker.lower() not in _COMMON_WORDS:
+            return NAME_TO_TICKER.get(ticker, ticker)
     return None
 
 
