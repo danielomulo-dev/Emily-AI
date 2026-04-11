@@ -114,6 +114,7 @@ from messaging_tools import (
     is_configured as messaging_configured,
     get_reminder_log, log_reminder_sent,
 )
+from agent_tools import setup_agent_commands
 
 load_dotenv()
 logging.basicConfig(level=logging.INFO)
@@ -1981,6 +1982,7 @@ intents = discord.Intents.default()
 intents.message_content = True
 intents.members = True  # Needed for welcome messages
 bot = commands.Bot(command_prefix="!", intents=intents, help_command=None)
+setup_agent_commands(bot)
 
 @bot.event
 async def on_ready():

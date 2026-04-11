@@ -162,7 +162,7 @@ def format_run_response(data: dict) -> str:
 def setup_agent_commands(bot: commands.Bot):
     """Call this from main.py to register all agent commands."""
 
-    @bot.command(name="agent")
+    @bot.command(name="desk")
     async def agent_cmd(ctx, *, prompt: str):
         if not is_owner(ctx):
             return
@@ -194,7 +194,7 @@ def setup_agent_commands(bot: commands.Bot):
             data = await agent_request("/close", {"app_name": app_name})
             await ctx.reply(data.get("result", data.get("error", "Unknown error")))
 
-    @bot.command(name="review")
+    @bot.command(name="desk-review")
     async def review_cmd(ctx, *, filepath: str):
         if not is_owner(ctx):
             return
@@ -205,7 +205,7 @@ def setup_agent_commands(bot: commands.Bot):
             result = data.get("result", data.get("error", "Unknown error"))
             await send_chunked(ctx, f"**Code Review ({model})**\nFile: `{filepath}`\n\n{result}")
 
-    @bot.command(name="review-claude")
+    @bot.command(name="desk-review-claude")
     async def review_claude_cmd(ctx, *, filepath: str):
         if not is_owner(ctx):
             return
@@ -216,7 +216,7 @@ def setup_agent_commands(bot: commands.Bot):
             result = data.get("result", data.get("error", "Unknown error"))
             await send_chunked(ctx, f"**Code Review ({model})**\nFile: `{filepath}`\n\n{result}")
 
-    @bot.command(name="explain")
+    @bot.command(name="desk-explain")
     async def explain_cmd(ctx, *, filepath: str):
         if not is_owner(ctx):
             return
@@ -253,7 +253,7 @@ def setup_agent_commands(bot: commands.Bot):
             data = await agent_request("/ls", {"dirpath": dirpath})
             await send_chunked(ctx, data.get("result", data.get("error", "Unknown error")))
 
-    @bot.command(name="search")
+    @bot.command(name="desk-search")
     async def search_cmd(ctx, dirpath: str, *, term: str):
         if not is_owner(ctx):
             return
@@ -304,19 +304,19 @@ def setup_agent_commands(bot: commands.Bot):
     @bot.command(name="agent-help")
     async def agent_help_cmd(ctx):
         text = (
-            "**Emily Agent Commands (Desktop):**\n"
+            "**Emily Desktop Agent Commands:**\n"
             "```\n"
-            "!agent <request>        AI decides what to do\n"
+            "!desk <request>         AI decides what to do\n"
             "!run <command>          Run terminal command\n"
             "!open <url/app>         Open URL or app\n"
             "!close <app>            Close an app\n"
-            "!review <file>          Code review (Gemma 4)\n"
-            "!review-claude <file>   Code review (Claude)\n"
-            "!explain <file>         Explain code (Qwen)\n"
+            "!desk-review <file>     Code review (Gemma 4)\n"
+            "!desk-review-claude <f> Code review (Claude)\n"
+            "!desk-explain <file>         Explain code (Qwen)\n"
             "!generate <desc>        Generate code (Gemma 4)\n"
             "!read <file>            Read a file\n"
             "!ls <dir>               List directory\n"
-            "!search <dir> <term>    Search in files\n"
+            "!desk-search <dir> <t>  Search in files\n"
             "!ask-qwen <question>    Ask Qwen directly\n"
             "!ask-gemma <question>   Ask Gemma directly\n"
             "!ask-claude <question>  Ask Claude directly\n"
