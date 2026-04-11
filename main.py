@@ -4244,7 +4244,7 @@ Type `!help` for all my commands!"""
 @bot.command(name="help")
 async def cmd_help(ctx):
     """Show all available commands."""
-    page1 = """**Emily's Commands** 🇰🇪 **(1/2)**
+    page1 = """**Emily's Commands** 🇰🇪 **(1/3)**
 
 **💰 Budget:** `!spent 500 lunch` · `!income 50000 freelance` · `!delincome` · `!budget` · `!setbudget 50000` · `!report` · `!financetip`
 **📈 Portfolio:** `!buy SCOM 100 25` · `!sell SCOM` · `!portfolio`
@@ -4259,7 +4259,7 @@ async def cmd_help(ctx):
 
 **⏰ Reminders:** `!remind 5pm call mum` · `!reminders`"""
 
-    page2 = """**Emily's Commands** 🇰🇪 **(2/2)**
+    page2 = """**Emily's Commands** 🇰🇪 **(2/3)**
 
 **📰 Fun:** `!news` · `!newsbrief` · `!setnews` · `!quote` · `!trivia` · `!roast` · `!debate` · `!learn`
 
@@ -4292,8 +4292,35 @@ async def cmd_help(ctx):
 
 _Or just @ mention me to chat!_ 😊"""
 
+    page3 = """**Emily's Commands** 🇰🇪 **(3/3)**
+
+**🖥️ Desktop Agent** _(works when your PC is on)_
+`!desk <request>` — AI decides what to do on your desktop
+`!run <command>` — Run terminal command
+`!open <url/app>` — Open URL or app
+`!close <app>` — Close an app
+
+**🔍 Desktop Code:**
+`!desk-review <file>` — Code review (Gemma 4)
+`!desk-review-claude <file>` — Code review (Claude)
+`!desk-explain <file>` — Explain code (Qwen)
+`!generate <desc>` — Generate code (Gemma 4)
+
+**📂 Desktop Files:**
+`!read <file>` — Read a file
+`!ls <dir>` — List directory
+`!desk-search <dir> <term>` — Search in files
+
+**🧠 Local AI:**
+`!ask-qwen <question>` — Ask Qwen 2.5 7B
+`!ask-gemma <question>` — Ask Gemma 4 26B
+`!ask-claude <question>` — Ask Claude API
+`!agent-status` — Check desktop agent status
+`!agent-help` — Desktop agent help"""
+
     await ctx.send(page1)
     await ctx.send(page2)
+    await ctx.send(page3)
 
 @bot.command(name="spent")
 async def cmd_spent(ctx, amount: str, *, description: str = "General expense"):
