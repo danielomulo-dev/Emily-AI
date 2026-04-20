@@ -1,6 +1,6 @@
-# Emily AI — Bug-Fix Pass + Journal Redesign
+# Emily AI — Bug-Fix Pass + Journal Redesign + Job Scout
 
-**Context:** analysis + patching session. 20 bugs confirmed, all patched and covered by regression tests. Journal PWA restyled to a warm editorial light/dark theme. 147/147 tests passing.
+**Context:** analysis + patching session. 20 bugs confirmed, all patched and covered by regression tests. Journal PWA restyled to bold modern with light/dark mode. New **Job Scout** feature — fetches matched roles from RemoteOK / Remotive / Arbeitnow, scores against Daniel's skill profile, DMs 70+ matches twice daily. **165/165 tests passing.**
 
 ---
 
@@ -298,3 +298,99 @@ Happy to keep going on any of these if you want another pass.
 1. Run `python3 -m pytest tests/ -v` locally to confirm 118/118 pass on your machine
 2. Check the `FIXES.md` diff matches your expectations
 3. Push. Koyeb should redeploy — no new env vars required (the `BOT_OWNER_ID`/`DISCORD_OWNER_ID` fallback is backward-compatible), no new deps (SSRF guard uses stdlib `ipaddress`+`socket` which were already implicit)
+
+---
+
+## Feature #22 — Job Scout
+
+New module that scouts remote + Kenya-based jobs across multiple free public APIs, scores each against Daniel's CV skill profile, categorizes as DESIGN / DEV / HYBRID, and DMs the bot owner any role scoring 70+ out of 100.
+
+### Sources (all free, no auth)
+- **RemoteOK** — `https://remoteok.com/api`
+- **Remotive** — `https://remotive.com/api/remote-jobs`
+- **Arbeitnow** — `https://www.arbeitnow.com/api/job-board-api`
+
+If one source 403s or times out, the other two still produce results. All fetches run concurrently via `asyncio.gather(return_exceptions=True)`.
+
+### Scoring breakdown (0-100)
+| Component | Max | What it measures |
+|---|---|---|
+| Skills match | 40 | Weighted keyword hits across 6 skill groups derived from CV |
+| Salary | 30 | $2,000+/mo = 30, $1,500+ = 25, $1,200+ = 15, below = 0, not listed = 10 |
+| Location | 15 | Remote/worldwide = 15, Kenya = 13, Africa = 8, hybrid = 5 |
+| Seniority | 15 | Senior/Staff/Lead positive markers, Intern/Graduate negative |
+
+Skill groups (each with its own weight): `design_core` (Figma, UI/UX), `design_motion` (motion graphics, video), `dev_python_llm` (Python, LLMs, Claude, OpenAI), `dev_wordpress` (WordPress, PHP, Directorist, BuddyBoss), `dev_fullstack` (MongoDB, React, Discord.py), `dev_integration` (Discord bots, Koyeb).
+
+### Categorization
+Each job is tagged DESIGN, DEV, or HYBRID using word-boundary matching against design and dev marker sets. Word boundaries matter — previous substring matching treated "Python Backend" as HYBRID because "ui" was inside "build". Fixed.
+
+### Commands (owner-only)
+- `!jobs` — browse top 5 recent matches
+- `!jobs today` — only matches discovered in the last 24h
+- `!jobs design` / `!jobs dev` / `!jobs hybrid` — filter by category
+- `!jobscout` — trigger a scout run immediately
+- `!applied <source> <source_id>` — mark a match as applied (tracks response rate)
+- `!jobskip <source> <source_id>` — tell Emily a match was off (helps tune scoring)
+
+### Scheduled task
+`job_scout_task` runs 9am and 5pm EAT every day. Wrapped with the same `_should_run_scheduled` helper used by other daily tasks (60-minute grace window, in-memory dedup to prevent double-fire). On each run:
+1. Fetches all sources concurrently
+2. Scores and upserts every job (dedupe key: `source + source_id`)
+3. Queries for unnotified matches ≥ threshold from last 24h, cap 3
+4. DMs owner one-by-one with 1.5s sleep between sends
+5. Marks each as `notified_at` so it's never resent
+
+### DM format
+```
+💼 New match · 82/100 🎨 DESIGN
+
+Senior Product Designer
+Acme Co. · Remote (Worldwide)
+Salary: ~$1,800/mo
+
+✓ Matched skills: figma, ui/ux, brand identity
+✓ Salary above your target (~$1,800/mo)
+✓ Remote or Kenya-based
+
+🔗 https://example.com/job/123
+
+React ✅ if you apply, ❌ if the match was off.
+```
+
+### MongoDB schema (collection: `job_matches`)
+```python
+{
+    "source": "remoteok",
+    "source_id": "12345",
+    "title": "Senior Product Designer",
+    "company": "Acme Co.",
+    "url": "...",
+    "description": "...",  # first 3000 chars
+    "tags": ["figma", "ui"],
+    "location": "Remote",
+    "salary_min": 1500, "salary_max": 2500,
+    "salary_currency": "usd", "salary_period": "month",
+    "posted_at": datetime, "discovered_at": datetime,
+    "score": 82,
+    "score_detail": {"skills_pts": 28, "salary_pts": 25, "remote_pts": 15, "quality_pts": 14, ...},
+    "category": "DESIGN",
+    "notified_at": datetime | None,
+    "user_reaction": "applied" | "skipped" | None,
+}
+```
+
+### Why 70+ threshold
+A perfect dev or design match for Daniel's CV saturates the skill bucket (~36/40), and if remote with salary data published above his floor, clears 75+ easily. Matches in the 60-70 range tend to be close-but-noisy: senior title, but salary not listed and skill overlap partial. Quality-over-quantity was the user's choice.
+
+### Files
+- **New: `job_scout_tools.py`** — 580 lines. Fetchers, scoring, categorization, persistence, formatters
+- **New dep: `aiohttp`** — added to `requirements.txt`
+- **Modified: `main.py`** — 5 new commands, 1 scheduled task, import block, registration on bot ready
+- **Tests: 18 new tests in `TestJobScoring`, `TestJobCategorization`, `TestSalaryParsing`, `TestJobDMFormat`** — all pure logic, no network or DB, run in <2 seconds
+
+### Not included in v1 (future work)
+- **Discord reaction handling** — ✅/❌ on the DM auto-marking applied/skipped. The commands exist manually; reaction hook is pending
+- **`!jobsetup`** to tune threshold/salary floor at runtime — currently hardcoded
+- **BrighterMonday Kenya** — no public API; scraping is fragile and not worth shipping in v1
+- **Weekly summary email** — showing applied jobs + response rate

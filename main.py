@@ -115,6 +115,11 @@ from messaging_tools import (
     get_reminder_log, log_reminder_sent,
 )
 from agent_tools import setup_agent_commands
+from job_scout_tools import (
+    run_scout, get_top_matches, get_matches_by_category,
+    get_jobs_needing_dm, mark_notified, mark_reaction,
+    format_job_dm, format_digest, DM_THRESHOLD,
+)
 
 load_dotenv()
 logging.basicConfig(level=logging.INFO)
@@ -2036,6 +2041,8 @@ async def on_ready():
         weekly_dm_report.start()
     if not weekly_playlist_recs.is_running():
         weekly_playlist_recs.start()
+    if not job_scout_task.is_running():
+        job_scout_task.start()
 
 
 # ══════════════════════════════════════════════
@@ -2507,6 +2514,60 @@ def _extract_field(text, field_name):
     if match:
         return match.group(1).strip().strip('[]')
     return None
+
+
+# ══════════════════════════════════════════════
+# JOB SCOUT — runs 9am and 5pm EAT; DMs high-scoring matches to owner
+# ══════════════════════════════════════════════
+@tasks.loop(minutes=1)
+async def job_scout_task():
+    """Scout jobs twice a day, DM owner top 3 matches scoring ≥ threshold."""
+    try:
+        hit_9am = _should_run_scheduled("job_scout_morning", target_hour=9)
+        hit_5pm = _should_run_scheduled("job_scout_evening", target_hour=17)
+        if not (hit_9am or hit_5pm):
+            return
+
+        owner_id = os.getenv("BOT_OWNER_ID") or os.getenv("DISCORD_OWNER_ID")
+        if not owner_id:
+            logger.info("job_scout_task: no BOT_OWNER_ID set, skipping")
+            return
+
+        logger.info("job_scout_task: running scout")
+        stats = await run_scout()
+        logger.info(f"job_scout_task: stats={stats}")
+
+        # Send up to 3 top-scoring new matches as DMs
+        pending = get_jobs_needing_dm(threshold=DM_THRESHOLD, limit=3)
+        if not pending:
+            return
+
+        try:
+            user = await bot.fetch_user(int(owner_id))
+        except Exception as e:
+            logger.error(f"job_scout: can't fetch owner user: {e}")
+            return
+
+        sent = 0
+        for job in pending:
+            try:
+                await user.send(format_job_dm(job))
+                mark_notified(job["source"], job["source_id"])
+                sent += 1
+                await asyncio.sleep(1.5)
+            except discord.Forbidden:
+                logger.warning("job_scout: owner has DMs closed")
+                break
+            except Exception as e:
+                logger.error(f"job_scout DM error: {e}")
+        logger.info(f"job_scout_task: DMed {sent} matches")
+    except Exception as e:
+        logger.error(f"job_scout_task error: {e}", exc_info=True)
+
+
+@job_scout_task.before_loop
+async def before_job_scout():
+    await bot.wait_until_ready()
 
 
 # ══════════════════════════════════════════════
@@ -5689,6 +5750,130 @@ async def cmd_quote(ctx):
     """Get a random Kenyan proverb or motivational quote."""
     quote = get_daily_quote()
     await ctx.send(quote)
+
+
+# ══════════════════════════════════════════════
+# JOB SCOUT COMMANDS
+# ══════════════════════════════════════════════
+# Owner-only — personal job matching based on Daniel's CV skill profile.
+# DMs match notifications in scheduled task; these commands let him browse
+# on demand.
+def _is_job_owner(ctx):
+    owner_id = os.getenv("BOT_OWNER_ID") or os.getenv("DISCORD_OWNER_ID")
+    return owner_id and str(ctx.author.id) == str(owner_id)
+
+
+@bot.command(name="jobs")
+async def cmd_jobs(ctx, *, filter_arg: str = ""):
+    """Browse latest job matches. Usage: !jobs | !jobs today | !jobs design | !jobs dev | !jobs hybrid"""
+    if not _is_job_owner(ctx):
+        return
+    async with ctx.typing():
+        try:
+            arg = (filter_arg or "").strip().lower()
+            if arg in ("design", "dev", "hybrid"):
+                matches = get_matches_by_category(arg.upper(), days=7, limit=5)
+                title = f"Top {arg.upper()} matches (last 7 days)"
+            elif arg == "today":
+                matches = get_top_matches(days=1, limit=5, min_score=DM_THRESHOLD - 10)
+                title = "Today's top matches"
+            else:
+                matches = get_top_matches(days=3, limit=5, min_score=DM_THRESHOLD - 10)
+                title = "Recent top matches"
+
+            if not matches:
+                await ctx.reply(
+                    "No matches yet — the scout runs every few hours. "
+                    "Try `!jobscout` to run it now."
+                )
+                return
+
+            await ctx.reply(format_digest(matches, title))
+        except Exception as e:
+            logger.error(f"!jobs failed: {e}", exc_info=True)
+            await ctx.reply("Job browser jammed. Try again in a bit.")
+
+
+@bot.command(name="jobscout")
+async def cmd_jobscout(ctx):
+    """Run the job scout on-demand (owner only). Normally runs on a schedule."""
+    if not _is_job_owner(ctx):
+        return
+    async with ctx.typing():
+        msg = await ctx.reply("🔎 Scouting jobs across RemoteOK, Remotive, Arbeitnow...")
+        try:
+            stats = await run_scout()
+            await msg.edit(
+                content=(
+                    f"✅ Scout complete\n"
+                    f"Fetched: **{stats['fetched']}** jobs across sources\n"
+                    f"New this run: **{stats['new']}**\n"
+                    f"Scoring ≥{DM_THRESHOLD}: **{stats['scored_high']}**\n"
+                    f"{'⚠️ Errors: ' + ', '.join(stats['errors']) if stats['errors'] else ''}"
+                )
+            )
+            # After a manual scout, also push any pending DMs so owner sees results immediately
+            await _send_pending_job_dms()
+        except Exception as e:
+            logger.error(f"!jobscout failed: {e}", exc_info=True)
+            try:
+                await msg.edit(content=f"❌ Scout failed: {e}")
+            except Exception:
+                pass
+
+
+@bot.command(name="applied")
+async def cmd_applied(ctx, source: str = "", source_id: str = ""):
+    """Mark a job as applied. Usage: !applied remoteok 12345 (get IDs from !jobs)"""
+    if not _is_job_owner(ctx):
+        return
+    if not source or not source_id:
+        await ctx.reply("Usage: `!applied <source> <source_id>` — e.g. `!applied remoteok 12345`")
+        return
+    if mark_reaction(source, source_id, "applied"):
+        await ctx.reply(f"✅ Marked `{source}:{source_id}` as applied. Good luck!")
+    else:
+        await ctx.reply(f"Couldn't find `{source}:{source_id}` — check the IDs.")
+
+
+@bot.command(name="jobskip")
+async def cmd_jobskip(ctx, source: str = "", source_id: str = ""):
+    """Tell Emily a match was off — helps tune future matches."""
+    if not _is_job_owner(ctx):
+        return
+    if not source or not source_id:
+        await ctx.reply("Usage: `!jobskip <source> <source_id>`")
+        return
+    if mark_reaction(source, source_id, "skipped"):
+        await ctx.reply(f"Noted — `{source}:{source_id}` marked as a bad match.")
+    else:
+        await ctx.reply(f"Couldn't find `{source}:{source_id}`.")
+
+
+async def _send_pending_job_dms():
+    """Helper: DM owner any scored ≥ threshold matches that haven't been notified."""
+    try:
+        owner_id = os.getenv("BOT_OWNER_ID") or os.getenv("DISCORD_OWNER_ID")
+        if not owner_id:
+            return
+        pending = get_jobs_needing_dm(threshold=DM_THRESHOLD, limit=3)
+        if not pending:
+            return
+        user = await bot.fetch_user(int(owner_id))
+        if not user:
+            return
+        for job in pending:
+            try:
+                await user.send(format_job_dm(job))
+                mark_notified(job["source"], job["source_id"])
+                await asyncio.sleep(1.5)  # be gentle to Discord
+            except discord.Forbidden:
+                logger.warning("Owner has DMs closed; cannot send job match")
+                return
+            except Exception as e:
+                logger.error(f"job DM failed: {e}")
+    except Exception as e:
+        logger.error(f"_send_pending_job_dms failed: {e}")
 
 
 @bot.command(name="music")

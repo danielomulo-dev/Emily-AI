@@ -12,6 +12,7 @@ certifi
 
 # === Web/Scraping ===
 requests
+aiohttp
 beautifulsoup4
 ddgs
 

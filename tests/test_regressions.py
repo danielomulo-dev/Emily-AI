@@ -909,3 +909,196 @@ class TestPhoneNormalization:
         """Ambiguous international without + is rejected (might be a Kenyan local with typo)."""
         from messaging_tools import _normalize_phone
         assert _normalize_phone("14155552671") is None
+
+
+# ══════════════════════════════════════════════
+# Feature #22 — Job Scout
+# Validates scoring, categorization, salary parsing, and DM formatting.
+# All tests are pure-logic — no network, no Mongo.
+# ══════════════════════════════════════════════
+
+class TestJobScoring:
+    """Verify the scoring function returns sensible numbers for realistic jobs."""
+
+    def test_perfect_dev_match_scores_high(self):
+        from job_scout_tools import score_job
+        job = {
+            "title": "Senior Python Engineer — LLM Tooling",
+            "description": "Build AI agents with Python, LLMs, OpenAI, Claude, MongoDB. Full-stack. Remote worldwide.",
+            "tags": ["python", "llm", "ai"],
+            "salary_min": 72000, "salary_max": 96000,
+            "salary_currency": "usd", "salary_period": "year",
+            "location": "Remote", "remote": True,
+        }
+        score, detail = score_job(job)
+        assert score >= 75, f"Expected high score for perfect dev match, got {score}"
+        assert detail["salary_pts"] >= 15
+        assert detail["remote_pts"] == 15
+        assert "python" in detail["matched_keywords"] or any("python" in k for k in detail["matched_keywords"])
+
+    def test_perfect_design_match_scores_high(self):
+        from job_scout_tools import score_job
+        job = {
+            "title": "Senior Product Designer (Figma, UI/UX)",
+            "description": "Lead Figma workflow. Brand identity, UI/UX design, design system. Motion graphics a plus.",
+            "tags": ["figma", "ui/ux", "design"],
+            "salary_min": 1500, "salary_max": 2500,
+            "salary_currency": "usd", "salary_period": "month",
+            "location": "Remote", "remote": True,
+        }
+        score, detail = score_job(job)
+        assert score >= 70, f"Expected high score for design match, got {score}"
+        assert any(k.lower() in ("figma", "ui/ux", "brand identity") for k in detail["matched_keywords"])
+
+    def test_low_salary_docks_score(self):
+        from job_scout_tools import score_job
+        job = {
+            "title": "Python Developer",
+            "description": "Python, full-stack, remote",
+            "tags": ["python"],
+            "salary_min": 500, "salary_max": 800,
+            "salary_currency": "usd", "salary_period": "month",
+            "location": "Remote", "remote": True,
+        }
+        score, detail = score_job(job)
+        assert detail["salary_pts"] == 0, "Salary below floor should give 0 salary points"
+
+    def test_no_salary_doesnt_kill_score(self):
+        from job_scout_tools import score_job
+        job = {
+            "title": "Senior Python Engineer",
+            "description": "Python, LLMs, remote worldwide",
+            "tags": ["python"],
+            "location": "Remote", "remote": True,
+        }
+        score, detail = score_job(job)
+        assert detail["salary_pts"] > 0, "No-salary jobs shouldn't score 0 salary"
+        assert score >= 40
+
+    def test_intern_roles_score_low(self):
+        from job_scout_tools import score_job
+        job = {
+            "title": "Python Intern",
+            "description": "Internship programme for Python.",
+            "tags": ["python"],
+            "location": "Remote", "remote": True,
+        }
+        score, detail = score_job(job)
+        assert detail["quality_pts"] < 8, "Intern roles should lose quality points"
+
+    def test_on_site_non_kenya_scores_lower_on_location(self):
+        from job_scout_tools import score_job
+        job = {
+            "title": "Senior Python Engineer",
+            "description": "Python, LLMs",
+            "tags": ["python"],
+            "location": "Berlin, Germany",
+            "remote": False,
+        }
+        _, detail = score_job(job)
+        assert detail["remote_pts"] == 0
+
+    def test_kenya_location_gets_bonus(self):
+        from job_scout_tools import score_job
+        job = {
+            "title": "Senior Python Engineer",
+            "description": "Python, LLMs",
+            "tags": ["python"],
+            "location": "Nairobi, Kenya",
+            "remote": False,
+        }
+        _, detail = score_job(job)
+        assert detail["remote_pts"] >= 13
+
+
+class TestJobCategorization:
+    def test_pure_design_job(self):
+        from job_scout_tools import categorize
+        cat = categorize("Visual Designer", "Figma, brand identity, motion graphics", ["figma", "design"])
+        assert cat == "DESIGN"
+
+    def test_pure_dev_job(self):
+        from job_scout_tools import categorize
+        cat = categorize("Python Backend Engineer", "Build APIs with Python, FastAPI, PostgreSQL", ["python", "backend"])
+        assert cat == "DEV"
+
+    def test_hybrid_role(self):
+        from job_scout_tools import categorize
+        cat = categorize(
+            "Product Designer with Python chops",
+            "We need Figma UI/UX skills AND Python prototyping. WordPress plugins a plus.",
+            ["figma", "python"],
+        )
+        assert cat == "HYBRID"
+
+
+class TestSalaryParsing:
+    def test_parse_dollar_range(self):
+        from job_scout_tools import _parse_salary_text
+        low, high, cur, period = _parse_salary_text("$80k - $120k")
+        assert low == 80000
+        assert high == 120000
+        assert cur == "usd"
+
+    def test_parse_monthly(self):
+        from job_scout_tools import _parse_salary_text
+        low, high, cur, period = _parse_salary_text("USD 2000 - 3000 per month")
+        assert period == "month"
+        assert cur == "usd"
+
+    def test_salary_to_monthly_usd_yearly(self):
+        from job_scout_tools import _salary_to_monthly_usd
+        smin, smax = _salary_to_monthly_usd(72000, 96000, "usd", "year")
+        assert round(smin) == 6000
+        assert round(smax) == 8000
+
+    def test_salary_to_monthly_usd_kes(self):
+        from job_scout_tools import _salary_to_monthly_usd
+        # 200k KES/month → ~$1538 USD
+        smin, smax = _salary_to_monthly_usd(200000, 200000, "kes", "month")
+        assert 1400 < smin < 1700
+
+    def test_no_salary_returns_none(self):
+        from job_scout_tools import _salary_to_monthly_usd
+        smin, smax = _salary_to_monthly_usd(None, None, "usd", "year")
+        assert smin is None and smax is None
+
+
+class TestJobDMFormat:
+    def test_dm_contains_key_fields(self):
+        from job_scout_tools import format_job_dm
+        job = {
+            "title": "Senior Product Designer",
+            "company": "Acme Co.",
+            "location": "Remote (Worldwide)",
+            "url": "https://example.com/job/123",
+            "score": 82,
+            "category": "DESIGN",
+            "score_detail": {
+                "salary_pts": 25,
+                "remote_pts": 15,
+                "salary_basis": "~$1,800/mo",
+                "matched_keywords": ["figma", "ui/ux", "brand identity"],
+            },
+        }
+        dm = format_job_dm(job)
+        assert "82/100" in dm
+        assert "Senior Product Designer" in dm
+        assert "Acme Co." in dm
+        assert "https://example.com/job/123" in dm
+        assert "figma" in dm.lower()
+
+    def test_digest_empty(self):
+        from job_scout_tools import format_digest
+        out = format_digest([])
+        assert "no new matches" in out.lower() or "keep scouting" in out.lower()
+
+    def test_digest_non_empty(self):
+        from job_scout_tools import format_digest
+        out = format_digest([
+            {"title": "Python Dev", "company": "X", "score": 78, "url": "u", "category": "DEV"},
+            {"title": "UI Designer", "company": "Y", "score": 73, "url": "v", "category": "DESIGN"},
+        ])
+        assert "Python Dev" in out
+        assert "78/100" in out
+        assert "73/100" in out
