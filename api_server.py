@@ -46,6 +46,24 @@ def update_task_health(task_name, success=True):
     if not success:
         entry["errors"] = entry.get("errors", 0) + 1
 
+
+def _safe_int(params, key, default, min_val=1, max_val=365):
+    """Parse a query-string integer safely. Returns default on anything invalid.
+
+    Previously `int(params.get("days", [14])[0])` raised ValueError on ?days=foo
+    and crashed the request with a 500. This clamps to sensible bounds too.
+    """
+    try:
+        raw = params.get(key, [default])[0]
+        n = int(raw)
+        if n < min_val:
+            return min_val
+        if n > max_val:
+            return max_val
+        return n
+    except (ValueError, TypeError, IndexError):
+        return default
+
 # ── MongoDB (auto-reconnecting for API thread) ──
 _api_client = None
 _api_db = None
@@ -857,20 +875,20 @@ class EmilyAPIHandler(BaseHTTPRequestHandler):
 
         # Get journal entries
         if path == "/api/journal/entries":
-            days = int(params.get("days", [14])[0])
-            limit = int(params.get("limit", [20])[0])
+            days = _safe_int(params, "days", 14, max_val=365)
+            limit = _safe_int(params, "limit", 20, max_val=200)
             entries = api_get_entries(user_id, days=days, limit=limit)
             self._send_json({"entries": entries})
 
         # Get mood trend
         elif path == "/api/journal/mood-trend":
-            days = int(params.get("days", [14])[0])
+            days = _safe_int(params, "days", 14, max_val=365)
             trend = api_get_mood_trend(user_id, days=days)
             self._send_json({"trend": trend})
 
         # Get stats
         elif path == "/api/journal/stats":
-            days = int(params.get("days", [30])[0])
+            days = _safe_int(params, "days", 30, max_val=365)
             stats = api_get_stats(user_id, days=days)
             self._send_json({"stats": stats or {}})
 
@@ -886,7 +904,7 @@ class EmilyAPIHandler(BaseHTTPRequestHandler):
 
         # Get sleep
         elif path == "/api/journal/sleep":
-            days = int(params.get("days", [7])[0])
+            days = _safe_int(params, "days", 7, max_val=365)
             entries = api_get_sleep(user_id, days=days)
             self._send_json({"sleep": entries})
 
@@ -904,7 +922,7 @@ class EmilyAPIHandler(BaseHTTPRequestHandler):
             self._send_json(data)
 
         elif path == "/api/dashboard/budget-history":
-            months = int(params.get("months", [4])[0])
+            months = _safe_int(params, "months", 4, max_val=24)
             data = api_get_dashboard_budget_history(user_id, months=months)
             self._send_json(data)
 

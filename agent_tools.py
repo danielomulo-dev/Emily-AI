@@ -36,7 +36,9 @@ logger = logging.getLogger("emily")
 
 AGENT_URL = os.getenv("AGENT_URL", "")
 AGENT_SECRET = os.getenv("AGENT_SECRET", "")
-OWNER_ID = int(os.getenv("DISCORD_OWNER_ID", "0"))
+# Accept either env var for backward compatibility; prefer BOT_OWNER_ID
+# (main.py and error_monitor.py both use BOT_OWNER_ID).
+OWNER_ID = int(os.getenv("BOT_OWNER_ID") or os.getenv("DISCORD_OWNER_ID") or "0")
 
 
 def is_owner(ctx) -> bool:

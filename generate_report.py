@@ -139,15 +139,22 @@ def page1(c):
     # Budget progress
     ph = 62
     rrect(c, MARGIN, y - ph, CARD_W, ph, fill=WHITE, stroke=BORDER)
-    pct = d["total_spent"] / d["total_budget"] * 100
+    # Protect against ZeroDivisionError when user has expenses but no budget set.
+    # Previously this crashed the whole !report command with a generic "Report
+    # generation failed" reply, even when the rest of the data was valid.
+    budget_for_pct = d["total_budget"] or 1
+    pct = d["total_spent"] / budget_for_pct * 100 if d["total_budget"] else 0
     bc = GREEN if pct < 50 else AMBER if pct < 80 else RED
     c.setFont(FB, 10); c.setFillColor(TXT)
     c.drawString(MARGIN + PAD, y - 16, "Budget Progress")
     c.setFont(FB, 10); c.setFillColor(bc)
-    c.drawRightString(W - MARGIN - PAD, y - 16, f"{pct:.1f}%")
+    # When no budget set, show a dash instead of "0.0%"
+    pct_label = f"{pct:.1f}%" if d["total_budget"] else "— (no budget set)"
+    c.drawRightString(W - MARGIN - PAD, y - 16, pct_label)
     progress_bar(c, MARGIN + PAD, y - 34, CARD_W - 2*PAD, 10, pct, BORDER_L, bc)
     c.setFont(F, 7.5); c.setFillColor(TXT2)
-    c.drawString(MARGIN + PAD, y - 52, f"{fmt(d['total_spent'])} of {fmt(d['total_budget'])}")
+    budget_text = fmt(d['total_budget']) if d['total_budget'] else "no budget"
+    c.drawString(MARGIN + PAD, y - 52, f"{fmt(d['total_spent'])} of {budget_text}")
     c.drawRightString(W - MARGIN - PAD, y - 52,
                       f"{d['days_remaining']} days left  |  Allowance: {fmt(d['daily_allowance'])}/day")
     y -= ph + 10

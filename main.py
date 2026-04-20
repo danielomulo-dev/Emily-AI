@@ -2041,6 +2041,45 @@ async def on_ready():
 # ══════════════════════════════════════════════
 # BACKGROUND TASKS
 # ══════════════════════════════════════════════
+
+# Scheduled-task dedup — previously each daily/weekly task used
+# `strftime("%H:%M") != "HH:MM"` which only matched a 59-second window. If
+# the bot restarted, ticked slowly, or missed a minute for any reason, the
+# task silently skipped. Using a wider window + in-memory dedup means the
+# task fires reliably once per target day, even if the first tick lands up
+# to 60 minutes after the target.
+_task_last_run = {}  # task_name -> "YYYY-MM-DD" of last successful run
+
+
+def _should_run_scheduled(task_name, target_hour, target_min=0, target_weekday=None, grace_minutes=60):
+    """Return True if this scheduled task should fire now.
+
+    - target_weekday: 0=Mon, 6=Sun. None means daily.
+    - grace_minutes: how long after target time we still consider firing.
+
+    Call _mark_scheduled_ran(task_name) after a successful run.
+    """
+    now = datetime.now(pytz.timezone('Africa/Nairobi'))
+    today = now.strftime("%Y-%m-%d")
+
+    if target_weekday is not None and now.weekday() != target_weekday:
+        return False
+    if _task_last_run.get(task_name) == today:
+        return False
+
+    now_minutes = now.hour * 60 + now.minute
+    target_minutes = target_hour * 60 + target_min
+    if now_minutes < target_minutes or now_minutes > target_minutes + grace_minutes:
+        return False
+    return True
+
+
+def _mark_scheduled_ran(task_name):
+    """Record that task_name successfully ran today."""
+    now = datetime.now(pytz.timezone('Africa/Nairobi'))
+    _task_last_run[task_name] = now.strftime("%Y-%m-%d")
+
+
 @tasks.loop(seconds=60)
 async def check_reminders():
     """Check for due reminders and watch parties every 30 seconds."""
@@ -2302,9 +2341,9 @@ async def before_movie_suggest():
 async def monday_music_drop():
     """Post Spotify mood playlist every Monday morning."""
     try:
-        now = datetime.now(pytz.timezone('Africa/Nairobi'))
-        if now.weekday() != 0 or now.strftime("%H:%M") != "09:00":
+        if not _should_run_scheduled("monday_music_drop", target_hour=9, target_weekday=0):
             return
+        now = datetime.now(pytz.timezone('Africa/Nairobi'))
 
         if not spotify_configured():
             return
@@ -2350,6 +2389,8 @@ async def monday_music_drop():
             await channel.send("\n".join(lines))
             update_server_setting(guild_id, "last_music_date", today)
             logger.info(f"Monday music for guild {guild_id}: {mood}")
+
+        _mark_scheduled_ran("monday_music_drop")
 
     except Exception as e:
         logger.error(f"Monday music error: {e}")
@@ -2504,10 +2545,9 @@ async def before_status():
 async def weekly_digest():
     """Send weekly summary to users on Sunday evening."""
     try:
-        now = datetime.now(pytz.timezone('Africa/Nairobi'))
-        # Sunday = 6, at 18:00 EAT
-        if now.weekday() != 6 or now.strftime("%H:%M") != "18:00":
+        if not _should_run_scheduled("weekly_digest", target_hour=18, target_weekday=6):
             return
+        now = datetime.now(pytz.timezone('Africa/Nairobi'))
 
         from tracker_tools import get_server_settings, server_settings_col
         if server_settings_col is None:
@@ -2573,6 +2613,8 @@ async def weekly_digest():
             except Exception as e:
                 logger.error(f"Digest error for server: {e}")
 
+        _mark_scheduled_ran("weekly_digest")
+
     except Exception as e:
         logger.error(f"Weekly digest loop error: {e}")
         try:
@@ -2592,9 +2634,9 @@ async def before_digest():
 async def daily_birthday_check():
     """Check for birthdays/anniversaries every day at 8am EAT."""
     try:
-        now = datetime.now(pytz.timezone('Africa/Nairobi'))
-        if now.strftime("%H:%M") != "08:00":
+        if not _should_run_scheduled("daily_birthday_check", target_hour=8):
             return
+        now = datetime.now(pytz.timezone('Africa/Nairobi'))
 
         guilds = get_guilds_with_events()
         for guild_id in guilds:
@@ -2630,6 +2672,8 @@ async def daily_birthday_check():
                         f"💍✨ **Happy Anniversary {event['name']}!**\n\n"
                         f"Celebrating this milestone today! Congrats! 🥂"
                     )
+
+        _mark_scheduled_ran("daily_birthday_check")
     except Exception as e:
         logger.error(f"Birthday check error: {e}")
 
@@ -2645,8 +2689,7 @@ async def before_birthday():
 async def accountability_check():
     """Nudge users about stale goals every Wednesday at 6pm EAT."""
     try:
-        now = datetime.now(pytz.timezone('Africa/Nairobi'))
-        if now.weekday() != 2 or now.strftime("%H:%M") != "18:00":
+        if not _should_run_scheduled("accountability_check", target_hour=18, target_weekday=2):
             return
 
         stale = get_stale_goals(days=5)
@@ -2658,6 +2701,8 @@ async def accountability_check():
                     await user.send(f"⏰ **Accountability Check!**\n\n{msg}")
             except Exception as e:
                 logger.error(f"Accountability DM error: {e}")
+
+        _mark_scheduled_ran("accountability_check")
     except Exception as e:
         logger.error(f"Accountability check error: {e}")
 
@@ -2734,7 +2779,12 @@ async def smart_nudges():
                     pct = (monthly["total"] / effective) * 100
                     remaining = effective - monthly["total"]
                     day_of_month = now.day
-                    days_left = max(1, 30 - day_of_month)
+                    # Actual days left in the current month, accounts for Feb, 31-day months, leap years.
+                    # Previously `30 - day_of_month` assumed all months have 30 days and gave wrong /
+                    # negative numbers in Jan, Feb, Mar, May, Jul, Aug, Oct, Dec.
+                    import calendar as _cal
+                    days_in_month = _cal.monthrange(now.year, now.month)[1]
+                    days_left = max(1, days_in_month - day_of_month)
 
                     if pct >= 95 and not _nudged_recently(db, user_id, "budget_critical", 3):
                         nudges.append({
@@ -3161,10 +3211,9 @@ async def before_learning():
 async def weekly_finance_coaching():
     """Analyze spending and share personalized finance tips every Saturday."""
     try:
-        now = datetime.now(pytz.timezone('Africa/Nairobi'))
-        # Saturday = 5, at 18:00 EAT
-        if now.weekday() != 5 or now.strftime("%H:%M") != "18:00":
+        if not _should_run_scheduled("weekly_finance_coaching", target_hour=18, target_weekday=5):
             return
+        now = datetime.now(pytz.timezone('Africa/Nairobi'))
 
         today = now.strftime("%Y-%m-%d")
         servers = get_news_servers()
@@ -3234,7 +3283,11 @@ async def weekly_finance_coaching():
             # Use Claude to generate personalized tips
             spending_data = "\n".join(user_summaries)
             day_of_month = now.day
-            days_left = 30 - day_of_month
+            # Actual days left in the current month — replaces buggy `30 - day_of_month`
+            # which gave negative numbers in 31-day months.
+            import calendar as _cal
+            days_in_month = _cal.monthrange(now.year, now.month)[1]
+            days_left = max(0, days_in_month - day_of_month)
 
             prompt = (
                 f"{EMILY_MINI_PERSONA} It's Saturday evening — time for your weekly finance check-in. "
@@ -3271,6 +3324,8 @@ async def weekly_finance_coaching():
 
             except Exception as e:
                 logger.error(f"Finance coaching generation error: {e}")
+
+        _mark_scheduled_ran("weekly_finance_coaching")
 
     except Exception as e:
         logger.error(f"Finance coaching task error: {e}")
@@ -3585,9 +3640,9 @@ async def before_watchparty_sms_reminders():
 async def nightly_scripture():
     """Send a personalized Bible scripture based on today's journal entries at 9 PM EAT."""
     try:
-        now = datetime.now(pytz.timezone('Africa/Nairobi'))
-        if now.strftime("%H:%M") != "21:00":
+        if not _should_run_scheduled("nightly_scripture", target_hour=21):
             return
+        now = datetime.now(pytz.timezone('Africa/Nairobi'))
 
         # Check all users who journaled today
         if not hasattr(nightly_scripture, '_db'):
@@ -3705,6 +3760,8 @@ async def nightly_scripture():
 
             logger.info(f"Nightly scripture sent to {user_id}: {ref} (theme: {theme})")
 
+        _mark_scheduled_ran("nightly_scripture")
+
     except Exception as e:
         logger.error(f"Nightly scripture error: {e}")
 
@@ -3721,9 +3778,9 @@ async def before_nightly_scripture():
 async def weekly_journal_digest():
     """Send weekly journal summary via DM every Sunday at 8 PM EAT."""
     try:
-        now = datetime.now(pytz.timezone('Africa/Nairobi'))
-        if now.strftime("%A") != "Sunday" or now.strftime("%H:%M") != "20:00":
+        if not _should_run_scheduled("weekly_journal_digest", target_hour=20, target_weekday=6):
             return
+        now = datetime.now(pytz.timezone('Africa/Nairobi'))
 
         if not hasattr(weekly_journal_digest, '_db'):
             import certifi
@@ -3875,6 +3932,8 @@ async def weekly_journal_digest():
             # Log
             db["digest_log"].insert_one({"user_id": user_id, "week": today, "sent_at": now})
             logger.info(f"Weekly digest sent to {user_id}")
+
+        _mark_scheduled_ran("weekly_journal_digest")
 
     except Exception as e:
         logger.error(f"Weekly digest error: {e}")
@@ -4108,10 +4167,7 @@ async def before_dm_report():
 async def weekly_playlist_recs():
     """Send weekly music recommendations based on saved artists every Monday at 10am EAT."""
     try:
-        now = datetime.now(pytz.timezone('Africa/Nairobi'))
-
-        # Monday at 10:00 AM EAT
-        if now.weekday() != 0 or now.strftime("%H:%M") != "10:00":
+        if not _should_run_scheduled("weekly_playlist_recs", target_hour=10, target_weekday=0):
             return
 
         if not spotify_configured():
@@ -4166,6 +4222,8 @@ async def weekly_playlist_recs():
 
             except Exception as e:
                 logger.error(f"Weekly rec error for user {saved.get('user_id')}: {e}")
+
+        _mark_scheduled_ran("weekly_playlist_recs")
 
     except Exception as e:
         logger.error(f"Weekly music recs task error: {e}")
@@ -5538,7 +5596,7 @@ async def cmd_recat(ctx):
         except Exception as e:
             logger.error(f"Recat error: {e}")
             logger.error(f"Command error: {e}", exc_info=True)
-        await ctx.reply("Something went wrong. Try again later!")
+            await ctx.reply("Something went wrong. Try again later!")
 
 
 @bot.command(name="setfinance")
@@ -5572,7 +5630,10 @@ async def cmd_financetip(ctx):
             cat_text = "\n".join([f"- {c}: KES {a:,.0f}" for c, a in sorted_cats])
 
             day_of_month = now.day
-            days_left = 30 - day_of_month
+            # Actual days left in the current month — replaces buggy `30 - day_of_month`.
+            import calendar as _cal
+            days_in_month = _cal.monthrange(now.year, now.month)[1]
+            days_left = max(0, days_in_month - day_of_month)
             daily_avg = monthly["total"] / max(day_of_month, 1)
 
             budget_info = ""
@@ -7790,7 +7851,7 @@ def _detect_expense_category(description):
             "license", "permit", "fine", "penalty", "tax",
             "plumber", "electrician", "handyman", "maintenance",
             "airtime", "bundles", "recharge", "top up",
-            "fee", "charge", "overdraft", "commission",
+            "fee", "charge", "charges", "overdraft", "commission",
         ]),
         # Travel & lodging (before transport)
         ("travel", [
@@ -7889,8 +7950,14 @@ def _detect_expense_category(description):
         ]),
     ]
 
+    # Word-boundary match (not substring), so "coffee" doesn't match "fee" (bills),
+    # "charger" doesn't match "charge" (bills), "taxi" doesn't match "tax" (bills),
+    # "shellfish" doesn't match "shell" (transport), "catering" doesn't match "cat"
+    # (pets), etc. Multi-word keywords like "top up" still work because \b matches
+    # between word and non-word chars on both sides.
     for cat, kw_list in keywords:
-        if any(k in desc for k in kw_list):
+        pattern = r'\b(?:' + '|'.join(re.escape(k) for k in kw_list) + r')\b'
+        if re.search(pattern, desc, re.IGNORECASE):
             return cat
 
     # ── PHASE 3: Pattern fallbacks ──
@@ -8112,10 +8179,13 @@ async def on_message(message):
                         except (ValueError, IndexError):
                             pass
 
-                # Pattern 4: "lunch was 500" / "taxi was 200" / "rent is 15000" / "lunch cost me 500"
+                # Pattern 4: "lunch was 500" / "taxi was 200" / "lunch cost me 500" / "dinner came to 2000"
+                # (`is` was removed — too ambiguous: "my wife is 30", "my IQ is 140" caused false positives.
+                #  Use "was"/"cost"/"came to" for past-tense expenses; for present-tense amounts,
+                #  users should say "I paid X for Y" — Pattern 1 handles that.)
                 if not skip_expense and not spend_match and not expense_detected:
                     spend_match = re.search(
-                        r'(.+?)\s+(?:was|costs?(?:\s+me)?|is|came\s+to)\s+(?:KES\s*|Ksh\s*)?(\d[\d,]*\.?\d*)',
+                        r'(.+?)\s+(?:was|costs?(?:\s+me)?|came\s+to)\s+(?:KES\s*|Ksh\s*)?(\d[\d,]*\.?\d*)',
                         clean_msg, re.IGNORECASE
                     )
                     if spend_match:
@@ -8205,21 +8275,72 @@ async def on_message(message):
                         pass  # Not a valid spend, continue normally
 
             # ─── NATURAL LANGUAGE INCOME DETECTION ───
-            if clean_msg:
-                income_match = re.search(
-                    r'(?:i\s+)?(?:received|got paid|earned|got)\s+(?:KES\s*|Ksh\s*)?(\d[\d,]*\.?\d*)\s+(?:from\s+|for\s+)?(.+)',
-                    clean_msg, re.IGNORECASE
+            # Income logging must be strict: false positives like "I got 500 emails" or
+            # "I received 3 messages" previously logged as income. Requires:
+            # - specific income verbs ("got paid", "earned", "received from/for")
+            # - OR an explicit currency marker (KES/Ksh)
+            # - OR a client/employer subject
+            # Also: skips questions, requires KES >= 100, and returns after logging so the
+            # AI doesn't also reply.
+            if clean_msg and not clean_msg.startswith("!"):
+                msg_lower_inc = clean_msg.lower().strip()
+                skip_income = (
+                    msg_lower_inc.startswith(("what", "how", "when", "where", "why", "who",
+                                              "can", "could", "should", "will", "is there",
+                                              "are there", "do you", "does"))
+                    or '?' in clean_msg
+                    or bool(re.search(
+                        r'\b(?:how much|how many|how long|do you|do i|should i|could i|can i|can you)\b',
+                        msg_lower_inc
+                    ))
+                    or len(clean_msg.split()) > 20
                 )
-                if not income_match:
+
+                income_match = None
+                if not skip_income:
+                    # 1. "got paid X" — strongest signal
                     income_match = re.search(
-                        r'(?:client|someone)\s+(?:paid|sent)\s+(?:me\s+)?(?:KES\s*|Ksh\s*)?(\d[\d,]*\.?\d*)\s*(?:for\s+)?(.+)?',
+                        r'(?:i\s+)?got\s+paid\s+(?:KES\s*|Ksh\s*)?(\d[\d,]*\.?\d*)\s*(?:from\s+|for\s+)?(.*)',
                         clean_msg, re.IGNORECASE
                     )
+                    # 2. "earned X"
+                    if not income_match:
+                        income_match = re.search(
+                            r'(?:i\s+)?earned\s+(?:KES\s*|Ksh\s*)?(\d[\d,]*\.?\d*)\s*(?:from\s+|for\s+)?(.*)',
+                            clean_msg, re.IGNORECASE
+                        )
+                    # 3. "received X from/for Y" — require "from" or "for" to disambiguate
+                    #    from "received X messages/calls/notifications"
+                    if not income_match:
+                        income_match = re.search(
+                            r'(?:i\s+)?received\s+(?:KES\s*|Ksh\s*)?(\d[\d,]*\.?\d*)\s+(?:from\s+|for\s+)(.+)',
+                            clean_msg, re.IGNORECASE
+                        )
+                    # 4. Bare "got X" ONLY if currency marker present
+                    if not income_match:
+                        income_match = re.search(
+                            r'(?:i\s+)?got\s+(?:KES\s*|Ksh\s*)(\d[\d,]*\.?\d*)\s*(?:from\s+|for\s+)?(.*)',
+                            clean_msg, re.IGNORECASE
+                        )
+                    # 5. "got/received X from Y" — bare verb, but requires "from" qualifier
+                    if not income_match:
+                        income_match = re.search(
+                            r'(?:i\s+)?got\s+(\d[\d,]*\.?\d*)\s+from\s+(.+)',
+                            clean_msg, re.IGNORECASE
+                        )
+                    # 6. "Client/boss/employer paid/sent me X"
+                    if not income_match:
+                        income_match = re.search(
+                            r'(?:client|boss|employer|company|someone)\s+(?:paid|sent)\s+(?:me\s+)?(?:KES\s*|Ksh\s*)?(\d[\d,]*\.?\d*)\s*(?:for\s+)?(.*)',
+                            clean_msg, re.IGNORECASE
+                        )
+
                 if income_match:
                     try:
                         amount = float(income_match.group(1).replace(",", ""))
                         desc = (income_match.group(2) or "").strip().rstrip('.!?')
-                        if amount > 0 and log_income(user_id, amount, "freelance", desc or "Income"):
+                        # Minimum KES 100 to avoid junk like "got 5 from X"
+                        if amount >= 100 and log_income(user_id, amount, "freelance", desc or "Income"):
                             monthly_inc = get_monthly_income(user_id)
                             month_total = monthly_inc["total"] if monthly_inc else amount
                             log_reply = f"💰 Income logged: **KES {amount:,.2f}**"
@@ -8229,6 +8350,7 @@ async def on_message(message):
                             await message.reply(log_reply)
                             add_message_to_history(user_id, "user", [{"text": clean_msg}])
                             add_message_to_history(user_id, "model", [{"text": log_reply}])
+                            return  # Don't let the AI also reply to an income log
                     except (ValueError, IndexError):
                         pass
 
@@ -8254,26 +8376,47 @@ async def on_message(message):
                         return
 
             # ─── NATURAL LANGUAGE REMINDER DETECTION ───
+            # Previously: matched the first "at"/"in"/"on" preposition and split there, so
+            # "remind me to pick up kids at the airport at 8pm" used "the airport at 8pm"
+            # as the time part (dateparser chokes → falls through to to-do, no 8pm reminder).
+            # New approach: extract everything after "remind me", then find the RIGHTMOST
+            # time-marker match and split there.
             if clean_msg and not clean_msg.startswith("!"):
-                reminder_match = re.search(
-                    r'remind\s+me\s+(?:to\s+)?(.+?)(?:\s+(?:at|on|in|by|tomorrow|tonight|next)\s+(.+)|$)',
-                    clean_msg, re.IGNORECASE
-                )
-                if reminder_match:
+                reminder_prefix = re.match(r'remind\s+me\s+(?:to\s+)?(.+)', clean_msg, re.IGNORECASE)
+                if reminder_prefix:
                     try:
-                        task = reminder_match.group(1).strip().rstrip('.!?')
-                        time_part = reminder_match.group(2) or ""
+                        raw = reminder_prefix.group(1).strip().rstrip('.!?')
 
-                        # If no time part was captured, try to parse the whole thing
-                        if not time_part:
-                            # Check if there's a time embedded at the end
-                            time_check = re.search(
-                                r'(.+?)\s+(tomorrow|tonight|next\s+\w+|\d{1,2}(?::\d{2})?\s*(?:am|pm)|in\s+\d+\s+(?:hour|minute|min|hr)s?)$',
-                                task, re.IGNORECASE
-                            )
-                            if time_check:
-                                task = time_check.group(1).strip()
-                                time_part = time_check.group(2).strip()
+                        # Patterns for time markers, each matched against the raw tail.
+                        # We find the rightmost occurrence across all patterns.
+                        # The "at"/"by" prefix is part of each time match so the
+                        # task doesn't end up with a trailing " at" when the
+                        # rightmost-match algorithm picks a bare digit pattern.
+                        time_patterns = [
+                            r'(tomorrow(?:\s+(?:morning|afternoon|evening|night))?(?:\s+at\s+\d{1,2}(?::\d{2})?\s*(?:am|pm)?)?)',
+                            r'(tonight(?:\s+at\s+\d{1,2}(?::\d{2})?\s*(?:am|pm)?)?)',
+                            r'(next\s+(?:mon|tues|wednes|thurs|fri|satur|sun)day(?:\s+at\s+\d{1,2}(?::\d{2})?\s*(?:am|pm)?)?)',
+                            r'(next\s+week(?:end)?(?:\s+at\s+\d{1,2}(?::\d{2})?\s*(?:am|pm)?)?)',
+                            r'(on\s+(?:mon|tues|wednes|thurs|fri|satur|sun)day(?:\s+at\s+\d{1,2}(?::\d{2})?\s*(?:am|pm)?)?)',
+                            r'(in\s+\d+\s+(?:seconds?|secs?|minutes?|mins?|hours?|hrs?|days?|weeks?))',
+                            # 24h times: "17:00", "at 17:00", "by 9:30"
+                            r'((?:at\s+|by\s+)?\d{1,2}:\d{2}\s*(?:am|pm)?)',
+                            # 12h times: "5pm", "at 5pm", "by 10pm", "at 5 am"
+                            r'((?:at\s+|by\s+)?\d{1,2}\s*(?:am|pm))',
+                        ]
+
+                        best = None
+                        for pat in time_patterns:
+                            for m in re.finditer(pat, raw, re.IGNORECASE):
+                                if best is None or m.start() > best.start():
+                                    best = m
+
+                        if best:
+                            time_part = best.group(1).strip()
+                            task = raw[:best.start()].strip().rstrip(',').rstrip()
+                        else:
+                            task = raw
+                            time_part = ""
 
                         eat_zone = pytz.timezone('Africa/Nairobi')
                         parsed_time = None
@@ -8329,13 +8472,17 @@ async def on_message(message):
                         logger.warning(f"NLP todo detection error: {e}")
 
             # ─── NATURAL LANGUAGE JOURNAL DETECTION ───
-            # Detect when someone is sharing feelings/day experiences naturally
+            # Detect when someone is sharing feelings/day experiences naturally.
+            # Previously bare "journal" or "log this" as substring anywhere would trigger
+            # entries (e.g., "the journal is boring" got logged). Now we require either
+            # an explicit journal framing (journal:, dear diary, let me journal)
+            # or a recognised mood/day-statement prefix.
             if clean_msg and not clean_msg.startswith("!") and len(clean_msg.split()) >= 5:
                 journal_match = re.search(
                     r'(?:today\s+was|my\s+day\s+was|i\s+(?:had|have)\s+(?:a|an)\s+(?:great|good|bad|terrible|rough|amazing|tough|wonderful|stressful)\s+day'
                     r'|(?:i\s+feel|i\'?m\s+feeling|feeling\s+(?:so\s+)?(?:happy|sad|stressed|anxious|grateful|blessed|overwhelmed|proud|tired|excited|depressed|lonely))'
                     r'|(?:i\s+(?:got|received)\s+(?:promoted|fired|hired|accepted|rejected|dumped))'
-                    r'|(?:journal|dear\s+diary|log\s+this))',
+                    r'|(?:^journal\s*[:\-]|\blet\s+me\s+journal\b|\bdear\s+diary\b|\bjournal\s+entry\b))',
                     clean_msg, re.IGNORECASE
                 )
                 if journal_match:
@@ -8744,6 +8891,7 @@ async def slash_apptoken(interaction: discord.Interaction):
 
 
 @bot.tree.command(name="settings", description="View all server settings and feature toggles")
+@app_commands.guild_only()
 async def slash_settings(interaction: discord.Interaction):
     if not interaction.user.guild_permissions.manage_guild:
         await interaction.response.send_message("You need **Manage Server** permission!", ephemeral=True)
@@ -8786,6 +8934,7 @@ async def slash_exportdata(interaction: discord.Interaction):
 
 
 @bot.tree.command(name="toggle", description="Toggle a feature on/off")
+@app_commands.guild_only()
 @app_commands.describe(feature="Feature name: news, finance, movies, music, learning, digest, scripture, nudges")
 @app_commands.choices(feature=[
     app_commands.Choice(name=f["label"], value=k) for k, f in FEATURE_TOGGLES.items()

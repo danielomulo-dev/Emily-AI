@@ -108,29 +108,42 @@ def get_watchlist(guild_id):
 
 
 def vote_for_movie(guild_id, title, user_id):
-    """Vote for a movie on the watchlist. Each user gets one vote per movie."""
+    """Vote for a movie on the watchlist. Each user gets one vote per movie.
+
+    Race-safe: the previous implementation did a separate read + check + write,
+    which allowed double-clicks to push two votes. This uses a single atomic
+    update_one with votes:{$ne:user_id} in the filter so concurrent identical
+    votes safely become a no-op on the second one.
+    """
     if watchlist_col is None:
         return False, "Database not connected"
     try:
-        movie = watchlist_col.find_one({
+        uid = str(user_id)
+        filt = {
             "guild_id": str(guild_id),
             "title_lower": title.lower().strip(),
             "status": "pending",
-        })
-        if not movie:
-            return False, "Movie not found on watchlist"
-
-        if str(user_id) in movie.get("votes", []):
-            return False, "You already voted for this one"
-
-        watchlist_col.update_one(
-            {"_id": movie["_id"]},
+        }
+        # First, atomic "vote only if not already voted"
+        result = watchlist_col.update_one(
+            {**filt, "votes": {"$ne": uid}},
             {
-                "$push": {"votes": str(user_id)},
+                "$push": {"votes": uid},
                 "$inc": {"vote_count": 1},
             }
         )
-        return True, movie["vote_count"] + 1
+        if result.modified_count == 1:
+            # Fetch the now-current vote_count so we return an accurate number
+            movie = watchlist_col.find_one(filt, {"vote_count": 1})
+            return True, (movie or {}).get("vote_count", 1)
+
+        # Didn't update — figure out which of the two reasons
+        movie = watchlist_col.find_one(filt)
+        if not movie:
+            return False, "Movie not found on watchlist"
+        if uid in movie.get("votes", []):
+            return False, "You already voted for this one"
+        return False, "Vote failed"
     except PyMongoError as e:
         logger.error(f"Vote error: {e}")
         return False, "Vote failed"

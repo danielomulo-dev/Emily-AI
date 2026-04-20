@@ -310,29 +310,51 @@ def get_contacts(guild_id):
 
 
 def _normalize_phone(phone):
-    """Normalize a Kenyan phone number to +254 format."""
-    phone = phone.strip().replace(" ", "").replace("-", "")
+    """Normalize a Kenyan phone number to +254 format.
 
-    # Remove any non-digit characters except leading +
-    if phone.startswith("+"):
-        cleaned = "+" + "".join(c for c in phone[1:] if c.isdigit())
-    else:
-        cleaned = "".join(c for c in phone if c.isdigit())
+    Handles common formats: +254..., 254..., 07..., 7..., with spaces/dashes.
+    Returns None for invalid inputs (too short, too long, garbage).
 
-    # Handle different formats
-    if cleaned.startswith("+254"):
-        return cleaned  # Already correct
-    elif cleaned.startswith("254"):
-        return f"+{cleaned}"
-    elif cleaned.startswith("0") and len(cleaned) == 10:
-        return f"+254{cleaned[1:]}"
-    elif len(cleaned) == 9:
-        return f"+254{cleaned}"
-    else:
-        # Try to use as-is with + prefix if it looks international
-        if len(cleaned) >= 10:
-            return f"+{cleaned}"
-        return None  # Invalid
+    Previously: (a) returned "++1234567890" for inputs like "+1234567890" because
+    the final fallback re-added a + without checking if cleaned already had one,
+    and (b) accepted "07123456789" (11 digits, clearly invalid) as a valid number.
+    """
+    if not phone:
+        return None
+
+    # Strip all whitespace, dashes, parens
+    phone = phone.strip().replace(" ", "").replace("-", "").replace("(", "").replace(")", "")
+
+    # Remember whether a leading + was present, then work with digits only
+    had_plus = phone.startswith("+")
+    digits = "".join(c for c in phone if c.isdigit())
+
+    if not digits:
+        return None
+
+    # ── Kenya-specific rules ──
+    if digits.startswith("254"):
+        # +254 or 254 prefix — Kenyan number. Expect 12 digits total (254 + 9).
+        if len(digits) == 12:
+            return f"+{digits}"
+        return None  # wrong length for +254 prefix
+
+    if digits.startswith("0"):
+        # Local Kenyan format: 0XXXXXXXXX — expect exactly 10 digits
+        if len(digits) == 10:
+            return f"+254{digits[1:]}"
+        return None  # wrong length for 0-prefix
+
+    # 9-digit format without leading 0 — bare mobile number
+    if len(digits) == 9 and not had_plus:
+        return f"+254{digits}"
+
+    # ── Non-Kenyan international numbers ──
+    # Must have had a + prefix to be accepted (else ambiguous) and be 10-15 digits per E.164
+    if had_plus and 10 <= len(digits) <= 15:
+        return f"+{digits}"
+
+    return None  # Invalid — reject rather than silently accept
 
 
 def format_contacts(contacts):

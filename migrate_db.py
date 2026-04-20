@@ -5,11 +5,14 @@ Copies all collections from the old cluster to the new one.
 import certifi
 from pymongo import MongoClient
 
-# ── Old cluster (Bahrain) ──
-OLD_URI = "mongodb+srv://danielomulo_db_user:WjaEHyHIqRrKp9ic@cluster-1.og8yd3o.mongodb.net/emily_brain_db?retryWrites=true&w=majority&serverSelectionTimeoutMS=60000&connectTimeoutMS=60000"
+# ── Old cluster (Bahrain) — decommissioned. Credentials rotated. ──
+# If re-running a migration, fill this in from the new secret manager, do NOT
+# commit a real URI here. The previous hardcoded Bahrain URI was removed during
+# the credential-rotation cleanup.
+OLD_URI = "mongodb+srv://USERNAME:PASSWORD@old-cluster.mongodb.net/emily_brain_db?retryWrites=true&w=majority"
 
 # ── New cluster (Virginia) ──
-NEW_URI = ""mongodb+srv://USERNAME:PASSWORD@your-cluster.mongodb.net/emily_brain_db"
+NEW_URI = "mongodb+srv://USERNAME:PASSWORD@your-cluster.mongodb.net/emily_brain_db"
 
 # All collections used by Emily
 COLLECTIONS = [

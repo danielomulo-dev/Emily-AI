@@ -6,6 +6,7 @@ import traceback
 from datetime import datetime, timedelta
 from collections import defaultdict
 import pytz
+from discord.ext import commands
 
 logger = logging.getLogger(__name__)
 
@@ -146,12 +147,17 @@ def api_call_with_retry(func, *args, **kwargs):
     return func(*args, **kwargs)
 
 
-async def async_api_call_with_retry(coro, max_retries=2, delay=1):
-    """Wrap any async API call with automatic retry."""
+async def async_api_call_with_retry(func, *args, max_retries=2, delay=1, **kwargs):
+    """Wrap any async API call with automatic retry.
+
+    Takes a callable (not a pre-awaited coroutine) so each retry calls it
+    fresh. Awaiting the same coroutine twice raises RuntimeError — that's
+    why this must be a callable, not a coroutine object.
+    """
     last_error = None
     for attempt in range(max_retries + 1):
         try:
-            return await coro
+            return await func(*args, **kwargs)
         except Exception as e:
             last_error = e
             if attempt < max_retries:
