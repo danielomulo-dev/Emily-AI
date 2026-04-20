@@ -689,7 +689,7 @@ textarea.journal-input::placeholder{color:var(--text-muted)}
 .bh-dash-hero-n em{font-style:italic;font-size:28px;opacity:.8;margin-left:4px}
 .bh-dash-hero-sub{font-size:13px;font-weight:600;opacity:.9;position:relative;z-index:1}
 .bh-dash-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:16px}
-.bh-dcard{background:var(--card);border-radius:16px;padding:14px 12px;border:1px solid var(--border);position:relative;overflow:hidden;cursor:pointer}
+.bh-dcard{background:var(--card);border-radius:16px;padding:16px;border:1px solid var(--border);position:relative;overflow:hidden;cursor:pointer}
 .bh-dcard::before{content:'';position:absolute;left:0;top:0;bottom:0;width:3px}
 .bh-dcard.d1::before{background:var(--grad-forest)}
 .bh-dcard.d2::before{background:var(--grad-aurora)}
@@ -1039,13 +1039,13 @@ textarea.journal-input::placeholder{color:var(--text-muted)}
   </div>
 
   <!-- Grid of metrics -->
-  <div class="bh-dash-grid anim-3">
+  <div class="anim-3" style="display:flex;flex-direction:column;gap:12px;margin-bottom:14px">
     <div class="bh-dcard d1" id="dashBudgetCard">
       <h3>💰 Budget</h3>
       <div id="dashBudgetContent"><div class="spin-wrap"><div class="spin"></div></div></div>
     </div>
     <div class="bh-dcard d2" id="dashMonthCard">
-      <h3>📅 Monthly</h3>
+      <h3>📅 Monthly trend</h3>
       <div id="dashMonthContent"><div class="spin-wrap"><div class="spin"></div></div></div>
     </div>
     <div class="bh-dcard d3" id="dashPortfolioCard">
@@ -1053,7 +1053,7 @@ textarea.journal-input::placeholder{color:var(--text-muted)}
       <div id="dashPortfolioContent"><div class="spin-wrap"><div class="spin"></div></div></div>
     </div>
     <div class="bh-dcard d5" id="dashSleepCard">
-      <h3>😴 Sleep</h3>
+      <h3>😴 Sleep trends</h3>
       <div id="dashSleepContent"><div class="spin-wrap"><div class="spin"></div></div></div>
     </div>
   </div>
@@ -2182,7 +2182,7 @@ document.addEventListener('click', (e) => {
 // ═══ NOTES ═══
 let allNotes = [];
 let editingNoteId = null;
-let noteColor = '#f59e0b';
+let noteColor = '#FF8E53';
 
 async function loadNotes() {
   const el = document.getElementById('notesList');
@@ -2190,7 +2190,9 @@ async function loadNotes() {
   editor.classList.remove('active');
   el.style.display = 'block';
   document.getElementById('noteSearch').style.display = 'block';
-  document.querySelector('#notesScreen .header').style.display = 'flex';
+  // Restore the notes screen chrome (masthead + nav + title row) after closing the editor
+  const scr = document.getElementById('notesScreen');
+  scr.querySelectorAll('.bh-mast, .bh-topnav, .bh-notes-top, .bh-greet-sub').forEach(el => el.style.display = '');
 
   el.innerHTML = '<div class="spin-wrap"><div class="spin"></div></div>';
   try {
@@ -2231,10 +2233,10 @@ function filterNotes() {
 
 function newNote() {
   editingNoteId = null;
-  noteColor = '#f59e0b';
+  noteColor = '#FF8E53';
   document.getElementById('noteTitleInput').value = '';
   document.getElementById('noteBodyInput').value = '';
-  document.querySelectorAll('.note-colors span').forEach(s => s.classList.toggle('sel', s.style.background === 'rgb(245, 158, 11)'));
+  document.querySelectorAll('.note-colors span').forEach(s => s.classList.toggle('sel', s.style.background === 'rgb(255, 142, 83)'));
   showEditor();
 }
 
@@ -2242,7 +2244,7 @@ function openNote(id) {
   const note = allNotes.find(n => n._id === id);
   if (!note) return;
   editingNoteId = id;
-  noteColor = note.color || '#f59e0b';
+  noteColor = note.color || '#FF8E53';
   document.getElementById('noteTitleInput').value = note.title || '';
   document.getElementById('noteBodyInput').value = note.body || '';
   // Highlight correct color
@@ -2255,7 +2257,10 @@ function openNote(id) {
 function showEditor() {
   document.getElementById('notesList').style.display = 'none';
   document.getElementById('noteSearch').style.display = 'none';
-  document.querySelector('#notesScreen .header').style.display = 'none';
+  // After the bold redesign, there's no `.header` inside #notesScreen anymore.
+  // Hide the masthead + top nav + greeting instead so the editor takes over.
+  const scr = document.getElementById('notesScreen');
+  scr.querySelectorAll('.bh-mast, .bh-topnav, .bh-notes-top, .bh-greet-sub').forEach(el => el.style.display = 'none');
   document.getElementById('noteEditor').classList.add('active');
   document.getElementById('noteTitleInput').focus();
 }
@@ -2264,7 +2269,8 @@ function closeEditor() {
   document.getElementById('noteEditor').classList.remove('active');
   document.getElementById('notesList').style.display = 'block';
   document.getElementById('noteSearch').style.display = 'block';
-  document.querySelector('#notesScreen .header').style.display = 'flex';
+  const scr = document.getElementById('notesScreen');
+  scr.querySelectorAll('.bh-mast, .bh-topnav, .bh-notes-top, .bh-greet-sub').forEach(el => el.style.display = '');
   loadNotes();
 }
 
