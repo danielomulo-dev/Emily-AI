@@ -3,40 +3,44 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-<meta name="theme-color" content="#0f1419">
+<meta name="theme-color" content="#EFE5D3" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#1F1611" media="(prefers-color-scheme: dark)">
 <title>Emily Widget</title>
 <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@500;600;700;800&display=swap" rel="stylesheet">
+<script>(function(){var s=localStorage.getItem('emily_journal_theme');var d=window.matchMedia&&window.matchMedia('(prefers-color-scheme: dark)').matches;document.documentElement.setAttribute('data-theme',s||(d?'dark':'light'));})();</script>
 <style>
+:root{--bg:#EFE5D3;--card:#F4EBDA;--border:rgba(43,34,26,0.12);--text:#2B221A;--dim:#6B6257;--muted:#9A8C75;--accent:#BF5F3D;--accent-s:rgba(191,95,61,0.12)}
+:root[data-theme="dark"]{--bg:#1F1611;--card:#2B2018;--border:rgba(232,220,196,0.10);--text:#E8DCC4;--dim:#9A8C75;--muted:#6B6257;--accent:#E3825A;--accent-s:rgba(227,130,90,0.15)}
 *{margin:0;padding:0;box-sizing:border-box}
-body{font-family:'Plus Jakarta Sans',sans-serif;background:#0f1419;color:#e8ecf1;padding:12px;overflow:hidden;border-radius:24px;min-height:100vh}
+body{font-family:'Plus Jakarta Sans',sans-serif;background:var(--bg);color:var(--text);padding:12px;overflow:hidden;border-radius:24px;min-height:100vh}
 
 .head{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px}
 .head h1{font-size:14px;font-weight:700;display:flex;align-items:center;gap:6px}
-.head .streak{background:rgba(245,158,11,0.15);color:#f59e0b;padding:3px 8px;border-radius:8px;font-size:11px;font-weight:700}
+.head .streak{background:var(--accent-s);color:var(--accent);padding:3px 8px;border-radius:8px;font-size:11px;font-weight:700}
 
 .stats{display:flex;gap:6px;margin-bottom:10px}
-.st{flex:1;background:#1a2332;border-radius:12px;padding:8px;text-align:center;border:1px solid #2a3a4e}
+.st{flex:1;background:var(--card);border-radius:12px;padding:8px;text-align:center;border:1px solid var(--border)}
 .st .n{font-size:18px;font-weight:800}
-.st .l{font-size:8px;color:#7a8da0;margin-top:1px;text-transform:uppercase;letter-spacing:.5px}
+.st .l{font-size:8px;color:var(--dim);margin-top:1px;text-transform:uppercase;letter-spacing:.5px}
 
-.prompt{background:linear-gradient(135deg,#2a1f0f,#1a1508);border:1px solid #3d2f14;border-radius:12px;padding:10px;margin-bottom:10px;cursor:pointer}
-.prompt .pl{font-size:8px;color:#f59e0b;font-weight:700;text-transform:uppercase;letter-spacing:.8px}
+.prompt{background:var(--card);border:1px solid var(--border);border-left:3px solid var(--accent);border-radius:12px;padding:10px;margin-bottom:10px;cursor:pointer}
+.prompt .pl{font-size:8px;color:var(--accent);font-weight:700;text-transform:uppercase;letter-spacing:.8px}
 .prompt .pt{font-size:12px;font-weight:600;margin-top:3px;line-height:1.4}
 
 .mood{display:flex;gap:4px;margin-bottom:10px}
-.mood button{flex:1;background:#1a2332;border:1.5px solid #2a3a4e;border-radius:10px;padding:6px 2px;font-size:20px;cursor:pointer;text-align:center;transition:all .15s}
-.mood button:active,.mood button.done{border-color:#f59e0b;background:rgba(245,158,11,0.12);transform:scale(1.05)}
+.mood button{flex:1;background:var(--card);border:1.5px solid var(--border);border-radius:10px;padding:6px 2px;font-size:20px;cursor:pointer;text-align:center;transition:all .15s}
+.mood button:active,.mood button.done{border-color:var(--accent);background:var(--accent-s);transform:scale(1.05)}
 
 .qw{display:flex;gap:6px}
-.qw input{flex:1;background:#1a2332;border:1px solid #2a3a4e;border-radius:10px;padding:8px 10px;color:#e8ecf1;font-size:12px;font-family:'Plus Jakarta Sans',sans-serif;outline:none}
-.qw input:focus{border-color:#f59e0b}
-.qw input::placeholder{color:#4a5b6e}
-.qw button{width:36px;height:36px;background:#f59e0b;border:none;border-radius:10px;font-size:14px;cursor:pointer;display:flex;align-items:center;justify-content:center}
+.qw input{flex:1;background:var(--card);border:1px solid var(--border);border-radius:10px;padding:8px 10px;color:var(--text);font-size:12px;font-family:'Plus Jakarta Sans',sans-serif;outline:none}
+.qw input:focus{border-color:var(--accent)}
+.qw input::placeholder{color:var(--muted)}
+.qw button{width:36px;height:36px;background:var(--accent);border:none;border-radius:10px;font-size:14px;cursor:pointer;display:flex;align-items:center;justify-content:center;color:#F4EBDA}
 
-.toast{position:fixed;top:8px;left:50%;transform:translateX(-50%) translateY(-20px);background:#1a2332;border:1px solid #f59e0b;border-radius:10px;padding:6px 14px;font-size:11px;z-index:10;opacity:0;transition:all .2s;pointer-events:none}
+.toast{position:fixed;top:8px;left:50%;transform:translateX(-50%) translateY(-20px);background:var(--card);border:1px solid var(--accent);border-radius:10px;padding:6px 14px;font-size:11px;z-index:10;opacity:0;transition:all .2s;pointer-events:none}
 .toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
 
-.loading{text-align:center;padding:30px;color:#4a5b6e;font-size:12px}
+.loading{text-align:center;padding:30px;color:var(--muted);font-size:12px}
 </style>
 </head>
 <body>

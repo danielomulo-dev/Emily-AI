@@ -1,6 +1,6 @@
-# Emily AI — Bug-Fix Pass
+# Emily AI — Bug-Fix Pass + Journal Redesign
 
-**Context:** analysis + patching session. 20 bugs confirmed, all patched and covered by regression tests. 147/147 tests passing.
+**Context:** analysis + patching session. 20 bugs confirmed, all patched and covered by regression tests. Journal PWA restyled to a warm editorial light/dark theme. 147/147 tests passing.
 
 ---
 
@@ -211,6 +211,35 @@ An 11-digit local number (one digit too many for Kenya's 0-prefix format) was si
 Verified against 14 inputs including `(+254) 712-345-678`, typo numbers, empty/None, garbage, wrong-length prefixes, and all 3 major international formats (US, UK, India).
 
 Regression tests: `TestPhoneNormalization` covers all accepted Kenyan formats, international formats (bug #19), invalid 11-digit local (bug #20), parens/spaces/dashes stripping, wrong-length rejection, and garbage input.
+
+### 21. Journal PWA redesign — warm editorial theme with light + dark mode
+
+The journal (`journal/index.html`, `journal/quick.html`, `journal/widget.html`) was restyled from dark-navy-with-amber-accent to a warm editorial aesthetic with full light/dark mode support. Not a bug fix per se — a design iteration — but listed here since it ships in the same drop.
+
+**Palette:**
+- **Light mode (default)**: cream bg `#EFE5D3`, warm dark brown text `#2B221A`, terracotta accent `#BF5F3D`, olive secondary `#5B6B35`, hairline dividers at 12% opacity
+- **Dark mode**: deep warm chocolate bg `#1F1611`, warm cream text `#E8DCC4`, brighter terracotta `#E3825A` and olive `#8FA04A` for contrast on dark
+
+**What changed visually:**
+- 4 prompt-card gradient variants → solid card bg with 3px colored left borders
+- `.daily-prompt`, `.streak-display`, `.reflection-card`, `.insight-item` — same treatment
+- Amber box-shadow glows stripped from `.btn-primary`, `.write-btn`, `.nav-plus`, `.mood-btn.sel`, `.sleep-range` thumb
+- Text on accent-filled elements changed from `#000` (unreadable-looking on cream) to cream `#F4EBDA`
+- Login screen radial glow swapped to use CSS variable
+- `entry-tag.t-personal` color swapped
+- `install-bar` and `.skeleton` kept as gradients but use CSS variables so both modes work
+
+**Theme toggle mechanism:**
+- `toggleTheme()` function added to `index.html` script block (~25 lines)
+- Persists choice to `localStorage` under key `emily_journal_theme`
+- First-time visitors get `prefers-color-scheme` as the default
+- Updates `<meta name="theme-color">` dynamically so mobile browser chrome matches
+- Toggle button `#themeToggleBtn` sits next to profile icon in home header, swaps ☾ / ☀
+- `quick.html` and `widget.html` also read the same `localStorage` key on page load for cross-screen consistency
+
+**Files touched:** `journal/index.html` (17 CSS edits + 1 HTML addition + 1 JS block), `journal/quick.html` (4 edits), `journal/widget.html` (full style block rewrite)
+
+**Backward compatibility:** Every existing HTML class, ID, and element structure is preserved. The ~1,600 lines of JS in `index.html` (login flow, API bearer auth, 12 unlockable badges, streak rewards, gratitude save, sleep tracker, photo upload, PWA offline service worker, daily prompts, weekly digest, mood calculation) is untouched — only styling shifted.
 
 ---
 

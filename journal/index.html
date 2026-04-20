@@ -3,7 +3,8 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-<meta name="theme-color" content="#0f1419">
+<meta name="theme-color" content="#EFE5D3" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#1F1611" media="(prefers-color-scheme: dark)">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <title>Emily Journal</title>
@@ -11,28 +12,55 @@
 <link href="https://fonts.googleapis.com/css2?family=Lora:ital,wght@0,400;0,500;0,600;0,700;1,400&family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
 :root {
-  --bg: #0f1419;
-  --bg2: #131920;
-  --card: #1a2332;
-  --card2: #1e2a3a;
-  --card-hover: #243044;
-  --border: #2a3a4e;
-  --text: #e8ecf1;
-  --text-dim: #7a8da0;
-  --text-muted: #4a5b6e;
-  --accent: #f59e0b;
-  --accent-soft: rgba(245,158,11,0.12);
-  --accent-mid: rgba(245,158,11,0.25);
-  --success: #34d399;
-  --danger: #f87171;
-  --mood-1: #f87171;
-  --mood-2: #fb923c;
-  --mood-3: #fbbf24;
-  --mood-4: #34d399;
-  --mood-5: #a78bfa;
+  /* Warm editorial light mode (default) */
+  --bg: #EFE5D3;
+  --bg2: #E6DBC4;
+  --card: #F4EBDA;
+  --card2: #E8DCC4;
+  --card-hover: #E0D2B8;
+  --border: rgba(43,34,26,0.12);
+  --border-strong: rgba(43,34,26,0.22);
+  --text: #2B221A;
+  --text-dim: #6B6257;
+  --text-muted: #9A8C75;
+  --accent: #BF5F3D;           /* terracotta */
+  --accent-soft: rgba(191,95,61,0.10);
+  --accent-mid: rgba(191,95,61,0.28);
+  --accent2: #5B6B35;          /* olive */
+  --success: #5B6B35;
+  --danger: #A63D2B;
+  --mood-1: #6B4423;
+  --mood-2: #A65A28;
+  --mood-3: #C68B3A;
+  --mood-4: #8A9A5B;
+  --mood-5: #5B6B35;
   --r: 20px;
   --safe-top: env(safe-area-inset-top, 0px);
   --safe-bottom: env(safe-area-inset-bottom, 0px);
+}
+:root[data-theme="dark"] {
+  /* Warm editorial dark mode */
+  --bg: #1F1611;
+  --bg2: #25190F;
+  --card: #2B2018;
+  --card2: #342719;
+  --card-hover: #3D2F20;
+  --border: rgba(232,220,196,0.10);
+  --border-strong: rgba(232,220,196,0.22);
+  --text: #E8DCC4;
+  --text-dim: #9A8C75;
+  --text-muted: #6B6257;
+  --accent: #E3825A;
+  --accent-soft: rgba(227,130,90,0.12);
+  --accent-mid: rgba(227,130,90,0.28);
+  --accent2: #8FA04A;
+  --success: #8FA04A;
+  --danger: #E06B56;
+  --mood-1: #8B5A3C;
+  --mood-2: #C47549;
+  --mood-3: #E3A25A;
+  --mood-4: #A8BA6E;
+  --mood-5: #8FA04A;
 }
 *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 body{font-family:'Plus Jakarta Sans',sans-serif;background:var(--bg);color:var(--text);min-height:100dvh;overflow-x:hidden}
@@ -55,7 +83,7 @@ body{font-family:'Plus Jakarta Sans',sans-serif;background:var(--bg);color:var(-
 .screen.active{display:block}
 
 /* ═══ LOGIN ═══ */
-#loginScreen{display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100dvh;padding:24px;text-align:center;background:radial-gradient(ellipse at 50% 20%,rgba(245,158,11,0.08),transparent 70%)}
+#loginScreen{display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100dvh;padding:24px;text-align:center;background:radial-gradient(ellipse at 50% 20%,var(--accent-soft),transparent 70%)}
 .login-icon{width:80px;height:80px;background:var(--accent-soft);border-radius:24px;display:flex;align-items:center;justify-content:center;font-size:40px;margin-bottom:16px;border:1px solid var(--accent-mid)}
 .login-h{font-family:'Lora',serif;font-size:30px;font-weight:700;margin-bottom:4px}
 .login-p{color:var(--text-dim);font-size:14px;margin-bottom:32px}
@@ -63,9 +91,9 @@ body{font-family:'Plus Jakarta Sans',sans-serif;background:var(--bg);color:var(-
 .field input{width:100%;background:var(--card);border:1.5px solid var(--border);border-radius:14px;padding:15px 16px;color:var(--text);font-size:15px;font-family:'Plus Jakarta Sans',sans-serif;outline:none;transition:border .25s}
 .field input:focus{border-color:var(--accent)}
 .field input::placeholder{color:var(--text-muted)}
-.btn-primary{width:100%;max-width:340px;background:var(--accent);color:#000;border:none;border-radius:14px;padding:16px;font-size:16px;font-weight:700;font-family:'Plus Jakarta Sans',sans-serif;cursor:pointer;transition:transform .1s,box-shadow .25s;box-shadow:0 4px 24px rgba(245,158,11,0.25)}
+.btn-primary{width:100%;max-width:340px;background:var(--accent);color:#F4EBDA;border:none;border-radius:14px;padding:16px;font-size:16px;font-weight:700;font-family:'Plus Jakarta Sans',sans-serif;cursor:pointer;transition:transform .1s}
 .btn-primary:active{transform:scale(0.97)}
-.btn-primary:disabled{opacity:.4;box-shadow:none}
+.btn-primary:disabled{opacity:.4}
 .login-hint{color:var(--text-muted);font-size:12px;margin-top:20px;line-height:1.6;max-width:300px}
 .login-hint strong{color:var(--accent)}
 .login-err{color:var(--danger);font-size:13px;margin-top:8px;min-height:20px}
@@ -85,7 +113,7 @@ details.adv input{width:100%;background:var(--card);border:1px solid var(--borde
 .cal-day{display:flex;flex-direction:column;align-items:center;gap:4px;min-width:46px;padding:10px 4px 12px;border-radius:16px;cursor:pointer;transition:all .2s}
 .cal-day .dn{font-size:11px;font-weight:500;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px}
 .cal-day .dd{font-size:18px;font-weight:700;color:var(--text-dim);width:36px;height:36px;display:flex;align-items:center;justify-content:center;border-radius:12px;transition:all .2s}
-.cal-day.today .dd{background:var(--accent);color:#000}
+.cal-day.today .dd{background:var(--accent);color:#F4EBDA}
 .cal-day.has-entry .dd{box-shadow:0 0 0 2px var(--accent-mid)}
 .cal-day.today .dn{color:var(--accent)}
 
@@ -102,17 +130,17 @@ details.adv input{width:100%;background:var(--card);border:1px solid var(--borde
 .prompt-card .emoji{font-size:28px;margin-bottom:8px}
 .prompt-card h3{font-size:13px;font-weight:600;margin-bottom:3px}
 .prompt-card p{font-size:11px;opacity:.7;line-height:1.4}
-.prompt-card.c1{background:linear-gradient(145deg,#2a1f0f,#1a1508);border:1px solid #3d2f14}
-.prompt-card.c2{background:linear-gradient(145deg,#1a2a1f,#0f1a14);border:1px solid #1f3d28}
-.prompt-card.c3{background:linear-gradient(145deg,#1a1f2a,#0f1420);border:1px solid #1f2a3d}
-.prompt-card.c4{background:linear-gradient(145deg,#2a1a2a,#1a0f1a);border:1px solid #3d1f3d}
+.prompt-card.c1{background:var(--card);border:1px solid var(--border);border-left:3px solid var(--accent)}
+.prompt-card.c2{background:var(--card);border:1px solid var(--border);border-left:3px solid var(--accent2)}
+.prompt-card.c3{background:var(--card);border:1px solid var(--border);border-left:3px solid var(--mood-3)}
+.prompt-card.c4{background:var(--card);border:1px solid var(--border);border-left:3px solid var(--mood-2)}
 
 /* ═══ MOOD CHECK-IN ═══ */
 .mood-checkin{background:var(--card);border-radius:var(--r);padding:20px;border:1px solid var(--border)}
 .mood-checkin h3{font-size:14px;font-weight:600;margin-bottom:14px;display:flex;align-items:center;gap:8px}
 .mood-row{display:flex;justify-content:space-between;gap:6px}
 .mood-btn{flex:1;display:flex;flex-direction:column;align-items:center;gap:6px;padding:14px 4px;background:var(--bg);border:2px solid var(--border);border-radius:16px;cursor:pointer;transition:all .2s;font-family:'Plus Jakarta Sans',sans-serif}
-.mood-btn:active,.mood-btn.sel{transform:scale(1.06);border-color:var(--accent);background:var(--accent-soft);box-shadow:0 0 20px rgba(245,158,11,0.15)}
+.mood-btn:active,.mood-btn.sel{transform:scale(1.06);border-color:var(--accent);background:var(--accent-soft)}
 .mood-btn .me{font-size:26px;transition:transform .2s}
 .mood-btn:active .me{transform:scale(1.2)}
 .mood-btn .ml{font-size:10px;color:var(--text-dim);font-weight:500}
@@ -131,7 +159,7 @@ details.adv input{width:100%;background:var(--card);border:1px solid var(--borde
 .bar-date{font-size:11px;color:var(--text-dim);width:40px;flex-shrink:0;font-weight:500}
 .bar-track{flex:1;height:28px;background:var(--bg);border-radius:14px;overflow:hidden}
 .bar-fill{height:100%;border-radius:14px;display:flex;align-items:center;padding:0 10px;justify-content:flex-end;transition:width .8s cubic-bezier(.23,1,.32,1)}
-.bar-fill span{font-size:11px;font-weight:700;color:#000}
+.bar-fill span{font-size:11px;font-weight:700;color:#F4EBDA}
 .bar-emoji{font-size:18px;width:24px;text-align:center}
 
 /* ═══ EMOTION DISTRIBUTION ═══ */
@@ -151,9 +179,9 @@ textarea.journal-input{width:100%;min-height:180px;background:var(--card);border
 textarea.journal-input:focus{border-color:var(--accent)}
 textarea.journal-input::placeholder{color:var(--text-muted)}
 .char-count{text-align:right;font-size:11px;color:var(--text-muted);margin-top:6px}
-.write-btn{width:100%;background:var(--accent);color:#000;border:none;border-radius:14px;padding:16px;font-size:16px;font-weight:700;font-family:'Plus Jakarta Sans',sans-serif;cursor:pointer;margin-top:14px;box-shadow:0 4px 24px rgba(245,158,11,0.2);transition:transform .1s}
+.write-btn{width:100%;background:var(--accent);color:#F4EBDA;border:none;border-radius:14px;padding:16px;font-size:16px;font-weight:700;font-family:'Plus Jakarta Sans',sans-serif;cursor:pointer;margin-top:14px;transition:transform .1s}
 .write-btn:active{transform:scale(0.97)}
-.write-btn:disabled{opacity:.4;box-shadow:none}
+.write-btn:disabled{opacity:.4}
 
 /* ═══ DIARY ENTRIES ═══ */
 .day-header{font-size:12px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:.8px;margin:20px 0 10px;padding-left:4px}
@@ -182,7 +210,7 @@ textarea.journal-input::placeholder{color:var(--text-muted)}
 .tag-chip[data-tag="travel"].sel{background:#f472b6}
 .entry-tags{display:flex;gap:4px;flex-wrap:wrap;margin-top:8px}
 .entry-tag{font-size:9px;padding:2px 8px;border-radius:10px;font-weight:600;color:#000}
-.entry-tag.t-personal{background:rgba(245,158,11,0.8)}
+.entry-tag.t-personal{background:var(--accent);color:#F4EBDA}
 .entry-tag.t-work{background:rgba(96,165,250,0.8)}
 .entry-tag.t-health{background:rgba(52,211,153,0.8)}
 .entry-tag.t-faith{background:rgba(167,139,250,0.8)}
@@ -195,7 +223,7 @@ textarea.journal-input::placeholder{color:var(--text-muted)}
 .pin-btn{background:none;border:none;font-size:16px;cursor:pointer;opacity:0.4;transition:all .2s;padding:4px}
 .pin-btn:active{transform:scale(1.2)}
 .pin-btn.pinned{opacity:1}
-.entry.pinned-entry{border-color:var(--accent-mid);background:linear-gradient(135deg,var(--card),rgba(245,158,11,0.05))}
+.entry.pinned-entry{border-color:var(--accent-mid);background:var(--accent-soft)}
 
 /* ═══ TAG FILTER BAR ═══ */
 .filter-bar{display:flex;gap:6px;overflow-x:auto;padding:8px 0 12px;scrollbar-width:none}
@@ -288,7 +316,7 @@ textarea.journal-input::placeholder{color:var(--text-muted)}
 .nav-btn.active{color:var(--accent)}
 .nav-btn .ni{font-size:22px;transition:transform .2s}
 .nav-btn.active .ni{transform:scale(1.1)}
-.nav-plus{width:52px;height:52px;background:var(--accent);border-radius:18px;display:flex;align-items:center;justify-content:center;font-size:28px;color:#000;border:none;cursor:pointer;box-shadow:0 4px 20px rgba(245,158,11,0.35);margin-top:-20px;transition:transform .15s}
+.nav-plus{width:52px;height:52px;background:var(--accent);border-radius:18px;display:flex;align-items:center;justify-content:center;font-size:28px;color:#F4EBDA;border:none;cursor:pointer;margin-top:-20px;transition:transform .15s}
 .nav-plus:active{transform:scale(0.92)}
 
 /* ═══ INSTALL BANNER ═══ */
@@ -383,9 +411,9 @@ textarea.journal-input::placeholder{color:var(--text-muted)}
 .search-count{font-size:11px;color:var(--text-muted);padding:2px 0 6px 4px;min-height:18px}
 
 /* ═══ AI REFLECTION ═══ */
-.reflect-btn{background:linear-gradient(135deg,rgba(167,139,250,0.15),rgba(245,158,11,0.1));border:1px solid rgba(167,139,250,0.3);color:var(--mood-5);display:flex;align-items:center;gap:4px}
+.reflect-btn{background:var(--accent-soft);border:1px solid var(--accent-mid);color:var(--accent);display:flex;align-items:center;gap:4px}
 .reflect-btn:active{background:rgba(167,139,250,0.2) !important;border-color:var(--mood-5) !important}
-.reflection-card{background:linear-gradient(135deg,rgba(167,139,250,0.08),rgba(245,158,11,0.04));border:1px solid rgba(167,139,250,0.2);border-radius:16px;padding:16px;margin-top:10px;animation:fadeUp .4s ease both}
+.reflection-card{background:var(--card);border:1px solid var(--border);border-left:3px solid var(--accent2);border-radius:16px;padding:16px;margin-top:10px;animation:fadeUp .4s ease both}
 .reflection-card .ref-header{display:flex;align-items:center;gap:8px;margin-bottom:8px;font-size:12px;font-weight:600;color:var(--mood-5)}
 .reflection-card .ref-body{font-size:13px;line-height:1.7;color:var(--text-dim)}
 .reflection-card .ref-loading{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--text-dim)}
@@ -396,7 +424,7 @@ textarea.journal-input::placeholder{color:var(--text-muted)}
 /* ═══ INSIGHTS PANEL ═══ */
 .insights-card{background:var(--card);border-radius:var(--r);padding:20px;border:1px solid var(--border);margin-top:14px}
 .insights-card h3{font-size:14px;font-weight:600;margin-bottom:14px;display:flex;align-items:center;gap:8px}
-.insight-item{padding:14px;background:linear-gradient(135deg,rgba(167,139,250,0.06),rgba(245,158,11,0.03));border:1px solid rgba(167,139,250,0.12);border-radius:14px;margin-bottom:10px}
+.insight-item{padding:14px;background:var(--card);border:1px solid var(--border);border-left:3px solid var(--accent2);border-radius:14px;margin-bottom:10px}
 .insight-item:last-child{margin-bottom:0}
 .insight-item .ins-label{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--mood-5);margin-bottom:4px;display:flex;align-items:center;gap:6px}
 .insight-item .ins-text{font-size:13px;line-height:1.7;color:var(--text-dim)}
@@ -425,7 +453,7 @@ textarea.journal-input::placeholder{color:var(--text-muted)}
 .skeleton{background:linear-gradient(90deg,var(--card) 25%,var(--card2) 50%,var(--card) 75%);background-size:200% 100%;animation:shimmer 1.5s infinite;border-radius:12px}
 
 /* ═══ DAILY PROMPT ═══ */
-.daily-prompt{background:linear-gradient(135deg,#2a1f0f,#1a1508);border:1px solid #3d2f14;border-radius:var(--r);padding:18px;position:relative;overflow:hidden}
+.daily-prompt{background:var(--card);border:1px solid var(--border);border-left:3px solid var(--accent);border-radius:var(--r);padding:18px;position:relative;overflow:hidden}
 .daily-prompt::before{content:'💭';position:absolute;right:12px;top:10px;font-size:32px;opacity:.2}
 .daily-prompt .dp-label{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:var(--accent);margin-bottom:6px}
 .daily-prompt .dp-text{font-family:'Lora',serif;font-size:17px;font-weight:600;line-height:1.5;padding-right:30px}
@@ -456,7 +484,7 @@ textarea.journal-input::placeholder{color:var(--text-muted)}
 .sleep-hours{display:flex;align-items:center;gap:12px;margin-bottom:12px}
 .sleep-hours label{font-size:13px;color:var(--text-dim);flex-shrink:0}
 .sleep-range{flex:1;-webkit-appearance:none;appearance:none;height:6px;background:var(--border);border-radius:3px;outline:none}
-.sleep-range::-webkit-slider-thumb{-webkit-appearance:none;width:22px;height:22px;border-radius:50%;background:var(--accent);cursor:pointer;box-shadow:0 2px 8px rgba(245,158,11,0.3)}
+.sleep-range::-webkit-slider-thumb{-webkit-appearance:none;width:22px;height:22px;border-radius:50%;background:var(--accent);cursor:pointer}
 .sleep-hrs-val{font-size:18px;font-weight:700;font-family:'Lora',serif;width:40px;text-align:center}
 .sleep-save{width:100%;background:var(--accent);color:#000;border:none;border-radius:10px;padding:10px;font-size:13px;font-weight:700;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif;transition:transform .1s}
 .sleep-save:active{transform:scale(0.97)}
@@ -484,7 +512,7 @@ textarea.journal-input::placeholder{color:var(--text-muted)}
 .badge.earned::after{content:'✓';position:absolute;top:6px;right:6px;font-size:10px;color:var(--accent);font-weight:700}
 .badge-new{animation:badgePop .5s ease both}
 @keyframes badgePop{0%{transform:scale(0.5);opacity:0}60%{transform:scale(1.15)}100%{transform:scale(1);opacity:1}}
-.streak-display{display:flex;align-items:center;gap:12px;background:linear-gradient(135deg,#2a1f0f,#1a1508);border:1px solid #3d2f14;border-radius:var(--r);padding:16px;margin-bottom:14px}
+.streak-display{display:flex;align-items:center;gap:12px;background:var(--card);border:1px solid var(--border);border-left:3px solid var(--accent);border-radius:var(--r);padding:16px;margin-bottom:14px}
 .streak-fire{font-size:36px}
 .streak-info h4{font-size:22px;font-weight:700;font-family:'Lora',serif;line-height:1}
 .streak-info p{font-size:12px;color:var(--text-dim);margin-top:2px}
@@ -541,7 +569,10 @@ textarea.journal-input::placeholder{color:var(--text-muted)}
 <div id="homeScreen" class="screen active">
   <div class="header anim-1">
     <div class="greeting">Hi there <span>☀️</span><br><span id="greetText">Good morning</span></div>
-    <div class="header-icon" onclick="logout()">👤</div>
+    <div style="display:flex;gap:8px">
+      <div class="header-icon" onclick="toggleTheme()" id="themeToggleBtn" title="Switch theme">☾</div>
+      <div class="header-icon" onclick="logout()">👤</div>
+    </div>
   </div>
 
   <div class="cal-strip anim-2" id="calStrip"></div>
@@ -882,6 +913,37 @@ textarea.journal-input::placeholder{color:var(--text-muted)}
 <div class="toast" id="toast"></div>
 
 <script>
+// ═══ THEME TOGGLE (light/dark) ═══
+// Priority: saved preference > system preference > light default
+(function(){
+  const saved=localStorage.getItem('emily_journal_theme');
+  const sysDark=window.matchMedia&&window.matchMedia('(prefers-color-scheme: dark)').matches;
+  const theme=saved||(sysDark?'dark':'light');
+  document.documentElement.setAttribute('data-theme',theme);
+})();
+function toggleTheme(){
+  const cur=document.documentElement.getAttribute('data-theme')||'light';
+  const next=cur==='dark'?'light':'dark';
+  document.documentElement.setAttribute('data-theme',next);
+  localStorage.setItem('emily_journal_theme',next);
+  const btn=document.getElementById('themeToggleBtn');
+  if(btn)btn.textContent=next==='dark'?'☀':'☾';
+  // Update theme-color so the mobile browser chrome matches
+  document.querySelectorAll('meta[name="theme-color"]').forEach(m=>m.remove());
+  const meta=document.createElement('meta');
+  meta.name='theme-color';
+  meta.content=next==='dark'?'#1F1611':'#EFE5D3';
+  document.head.appendChild(meta);
+}
+// Sync the toggle button icon on page load
+document.addEventListener('DOMContentLoaded',()=>{
+  const btn=document.getElementById('themeToggleBtn');
+  if(btn){
+    const cur=document.documentElement.getAttribute('data-theme')||'light';
+    btn.textContent=cur==='dark'?'☀':'☾';
+  }
+});
+
 const M={1:'😢',2:'😔',3:'😐',4:'😊',5:'🤩'};
 const MC={1:'var(--mood-1)',2:'var(--mood-2)',3:'var(--mood-3)',4:'var(--mood-4)',5:'var(--mood-5)'};
 const ML={1:'Terrible',2:'Rough',3:'Okay',4:'Good',5:'Amazing'};

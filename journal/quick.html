@@ -3,13 +3,16 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-<meta name="theme-color" content="#0f1419">
+<meta name="theme-color" content="#EFE5D3" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#1F1611" media="(prefers-color-scheme: dark)">
+<script>(function(){var s=localStorage.getItem('emily_journal_theme');var d=window.matchMedia&&window.matchMedia('(prefers-color-scheme: dark)').matches;document.documentElement.setAttribute('data-theme',s||(d?'dark':'light'));})();</script>
 <meta name="apple-mobile-web-app-capable" content="yes">
 <title>Emily Quick</title>
 <link rel="manifest" href="widget-manifest.json">
 <link href="https://fonts.googleapis.com/css2?family=Lora:wght@600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
-:root{--bg:#0f1419;--card:#1a2332;--border:#2a3a4e;--text:#e8ecf1;--dim:#7a8da0;--muted:#4a5b6e;--accent:#f59e0b;--accent-s:rgba(245,158,11,0.12);--r:16px;--safe:env(safe-area-inset-bottom,0px)}
+:root{--bg:#EFE5D3;--card:#F4EBDA;--border:rgba(43,34,26,0.12);--text:#2B221A;--dim:#6B6257;--muted:#9A8C75;--accent:#BF5F3D;--accent-s:rgba(191,95,61,0.10);--r:16px;--safe:env(safe-area-inset-bottom,0px)}
+:root[data-theme="dark"]{--bg:#1F1611;--card:#2B2018;--border:rgba(232,220,196,0.10);--text:#E8DCC4;--dim:#9A8C75;--muted:#6B6257;--accent:#E3825A;--accent-s:rgba(227,130,90,0.12)}
 *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 body{font-family:'Plus Jakarta Sans',sans-serif;background:var(--bg);color:var(--text);min-height:100dvh;padding:16px;padding-bottom:calc(16px + var(--safe))}
 
@@ -49,7 +52,7 @@ body{font-family:'Plus Jakarta Sans',sans-serif;background:var(--bg);color:var(-
 .link-btn .lt{font-size:9px;color:var(--dim);font-weight:600}
 
 /* Today's prompt */
-.prompt{background:linear-gradient(135deg,#2a1f0f,#1a1508);border:1px solid #3d2f14;border-radius:var(--r);padding:14px;margin-bottom:14px;cursor:pointer;transition:transform .15s}
+.prompt{background:var(--card);border:1px solid var(--border);border-left:3px solid var(--accent);border-radius:var(--r);padding:14px;margin-bottom:14px;cursor:pointer;transition:transform .15s}
 .prompt:active{transform:scale(0.98)}
 .prompt .pl{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.8px;color:var(--accent);margin-bottom:4px}
 .prompt .pt{font-family:'Lora',serif;font-size:14px;font-weight:600;line-height:1.4}
@@ -63,7 +66,7 @@ body{font-family:'Plus Jakarta Sans',sans-serif;background:var(--bg);color:var(-
 .login h2{font-family:'Lora',serif;font-size:22px}
 .login p{color:var(--dim);font-size:13px}
 .login input{width:100%;max-width:280px;background:var(--card);border:1px solid var(--border);border-radius:12px;padding:12px;color:var(--text);font-size:14px;font-family:'Plus Jakarta Sans',sans-serif;outline:none}
-.login button{width:100%;max-width:280px;background:var(--accent);color:#000;border:none;border-radius:12px;padding:13px;font-size:15px;font-weight:700;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif}
+.login button{width:100%;max-width:280px;background:var(--accent);color:#F4EBDA;border:none;border-radius:12px;padding:13px;font-size:15px;font-weight:700;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif}
 .app{display:none}
 .app.active{display:block}
 </style>
