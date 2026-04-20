@@ -3,64 +3,74 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-<meta name="theme-color" content="#EFE5D3" media="(prefers-color-scheme: light)">
-<meta name="theme-color" content="#1F1611" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#FEF7EC" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0A0612" media="(prefers-color-scheme: dark)">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <title>Emily Journal</title>
 <link rel="manifest" href="manifest.json">
-<link href="https://fonts.googleapis.com/css2?family=Lora:ital,wght@0,400;0,500;0,600;0,700;1,400&family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Lora:ital,wght@0,400;0,500;0,600;0,700;1,400&family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
 :root {
-  /* Warm editorial light mode (default) */
-  --bg: #EFE5D3;
-  --bg2: #E6DBC4;
-  --card: #F4EBDA;
-  --card2: #E8DCC4;
-  --card-hover: #E0D2B8;
-  --border: rgba(43,34,26,0.12);
-  --border-strong: rgba(43,34,26,0.22);
-  --text: #2B221A;
-  --text-dim: #6B6257;
-  --text-muted: #9A8C75;
-  --accent: #BF5F3D;           /* terracotta */
-  --accent-soft: rgba(191,95,61,0.10);
-  --accent-mid: rgba(191,95,61,0.28);
-  --accent2: #5B6B35;          /* olive */
-  --success: #5B6B35;
-  --danger: #A63D2B;
-  --mood-1: #6B4423;
-  --mood-2: #A65A28;
-  --mood-3: #C68B3A;
-  --mood-4: #8A9A5B;
-  --mood-5: #5B6B35;
+  /* Bold modern light (alt) */
+  --bg: #FEF7EC;
+  --bg2: #FDF2E0;
+  --card: #FFFFFF;
+  --card2: #FDF2E0;
+  --card-hover: #F5E6C8;
+  --border: rgba(26,11,5,0.08);
+  --border-strong: rgba(26,11,5,0.18);
+  --text: #1A0B05;
+  --text-dim: #6B5B4F;
+  --text-muted: #9A8B7F;
+  --accent: #FF6B6B;
+  --accent-soft: rgba(255,107,107,0.10);
+  --accent-mid: rgba(255,107,107,0.28);
+  --accent2: #8B5CF6;
+  --success: #10B981;
+  --danger: #EF4444;
+  --mood-1: #EF4444;
+  --mood-2: #F59E0B;
+  --mood-3: #FBBF24;
+  --mood-4: #10B981;
+  --mood-5: #EC4899;
+  --grad-sunset: linear-gradient(135deg,#FF6B6B 0%,#FF8E53 50%,#FFAB4C 100%);
+  --grad-aurora: linear-gradient(135deg,#8B5CF6 0%,#EC4899 100%);
+  --grad-forest: linear-gradient(135deg,#10B981 0%,#06B6D4 100%);
+  --grad-amber: linear-gradient(135deg,#F59E0B 0%,#EF4444 100%);
+  --on-sunset: #1A0B05;
   --r: 20px;
   --safe-top: env(safe-area-inset-top, 0px);
   --safe-bottom: env(safe-area-inset-bottom, 0px);
 }
 :root[data-theme="dark"] {
-  /* Warm editorial dark mode */
-  --bg: #1F1611;
-  --bg2: #25190F;
-  --card: #2B2018;
-  --card2: #342719;
-  --card-hover: #3D2F20;
-  --border: rgba(232,220,196,0.10);
-  --border-strong: rgba(232,220,196,0.22);
-  --text: #E8DCC4;
-  --text-dim: #9A8C75;
-  --text-muted: #6B6257;
-  --accent: #E3825A;
-  --accent-soft: rgba(227,130,90,0.12);
-  --accent-mid: rgba(227,130,90,0.28);
-  --accent2: #8FA04A;
-  --success: #8FA04A;
-  --danger: #E06B56;
-  --mood-1: #8B5A3C;
-  --mood-2: #C47549;
-  --mood-3: #E3A25A;
-  --mood-4: #A8BA6E;
-  --mood-5: #8FA04A;
+  /* Bold modern dark (default on first load) */
+  --bg: #0A0612;
+  --bg2: #120B1C;
+  --card: #16101F;
+  --card2: #1F1729;
+  --card-hover: #2A1F3A;
+  --border: rgba(255,255,255,0.06);
+  --border-strong: rgba(255,255,255,0.14);
+  --text: #F5F3F0;
+  --text-dim: #8B8290;
+  --text-muted: #6B6372;
+  --accent: #FF8E53;
+  --accent-soft: rgba(255,142,83,0.12);
+  --accent-mid: rgba(255,142,83,0.28);
+  --accent2: #A78BFA;
+  --success: #34D399;
+  --danger: #F87171;
+  --mood-1: #F87171;
+  --mood-2: #FB923C;
+  --mood-3: #FBBF24;
+  --mood-4: #34D399;
+  --mood-5: #EC4899;
+  --grad-sunset: linear-gradient(135deg,#FF6B6B 0%,#FF8E53 50%,#FFAB4C 100%);
+  --grad-aurora: linear-gradient(135deg,#8B5CF6 0%,#EC4899 100%);
+  --grad-forest: linear-gradient(135deg,#10B981 0%,#06B6D4 100%);
+  --grad-amber: linear-gradient(135deg,#F59E0B 0%,#EF4444 100%);
+  --on-sunset: #1A0B05;
 }
 *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 body{font-family:'Plus Jakarta Sans',sans-serif;background:var(--bg);color:var(--text);min-height:100dvh;overflow-x:hidden}
@@ -110,12 +120,15 @@ details.adv input{width:100%;background:var(--card);border:1px solid var(--borde
 /* ═══ CALENDAR STRIP ═══ */
 .cal-strip{display:flex;gap:6px;padding:14px 0 18px;overflow-x:auto;scrollbar-width:none}
 .cal-strip::-webkit-scrollbar{display:none}
-.cal-day{display:flex;flex-direction:column;align-items:center;gap:4px;min-width:46px;padding:10px 4px 12px;border-radius:16px;cursor:pointer;transition:all .2s}
-.cal-day .dn{font-size:11px;font-weight:500;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px}
-.cal-day .dd{font-size:18px;font-weight:700;color:var(--text-dim);width:36px;height:36px;display:flex;align-items:center;justify-content:center;border-radius:12px;transition:all .2s}
-.cal-day.today .dd{background:var(--accent);color:#F4EBDA}
-.cal-day.has-entry .dd{box-shadow:0 0 0 2px var(--accent-mid)}
-.cal-day.today .dn{color:var(--accent)}
+.cal-day{flex:1;aspect-ratio:1/1.3;background:var(--card);border:1px solid var(--border);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;padding:4px;border-radius:14px;cursor:pointer;transition:all .2s;min-width:0}
+.cal-day .dn{font-size:9px;font-weight:700;color:var(--text-dim);text-transform:uppercase;letter-spacing:.1em}
+.cal-day .dd{font-family:'Instrument Serif',Georgia,serif;font-size:18px;font-weight:400;color:var(--text);letter-spacing:-0.02em;width:auto;height:auto;display:block;background:transparent;border-radius:0}
+.cal-day.today{background:var(--grad-sunset);border-color:transparent}
+.cal-day.today .dd{background:transparent;color:var(--on-sunset)}
+.cal-day.today .dn{color:var(--on-sunset)}
+.cal-day.has-entry .dd{box-shadow:none}
+/* Make the strip a grid now (not scroll) */
+.cal-strip,.bh-week{display:flex;gap:5px;padding:0;overflow:visible}
 
 /* ═══ SECTION TITLES ═══ */
 .sec{display:flex;justify-content:space-between;align-items:center;margin:20px 0 12px}
@@ -543,19 +556,175 @@ textarea.journal-input::placeholder{color:var(--text-muted)}
 .lightbox.active{display:flex}
 .lightbox img{max-width:100%;max-height:85vh;border-radius:8px;object-fit:contain}
 .lightbox-close{position:absolute;top:16px;right:16px;font-size:28px;color:#fff;background:none;border:none;cursor:pointer;z-index:301}
+
+/* ═══ BOLD HOME REDESIGN ═══ */
+.bh-mast{display:flex;justify-content:space-between;align-items:center;padding:18px 0 10px}
+.bh-brand{font-family:'Lora',serif;font-size:13px;font-weight:500;letter-spacing:0.02em;color:var(--text)}
+.bh-brand span{background:var(--grad-sunset);-webkit-background-clip:text;background-clip:text;color:transparent;font-style:italic}
+.bh-mast-right{display:flex;gap:10px;align-items:center}
+.bh-meta{font-size:10px;color:var(--text-dim);letter-spacing:0.14em;text-transform:uppercase;font-weight:700}
+.bh-theme{width:30px;height:30px;border-radius:50%;border:1px solid var(--border-strong);background:transparent;color:var(--text);cursor:pointer;font-size:13px;padding:0;display:flex;align-items:center;justify-content:center}
+.bh-logout{width:30px;height:30px;border-radius:50%;border:1px solid var(--border-strong);background:transparent;cursor:pointer;font-size:13px;padding:0;display:flex;align-items:center;justify-content:center}
+
+.bh-topnav{display:flex;gap:4px;background:var(--card);border-radius:14px;padding:4px;margin-bottom:20px}
+.bh-topnav-b{flex:1;background:none;border:none;color:var(--text-dim);font-family:'Plus Jakarta Sans',sans-serif;font-size:12px;cursor:pointer;padding:10px 4px;font-weight:600;border-radius:10px;letter-spacing:0.02em;transition:all .2s}
+.bh-topnav-b.active{background:var(--card2);color:var(--text)}
+
+.bh-greet{font-family:'Instrument Serif',Georgia,serif;font-size:42px;line-height:1;letter-spacing:-0.02em;margin-bottom:4px;font-weight:400;color:var(--text)}
+.bh-greet em{font-style:italic;background:var(--grad-sunset);-webkit-background-clip:text;background-clip:text;color:transparent}
+.bh-greet-sub{color:var(--text-dim);font-size:13px;margin-bottom:20px;line-height:1.5;font-weight:500}
+
+.bh-week{display:flex;gap:5px;margin-bottom:20px}
+.bh-wday{flex:1;aspect-ratio:1/1.3;background:var(--card);border-radius:14px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;border:1px solid var(--border);cursor:pointer;padding:4px}
+.bh-wday-d{font-size:9px;color:var(--text-dim);letter-spacing:0.1em;text-transform:uppercase;font-weight:700}
+.bh-wday-n{font-family:'Instrument Serif',Georgia,serif;font-size:18px;font-weight:400;letter-spacing:-0.02em;color:var(--text)}
+.bh-wday-pip{width:5px;height:5px;border-radius:50%;opacity:0}
+.bh-wday.has .bh-wday-pip{opacity:1}
+.bh-wday.today{background:var(--grad-sunset);border-color:transparent}
+.bh-wday.today .bh-wday-d,.bh-wday.today .bh-wday-n{color:var(--on-sunset)}
+
+.bh-hero{background:var(--grad-sunset);border-radius:22px;padding:22px;color:var(--on-sunset);margin-bottom:16px;position:relative;overflow:hidden}
+.bh-hero::after{content:'';position:absolute;width:220px;height:220px;border-radius:50%;background:rgba(255,255,255,0.14);top:-90px;right:-80px}
+.bh-hero-lab{font-size:10px;letter-spacing:0.16em;text-transform:uppercase;font-weight:800;opacity:.8;position:relative;z-index:1}
+.bh-hero-n{font-family:'Instrument Serif',Georgia,serif;font-size:84px;line-height:.9;letter-spacing:-0.04em;margin:4px 0 2px;position:relative;z-index:1}
+.bh-hero-sub{font-size:13px;font-weight:600;opacity:.85;position:relative;z-index:1}
+.bh-hero-fire{position:absolute;right:18px;bottom:18px;font-size:56px;z-index:1}
+
+.bh-stats{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:22px}
+.bh-statbox{background:var(--card);border-radius:16px;padding:14px 12px;border:1px solid var(--border);position:relative;overflow:hidden}
+.bh-statbox::before{content:'';position:absolute;left:0;top:0;bottom:0;width:3px}
+.bh-statbox.s1::before{background:var(--grad-sunset)}
+.bh-statbox.s2::before{background:var(--grad-aurora)}
+.bh-statbox.s3::before{background:var(--grad-forest)}
+.bh-statbox-lab{font-size:10px;color:var(--text-dim);letter-spacing:0.14em;text-transform:uppercase;font-weight:700;margin-bottom:4px}
+.bh-statbox-n{font-family:'Instrument Serif',Georgia,serif;font-size:28px;font-weight:400;line-height:1;letter-spacing:-0.02em;color:var(--text)}
+
+.bh-sec{font-size:10px;letter-spacing:0.18em;text-transform:uppercase;color:var(--text-dim);font-weight:800;margin:16px 0 10px}
+
+.bh-prompt{background:var(--card);border-radius:20px;padding:18px;margin-bottom:20px;position:relative;overflow:hidden}
+.bh-prompt::before{content:'';position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--grad-aurora)}
+.bh-prompt-lab{font-size:10px;color:#EC4899;letter-spacing:0.18em;text-transform:uppercase;font-weight:800;margin-bottom:8px}
+.bh-prompt-q{font-family:'Instrument Serif',Georgia,serif;font-size:22px;line-height:1.25;margin-bottom:14px;letter-spacing:-0.015em;font-style:italic;color:var(--text)}
+.bh-prompt-btn{background:var(--grad-aurora);border:none;color:#fff;font-family:'Plus Jakarta Sans',sans-serif;font-size:13px;font-weight:700;padding:10px 18px;border-radius:12px;cursor:pointer;letter-spacing:0.01em}
+
+.bh-qj{display:flex;gap:10px;overflow-x:auto;margin-bottom:22px;padding-bottom:6px;scrollbar-width:none}
+.bh-qj::-webkit-scrollbar{display:none}
+.bh-qj-card{min-width:138px;flex-shrink:0;border-radius:18px;padding:16px;cursor:pointer;color:var(--on-sunset)}
+.bh-qj-card.c1{background:var(--grad-sunset)}
+.bh-qj-card.c2{background:var(--grad-forest);color:#fff}
+.bh-qj-card.c3{background:var(--grad-amber)}
+.bh-qj-card.c4{background:var(--grad-aurora);color:#fff}
+.bh-qj-ic{font-size:22px;margin-bottom:10px;display:block}
+.bh-qj-t{font-family:'Instrument Serif',Georgia,serif;font-size:18px;font-weight:400;letter-spacing:-0.01em;margin-bottom:2px}
+.bh-qj-s{font-size:11px;font-weight:600;opacity:.85}
+
+.bh-moodcard{background:var(--card);border-radius:20px;padding:20px;margin-bottom:22px}
+.bh-moodcard-h{font-family:'Instrument Serif',Georgia,serif;font-size:20px;font-weight:400;margin-bottom:16px;text-align:center;letter-spacing:-0.015em;color:var(--text)}
+.bh-moodcard-h em{font-style:italic;background:var(--grad-sunset);-webkit-background-clip:text;background-clip:text;color:transparent}
+.bh-moodrow{display:flex;justify-content:space-between;gap:6px}
+.bh-moodbtn{flex:1;aspect-ratio:1;background:var(--card2);border:2px solid var(--border);border-radius:16px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;cursor:pointer;transition:transform .2s;font-family:'Plus Jakarta Sans',sans-serif;color:var(--text);padding:8px 2px}
+.bh-moodbtn.sel,.bh-moodbtn:active{background:var(--grad-sunset);border-color:transparent;transform:scale(1.08);color:var(--on-sunset)}
+.bh-moodbtn .me{font-size:22px}
+.bh-moodbtn .ml{font-size:9px;font-weight:700;letter-spacing:0.05em;opacity:.85}
+
+.bh-badgewrap{background:var(--card);border-radius:20px;padding:18px;margin-bottom:18px}
+.bh-badgewrap-top{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:12px}
+.bh-badgewrap-h{font-family:'Instrument Serif',Georgia,serif;font-size:17px;font-weight:400;letter-spacing:-0.01em;color:var(--text)}
+.bh-badgewrap-ct{font-size:11px;color:var(--text-dim);font-weight:600}
+.bh-badgewrap-ct em{background:var(--grad-sunset);-webkit-background-clip:text;background-clip:text;color:transparent;font-style:normal;font-weight:800}
+
+/* Hide the old bottom navbar — top nav replaces it */
+.navbar{display:none !important}
+/* Restyle common components for bold look */
+.trend-card,.gratitude-card,.sleep-card{background:var(--card);border-radius:20px;padding:18px;border:1px solid var(--border);margin-bottom:16px}
+.trend-card h3,.gratitude-card h3,.sleep-card h3{font-family:'Instrument Serif',Georgia,serif;font-size:18px;font-weight:400;letter-spacing:-0.01em;margin-bottom:14px}
+/* ═══ LOGIN (bold) ═══ */
+#loginScreen{background:radial-gradient(ellipse at 50% 30%,var(--accent-soft),transparent 60%)}
+.bh-login-ic{width:80px;height:80px;border-radius:26px;background:var(--grad-sunset);display:flex;align-items:center;justify-content:center;font-size:40px;margin-bottom:18px;color:var(--on-sunset)}
+.bh-login-h{font-family:'Instrument Serif',Georgia,serif;font-size:42px;line-height:1;letter-spacing:-0.02em;font-weight:400;margin-bottom:6px;color:var(--text)}
+.bh-login-h em{font-style:italic;background:var(--grad-sunset);-webkit-background-clip:text;background-clip:text;color:transparent}
+.bh-login-sub{color:var(--text-dim);font-size:13px;margin-bottom:28px;line-height:1.5;max-width:280px;text-align:center}
+.bh-login-btn{width:100%;max-width:340px;background:var(--grad-sunset);color:var(--on-sunset);border:none;border-radius:16px;padding:16px;font-size:15px;font-weight:700;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif}
+.bh-login-hint{color:var(--text-muted);font-size:12px;margin-top:20px;line-height:1.6;max-width:300px;text-align:center}
+.bh-login-hint strong{background:var(--grad-sunset);-webkit-background-clip:text;background-clip:text;color:transparent;font-weight:800}
+
+/* ═══ WRITE (bold) ═══ */
+.bh-write-mood{display:flex;gap:6px;margin-bottom:16px}
+.bh-write-mood .mood-btn{flex:1;aspect-ratio:1;background:var(--card);border:2px solid var(--border);border-radius:16px;display:flex;align-items:center;justify-content:center;font-size:24px;cursor:pointer;transition:transform .2s;font-family:inherit;padding:0}
+.bh-write-mood .mood-btn.sel,.bh-write-mood .mood-btn:active{background:var(--grad-sunset);border-color:transparent;transform:scale(1.08)}
+.bh-voice{background:var(--card);border-radius:18px;padding:16px;margin-bottom:14px;position:relative;overflow:hidden;display:flex;align-items:center;gap:14px}
+.bh-voice::before{content:'';position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--grad-aurora)}
+.bh-voice .voice-btn{width:44px;height:44px;border-radius:50%;background:var(--grad-aurora);border:none;font-size:20px;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;color:#fff;margin:0}
+.bh-voice .voice-btn.rec{background:var(--grad-amber);animation:voicePulse 1s infinite}
+.bh-voice .voice-status{flex:1}
+.bh-voice .vs-text{font-size:13px;font-weight:600;color:var(--text)}
+.bh-voice .vs-hint{font-size:11px;color:var(--text-dim);margin-top:2px}
+.bh-tags{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px}
+.bh-tags .tag-chip{background:var(--card);border:1px solid var(--border);color:var(--text-dim);padding:7px 12px;border-radius:12px;font-size:11px;font-weight:600;cursor:pointer;font-family:inherit}
+.bh-tags .tag-chip.sel{background:var(--grad-sunset);border-color:transparent;color:var(--on-sunset)}
+.bh-area{background:var(--card);border:1px solid var(--border);border-radius:18px;padding:18px;font-family:'Instrument Serif',Georgia,serif;font-size:19px;line-height:1.55;color:var(--text);min-height:180px;margin-bottom:12px;letter-spacing:-0.005em;outline:none;resize:vertical;width:100%;font-weight:400}
+.bh-area::placeholder{color:var(--text-muted);font-style:italic}
+.bh-photo-area{background:var(--card);border:1.5px dashed var(--border-strong);border-radius:14px;padding:14px;margin-bottom:14px}
+.bh-count{text-align:center;color:var(--text-dim);font-size:11px;margin-bottom:12px;font-weight:600;letter-spacing:0.04em}
+.bh-savebtn{width:100%;background:var(--grad-sunset);border:none;color:var(--on-sunset);border-radius:16px;padding:16px;font-family:'Instrument Serif',Georgia,serif;font-size:18px;font-weight:500;cursor:pointer;letter-spacing:-0.01em;transition:transform .1s}
+.bh-savebtn:active{transform:scale(0.98)}
+.bh-savebtn:disabled{opacity:.4}
+
+/* ═══ DIARY (bold) ═══ */
+.bh-search{background:var(--card);border:1px solid var(--border);border-radius:14px;padding:12px 14px;color:var(--text);font-size:13px;font-family:inherit;outline:none;width:100%;margin-bottom:14px;box-sizing:border-box}
+.bh-search:focus{border-color:var(--accent)}
+.bh-filters{display:flex;gap:6px;overflow-x:auto;margin-bottom:16px;padding-bottom:4px;scrollbar-width:none}
+.bh-filters::-webkit-scrollbar{display:none}
+.bh-filters .filter-chip{background:var(--card);border:1px solid var(--border);color:var(--text-dim);padding:7px 12px;border-radius:12px;font-size:11px;font-weight:600;cursor:pointer;white-space:nowrap;flex-shrink:0}
+.bh-filters .filter-chip.active{background:var(--grad-aurora);border-color:transparent;color:#fff}
+.bh-export{background:var(--card);border:1px solid var(--border);border-radius:14px;padding:6px;margin-top:6px;margin-bottom:10px}
+.bh-export button{display:flex;align-items:center;gap:8px;width:100%;background:transparent;border:none;color:var(--text);font-family:inherit;font-size:13px;font-weight:500;padding:10px 12px;border-radius:10px;cursor:pointer;text-align:left}
+.bh-export button:hover{background:var(--card-hover)}
+
+/* ═══ DASHBOARD (bold) ═══ */
+.bh-dash-hero{background:var(--grad-sunset);border-radius:22px;padding:22px;color:var(--on-sunset);margin-bottom:14px;position:relative;overflow:hidden}
+.bh-dash-hero::after{content:'';position:absolute;width:200px;height:200px;border-radius:50%;background:rgba(255,255,255,0.14);top:-80px;right:-60px}
+.bh-dash-hero-lab{font-size:10px;letter-spacing:0.16em;text-transform:uppercase;font-weight:800;opacity:.85;position:relative;z-index:1}
+.bh-dash-hero-n{font-family:'Instrument Serif',Georgia,serif;font-size:64px;line-height:.95;font-weight:400;letter-spacing:-0.03em;margin:6px 0 4px;position:relative;z-index:1}
+.bh-dash-hero-n em{font-style:italic;font-size:28px;opacity:.8;margin-left:4px}
+.bh-dash-hero-sub{font-size:13px;font-weight:600;opacity:.9;position:relative;z-index:1}
+.bh-dash-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:16px}
+.bh-dcard{background:var(--card);border-radius:16px;padding:14px 12px;border:1px solid var(--border);position:relative;overflow:hidden;cursor:pointer}
+.bh-dcard::before{content:'';position:absolute;left:0;top:0;bottom:0;width:3px}
+.bh-dcard.d1::before{background:var(--grad-forest)}
+.bh-dcard.d2::before{background:var(--grad-aurora)}
+.bh-dcard.d3::before{background:var(--grad-amber)}
+.bh-dcard.d4::before{background:var(--grad-sunset)}
+.bh-dcard.d5::before{background:var(--grad-aurora)}
+.bh-dcard.d6::before{background:var(--grad-forest)}
+.bh-dcard h3{font-family:'Instrument Serif',Georgia,serif;font-size:15px;font-weight:400;letter-spacing:-0.01em;margin-bottom:6px}
+.bh-insights{background:var(--grad-aurora);border-radius:18px;padding:18px;color:#fff;position:relative;overflow:hidden;margin-top:14px}
+.bh-insights h3{font-family:'Instrument Serif',Georgia,serif;font-size:16px;font-weight:400;margin-bottom:8px}
+.bh-insights-refresh{background:rgba(255,255,255,0.18);border:none;color:#fff;padding:8px 14px;border-radius:10px;font-family:inherit;font-size:12px;font-weight:600;cursor:pointer;margin-top:10px}
+
+/* ═══ NOTES (bold) ═══ */
+.bh-notes-top{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px}
+.bh-new-note{background:var(--grad-sunset);border:none;color:var(--on-sunset);border-radius:12px;padding:10px 16px;font-size:13px;font-weight:700;font-family:inherit;cursor:pointer;letter-spacing:0.02em}
+.bh-notes-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.bh-note{background:var(--card);border-radius:16px;padding:14px;cursor:pointer;position:relative;overflow:hidden;border:1px solid var(--border)}
+.bh-note::before{content:'';position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--note-color,#FF8E53)}
+.bh-note-t{font-family:'Instrument Serif',Georgia,serif;font-size:16px;margin-bottom:6px;letter-spacing:-0.01em;line-height:1.2;font-weight:500;color:var(--text)}
+.bh-note-b{font-size:11px;color:var(--text-dim);line-height:1.5;margin-bottom:10px;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
+.bh-note-d{font-size:9px;color:var(--text-muted);letter-spacing:0.1em;text-transform:uppercase;font-weight:700}
+
 </style>
 </head>
 <body>
 
 <!-- ═══ LOGIN ═══ -->
 <div id="loginScreen">
-  <div class="login-icon">📓</div>
-  <div class="login-h">Emily Journal</div>
-  <div class="login-p">Your personal mood & reflection journal</div>
+  <div class="bh-login-ic">📓</div>
+  <div class="bh-login-h">Emily <em>Journal</em></div>
+  <div class="bh-login-sub">Your personal mood & reflection journal. Private, fast, offline-capable.</div>
   <div class="field"><input type="password" id="tokenInput" placeholder="Paste your token"></div>
-  <button class="btn-primary" id="loginBtn" onclick="login()">Connect to Emily</button>
+  <button class="bh-login-btn" id="loginBtn" onclick="login()">Connect to Emily →</button>
   <div class="login-err" id="loginError"></div>
-  <div class="login-hint">Run <strong>!apptoken</strong> in Discord to get your token</div>
+  <div class="bh-login-hint">Run <strong>!apptoken</strong> in Discord to get your token</div>
   <details class="adv">
     <summary>API URL</summary>
     <input type="url" id="apiUrlInput" placeholder="https://your-app.koyeb.app">
@@ -567,92 +736,131 @@ textarea.journal-input::placeholder{color:var(--text-muted)}
 
 <!-- HOME -->
 <div id="homeScreen" class="screen active">
-  <div class="header anim-1">
-    <div class="greeting">Hi there <span>☀️</span><br><span id="greetText">Good morning</span></div>
-    <div style="display:flex;gap:8px">
-      <div class="header-icon" onclick="toggleTheme()" id="themeToggleBtn" title="Switch theme">☾</div>
-      <div class="header-icon" onclick="logout()">👤</div>
+  <!-- Masthead -->
+  <div class="bh-mast anim-1">
+    <div class="bh-brand">Emily <span>· Journal</span></div>
+    <div class="bh-mast-right">
+      <div class="bh-meta" id="bhDateText">Today</div>
+      <button class="bh-theme" onclick="toggleTheme()" id="themeToggleBtn" title="Switch theme">☀</button>
+      <button class="bh-logout" onclick="logout()" title="Log out">👤</button>
     </div>
   </div>
 
-  <div class="cal-strip anim-2" id="calStrip"></div>
-
-  <!-- Daily Prompt -->
-  <div class="daily-prompt anim-2" id="dailyPromptCard">
-    <div class="dp-label">Today's Prompt</div>
-    <div class="dp-text" id="dailyPromptText">Loading...</div>
-    <button class="dp-btn" onclick="answerDailyPrompt()">Reflect on this ✍️</button>
+  <!-- Top nav (replaces bottom navbar) -->
+  <div class="bh-topnav anim-1">
+    <button class="bh-topnav-b active" onclick="go('home',this)">Today</button>
+    <button class="bh-topnav-b" onclick="go('diary',this)">Diary</button>
+    <button class="bh-topnav-b" onclick="go('notes',this)">Notes</button>
+    <button class="bh-topnav-b" onclick="go('mood',this)">Dash</button>
   </div>
 
-  <div class="sec anim-2"><h2>Quick Journal</h2></div>
-  <div class="prompts anim-3">
-    <div class="prompt-card c1" onclick="openPrompt('What am I grateful for today?')">
-      <div class="emoji">🌅</div><h3>Gratitude</h3><p>Count your blessings</p>
-    </div>
-    <div class="prompt-card c2" onclick="openPrompt('How am I feeling right now?')">
-      <div class="emoji">🌿</div><h3>Check-in</h3><p>Pause & reflect</p>
-    </div>
-    <div class="prompt-card c3" onclick="openPrompt('What did I learn today?')">
-      <div class="emoji">💡</div><h3>Lessons</h3><p>Growth moments</p>
-    </div>
-    <div class="prompt-card c4" onclick="openPrompt('What are my intentions for tomorrow?')">
-      <div class="emoji">🎯</div><h3>Intentions</h3><p>Set tomorrow up</p>
-    </div>
+  <!-- Greeting: keeps id=greetText for JS to update -->
+  <div class="bh-greet anim-1">Habari,<br><em><span id="greetText">Daniel</span></em></div>
+  <div class="bh-greet-sub anim-1">The first hour is yours.</div>
+
+  <!-- Week strip — JS still populates via #calStrip -->
+  <div class="bh-week anim-2" id="calStrip"></div>
+
+  <!-- Streak hero: keeps all streak-related IDs for JS -->
+  <div class="bh-hero anim-2" id="streakDisplay">
+    <div class="bh-hero-lab">Journaling streak</div>
+    <div class="bh-hero-n" id="streakCount">0</div>
+    <div class="bh-hero-sub" id="streakLabel">days strong</div>
+    <div class="bh-hero-fire" id="streakEmoji">🔥</div>
+    <div id="streakNext" style="display:none"></div>
+    <div id="milestoneBar" style="display:none"></div>
   </div>
 
-  <div class="sec anim-3"><h2>How are you?</h2></div>
-  <div class="mood-checkin anim-4">
-    <div class="mood-row">
-      <button class="mood-btn" onclick="quickMood(1)"><span class="me">😢</span><span class="ml">Awful</span></button>
-      <button class="mood-btn" onclick="quickMood(2)"><span class="me">😔</span><span class="ml">Rough</span></button>
-      <button class="mood-btn" onclick="quickMood(3)"><span class="me">😐</span><span class="ml">Okay</span></button>
-      <button class="mood-btn" onclick="quickMood(4)"><span class="me">😊</span><span class="ml">Good</span></button>
-      <button class="mood-btn" onclick="quickMood(5)"><span class="me">🤩</span><span class="ml">Great!</span></button>
+  <!-- Stats row: keeps sStreak, sAvg, sEntries IDs -->
+  <div class="bh-stats anim-3">
+    <div class="bh-statbox s1">
+      <div class="bh-statbox-lab">Streak</div>
+      <div class="bh-statbox-n" id="sStreak">-</div>
     </div>
-  </div>
-
-  <div class="stats-row anim-4">
-    <div class="stat-box"><div class="stat-num" id="sStreak">-</div><div class="stat-lbl">🔥 Streak</div></div>
-    <div class="stat-box"><div class="stat-num" id="sAvg">-</div><div class="stat-lbl">📈 Avg Mood</div></div>
-    <div class="stat-box"><div class="stat-num" id="sEntries">-</div><div class="stat-lbl">📝 Entries</div></div>
-  </div>
-
-  <!-- Streak Progress -->
-  <div class="streak-display anim-4" id="streakDisplay" style="display:none">
-    <div class="streak-fire" id="streakEmoji">🔥</div>
-    <div class="streak-info">
-      <h4 id="streakCount">0 days</h4>
-      <p id="streakLabel">journaling streak</p>
-      <div class="streak-next" id="streakNext"></div>
-      <div class="milestone-bar" id="milestoneBar"></div>
+    <div class="bh-statbox s2">
+      <div class="bh-statbox-lab">Avg mood</div>
+      <div class="bh-statbox-n" id="sAvg">-</div>
+    </div>
+    <div class="bh-statbox s3">
+      <div class="bh-statbox-lab">Entries</div>
+      <div class="bh-statbox-n" id="sEntries">-</div>
     </div>
   </div>
 
-  <!-- Badges -->
-  <div class="badges-card anim-5" id="badgesCard">
-    <h3>🏆 Your Badges</h3>
+  <!-- Daily Prompt: keeps dailyPromptCard, dailyPromptText IDs + answerDailyPrompt -->
+  <div class="bh-sec">Today's prompt</div>
+  <div class="bh-prompt anim-3" id="dailyPromptCard">
+    <div class="bh-prompt-lab">Mindful moment</div>
+    <div class="bh-prompt-q" id="dailyPromptText">Loading...</div>
+    <button class="bh-prompt-btn" onclick="answerDailyPrompt()">Reflect on this →</button>
+  </div>
+
+  <!-- Quick Journal: openPrompt handlers preserved -->
+  <div class="bh-sec">Quick journal</div>
+  <div class="bh-qj anim-3">
+    <div class="bh-qj-card c1" onclick="openPrompt('What am I grateful for today?')">
+      <span class="bh-qj-ic">🌅</span>
+      <div class="bh-qj-t">Gratitude</div>
+      <div class="bh-qj-s">Count blessings</div>
+    </div>
+    <div class="bh-qj-card c2" onclick="openPrompt('How am I feeling right now?')">
+      <span class="bh-qj-ic">🌿</span>
+      <div class="bh-qj-t">Check-in</div>
+      <div class="bh-qj-s">Pause & reflect</div>
+    </div>
+    <div class="bh-qj-card c3" onclick="openPrompt('What did I learn today?')">
+      <span class="bh-qj-ic">💡</span>
+      <div class="bh-qj-t">Lessons</div>
+      <div class="bh-qj-s">Growth moment</div>
+    </div>
+    <div class="bh-qj-card c4" onclick="openPrompt('What are my intentions for tomorrow?')">
+      <span class="bh-qj-ic">🎯</span>
+      <div class="bh-qj-t">Intentions</div>
+      <div class="bh-qj-s">Set tomorrow up</div>
+    </div>
+  </div>
+
+  <!-- Mood check-in: keeps quickMood(1-5) handlers and mood-btn class for JS -->
+  <div class="bh-moodcard anim-4">
+    <div class="bh-moodcard-h">How are you <em>feeling?</em></div>
+    <div class="bh-moodrow">
+      <button class="mood-btn bh-moodbtn" onclick="quickMood(1)"><span class="me">😢</span><span class="ml">LOW</span></button>
+      <button class="mood-btn bh-moodbtn" onclick="quickMood(2)"><span class="me">😔</span><span class="ml">OFF</span></button>
+      <button class="mood-btn bh-moodbtn" onclick="quickMood(3)"><span class="me">😐</span><span class="ml">OK</span></button>
+      <button class="mood-btn bh-moodbtn" onclick="quickMood(4)"><span class="me">😊</span><span class="ml">GOOD</span></button>
+      <button class="mood-btn bh-moodbtn" onclick="quickMood(5)"><span class="me">🤩</span><span class="ml">HIGH</span></button>
+    </div>
+  </div>
+
+  <!-- Badges: keeps badgesCard, badgesGrid IDs -->
+  <div class="bh-badgewrap anim-5" id="badgesCard">
+    <div class="bh-badgewrap-top">
+      <div class="bh-badgewrap-h">Your badges</div>
+      <div class="bh-badgewrap-ct" id="bhBadgeCount">—</div>
+    </div>
     <div class="badges-grid" id="badgesGrid"></div>
   </div>
 
+  <!-- Weekly trend: homeTrend ID preserved -->
   <div class="trend-card anim-5">
-    <h3>📊 This Week</h3>
+    <h3>This week</h3>
     <div id="homeTrend"></div>
   </div>
 
-  <!-- Gratitude List -->
+  <!-- Gratitude: all IDs and handlers preserved -->
   <div class="gratitude-card anim-5" id="gratitudeCard">
-    <h3>🙏 Today's Gratitude</h3>
+    <h3>Today's gratitude</h3>
     <div id="gratitudeContent">
       <div class="grat-row"><div class="grat-num">1</div><input class="grat-input" id="grat1" placeholder="I'm grateful for..."></div>
       <div class="grat-row"><div class="grat-num">2</div><input class="grat-input" id="grat2" placeholder="I'm thankful for..."></div>
       <div class="grat-row"><div class="grat-num">3</div><input class="grat-input" id="grat3" placeholder="I appreciate..."></div>
-      <button class="grat-save" id="gratSaveBtn" onclick="saveGratitude()">Save Gratitude 🌟</button>
+      <button class="grat-save" id="gratSaveBtn" onclick="saveGratitude()">Save gratitude 🌟</button>
     </div>
   </div>
 
-  <!-- Sleep Tracker -->
+  <!-- Sleep tracker: all IDs and handlers preserved -->
   <div class="sleep-card anim-5" id="sleepCard">
-    <h3>😴 Last Night's Sleep</h3>
+    <h3>Last night's sleep</h3>
     <div id="sleepContent">
       <div class="sleep-quality">
         <button class="sleep-btn" onclick="pickSleep(1)"><span class="se">😫</span><span class="sl">Terrible</span></button>
@@ -666,7 +874,7 @@ textarea.journal-input::placeholder{color:var(--text-muted)}
         <input type="range" class="sleep-range" id="sleepHours" min="0" max="12" step="0.5" value="7" oninput="updateSleepVal()">
         <div class="sleep-hrs-val" id="sleepHrsVal">7</div>
       </div>
-      <button class="sleep-save" id="sleepSaveBtn" onclick="saveSleep()">Log Sleep 🌙</button>
+      <button class="sleep-save" id="sleepSaveBtn" onclick="saveSleep()">Log sleep 🌙</button>
     </div>
     <div class="sleep-trend" id="sleepTrend"></div>
   </div>
@@ -680,25 +888,41 @@ textarea.journal-input::placeholder{color:var(--text-muted)}
 
 <!-- WRITE -->
 <div id="writeScreen" class="screen">
-  <div class="write-header anim-1">
-    <h1>What's on your mind?</h1>
-    <p>Write or speak — Emily listens</p>
-  </div>
-  <div class="write-mood anim-2">
-    <div class="mood-row">
-      <button class="mood-btn" data-m="1" onclick="selMood(1)"><span class="me">😢</span></button>
-      <button class="mood-btn" data-m="2" onclick="selMood(2)"><span class="me">😔</span></button>
-      <button class="mood-btn" data-m="3" onclick="selMood(3)"><span class="me">😐</span></button>
-      <button class="mood-btn" data-m="4" onclick="selMood(4)"><span class="me">😊</span></button>
-      <button class="mood-btn" data-m="5" onclick="selMood(5)"><span class="me">🤩</span></button>
+  <!-- Masthead -->
+  <div class="bh-mast anim-1">
+    <div class="bh-brand">Emily <span>· Journal</span></div>
+    <div class="bh-mast-right">
+      <div class="bh-meta">New entry</div>
+      <button class="bh-logout" onclick="go('home')" title="Home">←</button>
     </div>
   </div>
 
-  <div class="voice-area anim-3">
+  <!-- Top nav -->
+  <div class="bh-topnav anim-1">
+    <button class="bh-topnav-b" onclick="go('home',this)">Today</button>
+    <button class="bh-topnav-b" onclick="go('diary',this)">Diary</button>
+    <button class="bh-topnav-b" onclick="go('notes',this)">Notes</button>
+    <button class="bh-topnav-b" onclick="go('mood',this)">Dash</button>
+  </div>
+
+  <div class="bh-greet anim-1">What's on your<br><em>mind?</em></div>
+  <div class="bh-greet-sub anim-1">Write or speak — Emily listens.</div>
+
+  <!-- Mood picker -->
+  <div class="bh-write-mood anim-2">
+    <button class="mood-btn" data-m="1" onclick="selMood(1)"><span class="me">😢</span></button>
+    <button class="mood-btn" data-m="2" onclick="selMood(2)"><span class="me">😔</span></button>
+    <button class="mood-btn" data-m="3" onclick="selMood(3)"><span class="me">😐</span></button>
+    <button class="mood-btn" data-m="4" onclick="selMood(4)"><span class="me">😊</span></button>
+    <button class="mood-btn" data-m="5" onclick="selMood(5)"><span class="me">🤩</span></button>
+  </div>
+
+  <!-- Voice card -->
+  <div class="bh-voice anim-3">
     <button class="voice-btn" id="voiceBtn" onclick="toggleVoice()">🎙️</button>
     <div class="voice-status">
       <div class="vs-text" id="voiceText">Tap to speak</div>
-      <div class="vs-hint" id="voiceHint">Your words will appear in the text box</div>
+      <div class="vs-hint" id="voiceHint">Words appear in the text box</div>
     </div>
     <div class="voice-wave" id="voiceWave" style="display:none">
       <span></span><span></span><span></span><span></span><span></span><span></span>
@@ -707,7 +931,8 @@ textarea.journal-input::placeholder{color:var(--text-muted)}
   </div>
   <div class="voice-unsupported" id="voiceUnsupported">🎙️ Voice not supported in this browser. Try Chrome.</div>
 
-  <div class="tag-row anim-3" id="writeTagRow">
+  <!-- Tags -->
+  <div class="bh-tags anim-3" id="writeTagRow">
     <span class="tag-chip" data-tag="personal" onclick="toggleWriteTag(this)">🧡 Personal</span>
     <span class="tag-chip" data-tag="work" onclick="toggleWriteTag(this)">💼 Work</span>
     <span class="tag-chip" data-tag="health" onclick="toggleWriteTag(this)">💪 Health</span>
@@ -718,41 +943,54 @@ textarea.journal-input::placeholder{color:var(--text-muted)}
     <span class="tag-chip" data-tag="travel" onclick="toggleWriteTag(this)">✈️ Travel</span>
   </div>
 
-  <textarea class="journal-input anim-3" id="jText" placeholder="Today I..." oninput="updateCount()"></textarea>
-  <div class="photo-area anim-3">
+  <textarea class="bh-area anim-3" id="jText" placeholder="Today I..." oninput="updateCount()"></textarea>
+
+  <div class="bh-photo-area anim-3">
     <div class="photo-upload-row">
       <label class="photo-add-btn" for="photoInput">
         <span class="pa-icon">📷</span>
-        <span class="pa-label">Photo</span>
+        <span class="pa-label">Add photos</span>
       </label>
       <input type="file" id="photoInput" accept="image/*" capture="environment" multiple style="display:none" onchange="handlePhotos(this.files)">
       <div class="photo-preview-row" id="photoPreviewRow"></div>
     </div>
   </div>
-  <div class="char-count"><span id="charCnt">0</span> characters</div>
-  <button class="write-btn anim-4" id="saveBtn" onclick="submitEntry()">Save Entry ✨</button>
+
+  <div class="bh-count"><span id="charCnt">0</span> characters</div>
+  <button class="bh-savebtn anim-4" id="saveBtn" onclick="submitEntry()">Save entry ✨</button>
+</div>
 </div>
 
 <!-- DIARY -->
 <div id="diaryScreen" class="screen">
-  <div class="header anim-1">
-    <div class="greeting" style="font-size:24px">Your Diary 📖</div>
-    <div style="display:flex;gap:8px;align-items:center">
-      <div class="header-icon" onclick="toggleExportMenu()" id="exportToggle" title="Export">📤</div>
+  <div class="bh-mast anim-1">
+    <div class="bh-brand">Emily <span>· Journal</span></div>
+    <div class="bh-mast-right">
+      <div class="bh-meta" id="searchCount"></div>
+      <button class="bh-logout" onclick="toggleExportMenu()" id="exportToggle" title="Export">📤</button>
     </div>
   </div>
+
+  <div class="bh-topnav anim-1">
+    <button class="bh-topnav-b" onclick="go('home',this)">Today</button>
+    <button class="bh-topnav-b active" onclick="go('diary',this)">Diary</button>
+    <button class="bh-topnav-b" onclick="go('notes',this)">Notes</button>
+    <button class="bh-topnav-b" onclick="go('mood',this)">Dash</button>
+  </div>
+
+  <div class="bh-greet anim-1">Your <em>diary</em></div>
+  <div class="bh-greet-sub anim-1">Every entry, stacking up.</div>
+
   <div class="diary-toolbar-wrap anim-2">
-    <div class="diary-toolbar">
-      <input class="diary-search" id="diarySearch" type="text" placeholder="Search entries..." oninput="searchDiary()">
-    </div>
-    <div class="search-count" id="searchCount"></div>
-    <div class="export-menu" id="exportMenu" style="display:none">
+    <input class="bh-search" id="diarySearch" type="text" placeholder="🔍  Search entries..." oninput="searchDiary()">
+    <div class="bh-export" id="exportMenu" style="display:none">
       <button onclick="exportEntries('json')"><span class="em-icon">📋</span> Export as JSON</button>
       <button onclick="exportEntries('txt')"><span class="em-icon">📄</span> Export as Text</button>
       <button onclick="exportEntries('csv')"><span class="em-icon">📊</span> Export as CSV</button>
     </div>
   </div>
-  <div class="filter-bar anim-2" id="diaryFilters">
+
+  <div class="bh-filters anim-2" id="diaryFilters">
     <span class="filter-chip active" onclick="filterDiary('all',this)">All</span>
     <span class="filter-chip" onclick="filterDiary('pinned',this)">📌 Pinned</span>
     <span class="filter-chip" onclick="filterDiary('personal',this)">🧡 Personal</span>
@@ -764,81 +1002,112 @@ textarea.journal-input::placeholder{color:var(--text-muted)}
     <span class="filter-chip" onclick="filterDiary('learning',this)">📚 Learning</span>
     <span class="filter-chip" onclick="filterDiary('travel',this)">✈️ Travel</span>
   </div>
+
   <div id="diaryList"><div class="spin-wrap"><div class="spin"></div></div></div>
 </div>
 
 <!-- DASHBOARD -->
 <div id="moodScreen" class="screen">
-  <div class="header anim-1"><div class="greeting" style="font-size:24px">Dashboard 📊</div></div>
+  <div class="bh-mast anim-1">
+    <div class="bh-brand">Emily <span>· Journal</span></div>
+    <div class="bh-mast-right">
+      <div class="bh-meta">Last 14 days</div>
+    </div>
+  </div>
 
-  <!-- Weekly Wellness Summary -->
-  <div class="trend-card anim-1" id="dashWellnessCard">
-    <h3>🌟 This Week</h3>
+  <div class="bh-topnav anim-1">
+    <button class="bh-topnav-b" onclick="go('home',this)">Today</button>
+    <button class="bh-topnav-b" onclick="go('diary',this)">Diary</button>
+    <button class="bh-topnav-b" onclick="go('notes',this)">Notes</button>
+    <button class="bh-topnav-b active" onclick="go('mood',this)">Dash</button>
+  </div>
+
+  <div class="bh-greet anim-1">Your <em>rhythm</em></div>
+  <div class="bh-greet-sub anim-1">Numbers that tell the story.</div>
+
+  <!-- Mood Average Hero -->
+  <div class="bh-dash-hero anim-2" id="moodOverview">
+    <div class="bh-dash-hero-lab">Average mood</div>
+    <div class="bh-dash-hero-n"><span id="moodBigAvg">-</span></div>
+    <div class="bh-dash-hero-sub">14-day snapshot</div>
+  </div>
+
+  <!-- Weekly Wellness -->
+  <div class="bh-dcard d4 anim-2" id="dashWellnessCard" style="grid-column:1/-1;margin-bottom:14px">
+    <h3>🌟 This week</h3>
     <div id="dashWellnessContent"><div class="spin-wrap"><div class="spin"></div></div></div>
   </div>
 
-  <!-- Budget Overview -->
-  <div class="trend-card anim-2" style="margin-top:14px" id="dashBudgetCard">
-    <h3>💰 Budget</h3>
-    <div id="dashBudgetContent"><div class="spin-wrap"><div class="spin"></div></div></div>
+  <!-- Grid of metrics -->
+  <div class="bh-dash-grid anim-3">
+    <div class="bh-dcard d1" id="dashBudgetCard">
+      <h3>💰 Budget</h3>
+      <div id="dashBudgetContent"><div class="spin-wrap"><div class="spin"></div></div></div>
+    </div>
+    <div class="bh-dcard d2" id="dashMonthCard">
+      <h3>📅 Monthly</h3>
+      <div id="dashMonthContent"><div class="spin-wrap"><div class="spin"></div></div></div>
+    </div>
+    <div class="bh-dcard d3" id="dashPortfolioCard">
+      <h3>📈 Portfolio</h3>
+      <div id="dashPortfolioContent"><div class="spin-wrap"><div class="spin"></div></div></div>
+    </div>
+    <div class="bh-dcard d5" id="dashSleepCard">
+      <h3>😴 Sleep</h3>
+      <div id="dashSleepContent"><div class="spin-wrap"><div class="spin"></div></div></div>
+    </div>
   </div>
 
-  <!-- Month-over-Month -->
-  <div class="trend-card anim-2" style="margin-top:14px" id="dashMonthCard">
-    <h3>📅 Monthly Trend</h3>
-    <div id="dashMonthContent"><div class="spin-wrap"><div class="spin"></div></div></div>
-  </div>
-
-  <!-- Portfolio -->
-  <div class="trend-card anim-3" style="margin-top:14px" id="dashPortfolioCard">
-    <h3>📈 Portfolio</h3>
-    <div id="dashPortfolioContent"><div class="spin-wrap"><div class="spin"></div></div></div>
-  </div>
-
-  <!-- Sleep Trends -->
-  <div class="trend-card anim-3" style="margin-top:14px" id="dashSleepCard">
-    <h3>😴 Sleep Trends</h3>
-    <div id="dashSleepContent"><div class="spin-wrap"><div class="spin"></div></div></div>
-  </div>
-
-  <!-- Goals -->
-  <div class="trend-card anim-3" style="margin-top:14px" id="dashGoalsCard">
+  <!-- Goals (full width) -->
+  <div class="bh-dcard d6 anim-3" id="dashGoalsCard" style="grid-column:1/-1;margin-bottom:14px">
     <h3>🎯 Goals</h3>
     <div id="dashGoalsContent"><div class="spin-wrap"><div class="spin"></div></div></div>
   </div>
 
-  <!-- Mood (kept from original) -->
-  <div class="mood-overview anim-4" id="moodOverview" style="margin-top:14px">
-    <div class="mood-big" id="moodBigAvg">-</div>
-    <div class="mood-big-label">average mood (14 days)</div>
-  </div>
-
-  <div class="trend-card anim-4" style="margin-top:14px">
-    <h3>📉 Mood Trend</h3>
+  <!-- Mood trend & emotions -->
+  <div class="trend-card anim-4">
+    <h3>Mood trend</h3>
     <div id="moodTrendChart"></div>
   </div>
 
-  <div class="trend-card anim-5" style="margin-top:14px">
-    <h3>🎭 Emotions</h3>
+  <div class="trend-card anim-5">
+    <h3>Emotions</h3>
     <div id="moodDistChart"></div>
   </div>
 
-  <div class="insights-card anim-5">
-    <h3>🤖 AI Insights</h3>
+  <!-- AI Insights -->
+  <div class="bh-insights anim-5">
+    <h3>🤖 AI insights</h3>
     <div id="insightsContent">
       <div class="insights-loading"><div class="spin"></div>Analyzing your journal...</div>
     </div>
-    <button class="insight-refresh" onclick="loadInsights(true)">🔄 Refresh Insights</button>
+    <button class="bh-insights-refresh" onclick="loadInsights(true)">🔄 Refresh</button>
   </div>
 </div>
 
 <!-- NOTES -->
 <div id="notesScreen" class="screen">
-  <div class="header anim-1">
-    <div class="greeting" style="font-size:24px">Notes 📝</div>
-    <div class="header-icon" onclick="newNote()">➕</div>
+  <div class="bh-mast anim-1">
+    <div class="bh-brand">Emily <span>· Journal</span></div>
+    <div class="bh-mast-right">
+      <div class="bh-meta">Notes</div>
+    </div>
   </div>
-  <input class="notes-search anim-2" id="noteSearch" type="text" placeholder="Search notes..." oninput="filterNotes()">
+
+  <div class="bh-topnav anim-1">
+    <button class="bh-topnav-b" onclick="go('home',this)">Today</button>
+    <button class="bh-topnav-b" onclick="go('diary',this)">Diary</button>
+    <button class="bh-topnav-b active" onclick="go('notes',this)">Notes</button>
+    <button class="bh-topnav-b" onclick="go('mood',this)">Dash</button>
+  </div>
+
+  <div class="bh-notes-top anim-1">
+    <div class="bh-greet">Your <em>notes</em></div>
+    <button class="bh-new-note" onclick="newNote()">+ New</button>
+  </div>
+  <div class="bh-greet-sub anim-1">Quick thoughts, ideas, lists.</div>
+
+  <input class="bh-search anim-2" id="noteSearch" type="text" placeholder="🔍  Search notes..." oninput="filterNotes()">
   <div id="notesList" class="anim-3"></div>
 
   <!-- Editor (shown when editing a note) -->
@@ -851,12 +1120,12 @@ textarea.journal-input::placeholder{color:var(--text-muted)}
       </div>
     </div>
     <div class="note-colors">
-      <span style="background:#f59e0b" class="sel" onclick="pickColor('#f59e0b',this)"></span>
+      <span style="background:#FF8E53" class="sel" onclick="pickColor('#FF8E53',this)"></span>
       <span style="background:#34d399" onclick="pickColor('#34d399',this)"></span>
       <span style="background:#a78bfa" onclick="pickColor('#a78bfa',this)"></span>
       <span style="background:#f87171" onclick="pickColor('#f87171',this)"></span>
       <span style="background:#60a5fa" onclick="pickColor('#60a5fa',this)"></span>
-      <span style="background:#7a8da0" onclick="pickColor('#7a8da0',this)"></span>
+      <span style="background:#EC4899" onclick="pickColor('#EC4899',this)"></span>
     </div>
     <input class="note-title-input" id="noteTitleInput" placeholder="Title" maxlength="100">
     <textarea class="note-body-input" id="noteBodyInput" placeholder="Start writing..."></textarea>
@@ -914,15 +1183,14 @@ textarea.journal-input::placeholder{color:var(--text-muted)}
 
 <script>
 // ═══ THEME TOGGLE (light/dark) ═══
-// Priority: saved preference > system preference > light default
+// Dark is the default for first-time visitors. Saved preference always wins.
 (function(){
   const saved=localStorage.getItem('emily_journal_theme');
-  const sysDark=window.matchMedia&&window.matchMedia('(prefers-color-scheme: dark)').matches;
-  const theme=saved||(sysDark?'dark':'light');
+  const theme=saved||'dark';
   document.documentElement.setAttribute('data-theme',theme);
 })();
 function toggleTheme(){
-  const cur=document.documentElement.getAttribute('data-theme')||'light';
+  const cur=document.documentElement.getAttribute('data-theme')||'dark';
   const next=cur==='dark'?'light':'dark';
   document.documentElement.setAttribute('data-theme',next);
   localStorage.setItem('emily_journal_theme',next);
@@ -932,14 +1200,14 @@ function toggleTheme(){
   document.querySelectorAll('meta[name="theme-color"]').forEach(m=>m.remove());
   const meta=document.createElement('meta');
   meta.name='theme-color';
-  meta.content=next==='dark'?'#1F1611':'#EFE5D3';
+  meta.content=next==='dark'?'#0A0612':'#FEF7EC';
   document.head.appendChild(meta);
 }
 // Sync the toggle button icon on page load
 document.addEventListener('DOMContentLoaded',()=>{
   const btn=document.getElementById('themeToggleBtn');
   if(btn){
-    const cur=document.documentElement.getAttribute('data-theme')||'light';
+    const cur=document.documentElement.getAttribute('data-theme')||'dark';
     btn.textContent=cur==='dark'?'☀':'☾';
   }
 });
