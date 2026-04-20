@@ -334,12 +334,16 @@ Each job is tagged DESIGN, DEV, or HYBRID using word-boundary matching against d
 - `!jobskip <source> <source_id>` — tell Emily a match was off (helps tune scoring)
 
 ### Scheduled task
-`job_scout_task` runs 9am and 5pm EAT every day. Wrapped with the same `_should_run_scheduled` helper used by other daily tasks (60-minute grace window, in-memory dedup to prevent double-fire). On each run:
+`job_scout_task` runs **every Sunday at 8:00 AM EAT**. Wrapped with the same `_should_run_scheduled` helper used by other weekly tasks (60-minute grace window, weekday=6 gating, in-memory dedup to prevent double-fire). On each run:
 1. Fetches all sources concurrently
 2. Scores and upserts every job (dedupe key: `source + source_id`)
-3. Queries for unnotified matches ≥ threshold from last 24h, cap 3
-4. DMs owner one-by-one with 1.5s sleep between sends
-5. Marks each as `notified_at` so it's never resent
+3. Sends a "Your weekly job matches" header DM
+4. Queries for unnotified matches ≥ threshold from the last 7 days, cap 5
+5. DMs owner each one with 1.5s sleep between sends
+6. Marks each as `notified_at` so it's never resent
+7. If zero matches scored ≥ threshold that week, DMs a "scouted but nothing great this week" note so you know it ran
+
+For on-demand scouting any other day, use `!jobscout`.
 
 ### DM format
 ```

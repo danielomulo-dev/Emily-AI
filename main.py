@@ -2517,15 +2517,14 @@ def _extract_field(text, field_name):
 
 
 # ══════════════════════════════════════════════
-# JOB SCOUT — runs 9am and 5pm EAT; DMs high-scoring matches to owner
+# JOB SCOUT — runs every Sunday 8:00 AM EAT; DMs high-scoring matches to owner
 # ══════════════════════════════════════════════
 @tasks.loop(minutes=1)
 async def job_scout_task():
-    """Scout jobs twice a day, DM owner top 3 matches scoring ≥ threshold."""
+    """Scout jobs once a week (Sunday 8am EAT), DM owner top matches scoring ≥ threshold."""
     try:
-        hit_9am = _should_run_scheduled("job_scout_morning", target_hour=9)
-        hit_5pm = _should_run_scheduled("job_scout_evening", target_hour=17)
-        if not (hit_9am or hit_5pm):
+        # target_weekday=6 is Sunday (Monday=0)
+        if not _should_run_scheduled("job_scout_weekly", target_hour=8, target_weekday=6):
             return
 
         owner_id = os.getenv("BOT_OWNER_ID") or os.getenv("DISCORD_OWNER_ID")
@@ -2533,13 +2532,23 @@ async def job_scout_task():
             logger.info("job_scout_task: no BOT_OWNER_ID set, skipping")
             return
 
-        logger.info("job_scout_task: running scout")
+        logger.info("job_scout_task: running weekly scout")
         stats = await run_scout()
         logger.info(f"job_scout_task: stats={stats}")
 
-        # Send up to 3 top-scoring new matches as DMs
-        pending = get_jobs_needing_dm(threshold=DM_THRESHOLD, limit=3)
+        # Weekly run — send up to 5 top matches (more than the daily cap of 3)
+        pending = get_jobs_needing_dm(threshold=DM_THRESHOLD, limit=5)
         if not pending:
+            # Even if no new high-scoring matches, send a quick "scouted, nothing great this week" note
+            try:
+                user = await bot.fetch_user(int(owner_id))
+                await user.send(
+                    f"💼 **Weekly job scout ran** — no matches scoring {DM_THRESHOLD}+ this week.\n"
+                    f"Fetched {stats['fetched']} jobs across sources. Try `!jobs` to browse broader picks, "
+                    f"or `!jobscout` to run again later in the week."
+                )
+            except Exception as e:
+                logger.warning(f"job_scout: couldn't DM 'nothing this week' note: {e}")
             return
 
         try:
@@ -2547,6 +2556,16 @@ async def job_scout_task():
         except Exception as e:
             logger.error(f"job_scout: can't fetch owner user: {e}")
             return
+
+        # Lead with a weekly header so you know it's the weekly batch
+        try:
+            await user.send(
+                f"💼 **Your weekly job matches** ({len(pending)} found)\n"
+                f"_Scored {DM_THRESHOLD}/100 or higher. React ✅ on any that land._"
+            )
+            await asyncio.sleep(1.5)
+        except Exception as e:
+            logger.warning(f"job_scout: header DM failed: {e}")
 
         sent = 0
         for job in pending:
@@ -4435,7 +4454,15 @@ _Or just @ mention me to chat!_ 😊"""
 `!ask-gemma <question>` — Ask Gemma 4 26B
 `!ask-claude <question>` — Ask Claude API
 `!agent-status` — Check desktop agent status
-`!agent-help` — Desktop agent help"""
+`!agent-help` — Desktop agent help
+
+**💼 Job Scout** _(personal — matches from RemoteOK, Remotive, Arbeitnow)_
+`!jobs` — Browse top recent matches
+`!jobs today` — Only last-24h matches
+`!jobs design` · `!jobs dev` · `!jobs hybrid` — Filter by category
+`!jobscout` — Run the scout now
+`!applied <source> <id>` — Mark a match as applied
+`!jobskip <source> <id>` — Tell me a match was off"""
 
     await ctx.send(page1)
     await ctx.send(page2)

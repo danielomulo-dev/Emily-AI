@@ -625,13 +625,17 @@ def get_matches_by_category(category: str, days: int = 7, limit: int = 5) -> Lis
         return []
 
 
-def get_jobs_needing_dm(threshold: int = DM_THRESHOLD, limit: int = 3) -> List[Dict]:
-    """Return top unnotified jobs at/above threshold, discovered in last 24h."""
+def get_jobs_needing_dm(threshold: int = DM_THRESHOLD, limit: int = 3, lookback_hours: int = 168) -> List[Dict]:
+    """Return top unnotified jobs at/above threshold, discovered within lookback window.
+
+    Default lookback is 168h (7 days) to match the weekly scout schedule. Pass
+    lookback_hours=24 if you switch back to daily scouting.
+    """
     col = _get_db()
     if col is None:
         return []
     try:
-        cutoff = datetime.now(EAT) - timedelta(hours=24)
+        cutoff = datetime.now(EAT) - timedelta(hours=lookback_hours)
         cursor = (
             col.find(
                 {
