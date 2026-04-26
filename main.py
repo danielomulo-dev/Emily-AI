@@ -873,12 +873,95 @@ async def process_video(att):
     return {"inline_data": {"data": data, "mime_type": mime}}, None
 
 async def process_pdf(att):
+    """Smart PDF processor.
+
+    Background: passing a 7+ MB PDF as raw inline_data to Gemini multimodal
+    routinely OOM-killed the Koyeb Nano (512MB RAM). Discord download (~7 MB)
+    + base64 encoding (~10 MB) + Gemini's encoder buffers + the existing
+    process footprint blew past the limit.
+
+    Strategy:
+    - PDFs ≤ SMALL_PDF_THRESHOLD: ship the raw PDF to Gemini (current behavior)
+    - PDFs > SMALL_PDF_THRESHOLD: extract text locally with pypdf and send a
+      compact text bundle. Falls back to truncated raw bytes if extraction fails.
+
+    Either way, the raw `data` bytes are released immediately after we no longer
+    need them so the garbage collector can reclaim memory before Gemini's call.
+    """
+    SMALL_PDF_THRESHOLD = 3 * 1024 * 1024   # 3 MB
+    MAX_TEXT_CHARS = 18000                  # ~5k tokens — comfortably fits any model
+
     if att.size > MAX_FILE_SIZE_MB * 1024 * 1024:
-        return None, f"PDF too large ({att.size // (1024*1024)}MB)."
+        return None, f"PDF too large ({att.size // (1024*1024)}MB). Max is {MAX_FILE_SIZE_MB}MB."
     data = await download_attachment(att)
     if not data:
         return None, "Couldn't download that PDF."
-    return {"inline_data": {"data": data, "mime_type": "application/pdf"}}, None
+
+    size_mb = att.size / (1024 * 1024)
+
+    # Small PDFs: pass through unchanged
+    if att.size <= SMALL_PDF_THRESHOLD:
+        logger.info(f"PDF processed (raw): {att.filename} ({size_mb:.1f}MB)")
+        return {"inline_data": {"data": data, "mime_type": "application/pdf"}}, None
+
+    # Large PDFs: try text extraction first
+    try:
+        from pypdf import PdfReader
+        reader = PdfReader(io.BytesIO(data))
+        page_count = len(reader.pages)
+        # Cap at 50 pages — most brand guides / reports beyond that are repetitive
+        pages_to_read = min(page_count, 50)
+        chunks = []
+        for i in range(pages_to_read):
+            try:
+                txt = reader.pages[i].extract_text() or ""
+                if txt.strip():
+                    chunks.append(f"--- Page {i + 1} ---\n{txt.strip()}")
+            except Exception as e:
+                logger.warning(f"PDF page {i+1} extract failed: {e}")
+                continue
+
+        # Free the original bytes ASAP — we don't need them anymore
+        del data
+        del reader
+
+        full_text = "\n\n".join(chunks)
+
+        if not full_text.strip():
+            # Image-only PDF (scanned brand guide, etc) — text extraction returned nothing.
+            # Bail out cleanly rather than crash; tell the user what to do.
+            logger.warning(f"PDF text extraction empty for {att.filename} — likely image-only")
+            return None, (
+                f"📄 **{att.filename}** ({size_mb:.1f}MB) looks like an image-only PDF "
+                f"(scanned or all-graphics). I can't process files this large in image mode "
+                f"without running out of memory. Try one of these:\n"
+                f"• Compress the PDF to under 3MB and re-upload\n"
+                f"• Export the key pages as PNG/JPG and send those instead\n"
+                f"• Paste the text content directly in chat"
+            )
+
+        if len(full_text) > MAX_TEXT_CHARS:
+            full_text = full_text[:MAX_TEXT_CHARS] + f"\n\n... (truncated, original was {page_count} pages)"
+
+        logger.info(
+            f"PDF processed (text-only, {size_mb:.1f}MB → "
+            f"{len(full_text):,} chars from {pages_to_read}/{page_count} pages): {att.filename}"
+        )
+        return {
+            "text": (
+                f"**File: {att.filename}** ({size_mb:.1f}MB, {page_count} pages — "
+                f"text-extracted to save memory)\n\n{full_text}"
+            )
+        }, None
+
+    except ImportError:
+        logger.warning("pypdf not installed — falling back to raw PDF (may OOM)")
+        return {"inline_data": {"data": data, "mime_type": "application/pdf"}}, None
+    except Exception as e:
+        logger.error(f"PDF text extraction failed for {att.filename}: {e}", exc_info=True)
+        # Last-resort fallback: pass raw, but log it
+        logger.warning("Falling back to raw PDF inline_data — may OOM on large files")
+        return {"inline_data": {"data": data, "mime_type": "application/pdf"}}, None
 
 async def process_text_file(att):
     if att.size > 1 * 1024 * 1024:

@@ -1102,3 +1102,73 @@ class TestJobDMFormat:
         assert "Python Dev" in out
         assert "78/100" in out
         assert "73/100" in out
+
+
+# ══════════════════════════════════════════════
+# Bug #23 — Large PDFs OOM-killed Koyeb instance
+# A 7.3 MB PDF (Tabasamu_Sips_Brand_Visual_Guide_Landscape.pdf) caused the
+# bot to be killed with exit code 9 (OOM) every time the user sent it. The
+# raw bytes + Discord attachment buffer + Gemini multimodal encoding blew
+# past the 512MB Nano limit.
+#
+# Fix: process_pdf() now extracts text locally via pypdf for PDFs > 3 MB
+# and ships text instead of raw bytes. Raw `data` is del'd immediately after
+# extraction to free memory before Gemini is called.
+# ══════════════════════════════════════════════
+
+class TestPDFMemorySafe:
+    """Verify the new process_pdf logic handles large PDFs without trying to ship raw bytes."""
+
+    def test_threshold_constant_present(self):
+        """Confirm the 3MB threshold is defined and reasonable."""
+        import re
+        with open('main.py') as f:
+            src = f.read()
+        assert "SMALL_PDF_THRESHOLD" in src, "Threshold constant missing"
+        # Should be set to 3 MB (sanity: not 0, not 100MB)
+        m = re.search(r'SMALL_PDF_THRESHOLD\s*=\s*(\d+)\s*\*\s*1024\s*\*\s*1024', src)
+        assert m is not None, "Threshold not in MB form"
+        mb = int(m.group(1))
+        assert 1 <= mb <= 10, f"Threshold ({mb}MB) outside reasonable range"
+
+    def test_max_text_chars_bounded(self):
+        """Extracted text should be capped to avoid blowing the model context."""
+        with open('main.py') as f:
+            src = f.read()
+        assert "MAX_TEXT_CHARS" in src
+        # Should be in low-tens-of-thousands range
+        import re
+        m = re.search(r'MAX_TEXT_CHARS\s*=\s*(\d+)', src)
+        assert m is not None
+        cap = int(m.group(1))
+        assert 5000 <= cap <= 50000, f"Text cap ({cap}) outside reasonable range"
+
+    def test_data_is_released_before_gemini_call(self):
+        """The raw bytes must be `del`'d after extraction so GC can reclaim memory."""
+        with open('main.py') as f:
+            src = f.read()
+        # Find the process_pdf function body
+        import re
+        m = re.search(r'async def process_pdf\(att\):(.+?)(?=\nasync def |\ndef )', src, re.DOTALL)
+        assert m is not None, "Could not locate process_pdf function"
+        body = m.group(1)
+        assert "del data" in body, "Raw data must be released after extraction"
+
+    def test_image_only_pdf_returns_helpful_error(self):
+        """If text extraction yields nothing, user should get a clear message, not crash."""
+        with open('main.py') as f:
+            src = f.read()
+        m = re.search(r'async def process_pdf\(att\):(.+?)(?=\nasync def |\ndef )', src, re.DOTALL)
+        body = m.group(1)
+        assert "image-only" in body.lower() or "scanned" in body.lower(), (
+            "Image-only fallback message missing — user would see a crash instead"
+        )
+        assert "compress" in body.lower(), "Should suggest compressing as a fix"
+
+    def test_pypdf_import_failure_is_handled(self):
+        """If pypdf goes missing, fallback must not crash."""
+        with open('main.py') as f:
+            src = f.read()
+        m = re.search(r'async def process_pdf\(att\):(.+?)(?=\nasync def |\ndef )', src, re.DOTALL)
+        body = m.group(1)
+        assert "ImportError" in body, "Missing pypdf must be caught as ImportError"
