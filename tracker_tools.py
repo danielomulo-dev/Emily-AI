@@ -410,21 +410,24 @@ def delete_last_income(user_id):
 
 def get_effective_budget(user_id):
     """
-    Calculate the effective monthly budget.
-    Base budget + any income logged this month.
-    - If user has a fixed budget AND income: budget + income
-    - If only income: use income as the budget
-    - If only fixed limit: use that
+    Calculate the effective monthly budget — the spendable pool for the current month.
+
+    Logic (post-May-2026 fix):
+    - If income has been logged this month: that's the spendable pool
+    - Else if a budget cap has been set this month: use that
+    - Otherwise None
+
+    Income takes precedence over budget when both are present, because adding them
+    together double-counts (the user's logged income IS their budget — the explicit
+    !setbudget cap is just an optional spending target on top, not extra money).
     """
     limit = get_budget_limit(user_id)
     monthly_income = get_monthly_income(user_id)
     income_total = monthly_income["total"] if monthly_income else 0
 
-    if income_total > 0 and limit:
-        return limit + income_total
-    elif income_total > 0:
+    if income_total > 0:
         return income_total
-    elif limit:
+    if limit:
         return limit
     return None
 

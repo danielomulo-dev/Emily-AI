@@ -571,8 +571,12 @@ def api_get_dashboard_budget(user_id):
         total_spent = round(sum(by_category.values()), 2)
         total_count = sum(r["count"] for r in cat_results)
 
-        # Budget limit
-        limit_doc = db["budget_limits"].find_one({"user_id": str(user_id)})
+        # Budget limit — month-scoped, matches the fix in tracker_tools.get_budget_limit().
+        # Pre-fix bug: docs without `month` field bled into every future month, then got
+        # added to logged income, doubling the "available" total on the journal dashboard.
+        limit_doc = db["budget_limits"].find_one(
+            {"user_id": str(user_id), "month": month_str}
+        )
         budget_limit = limit_doc.get("monthly_limit", 0) if limit_doc else 0
 
         # Income
@@ -583,10 +587,11 @@ def api_get_dashboard_budget(user_id):
         income_result = list(db["income"].aggregate(income_pipeline))
         total_income = round(income_result[0]["total"], 2) if income_result else 0
 
-        # Match get_effective_budget() logic: limit + income, or whichever exists
-        if total_income > 0 and budget_limit > 0:
-            effective_budget = budget_limit + total_income
-        elif total_income > 0:
+        # Effective budget = the spendable pool for the month.
+        # Income alone drives this when present (matches Discord !budget logic since
+        # the May 2026 fix). budget_limit only kicks in if user explicitly set one
+        # AND has no income logged — otherwise income is the source of truth.
+        if total_income > 0:
             effective_budget = total_income
         elif budget_limit > 0:
             effective_budget = budget_limit

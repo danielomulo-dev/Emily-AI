@@ -1233,3 +1233,61 @@ class TestBudgetMonthScoping:
             "Migration query missing — old users won't be cleaned up"
         )
         assert '"migrated": True' in src, "Migration must mark records so it's idempotent"
+
+
+# ══════════════════════════════════════════════
+# Bug #25 — Journal dashboard double-counted income + budget
+# Symptom (from May 1, 2026 phone screenshot): user logged KES 111,264.80
+# income with no monthly budget set. Discord !budget showed KES 99,368.80
+# correctly; journal dashboard showed "of KES 219,393.23 used" — exactly
+# old_budget (108,128) + new_income (111,264) = 219,393. Bug #24 fixed
+# the legacy-budget bleed, but two separate places still added budget+income
+# when both were non-zero:
+#  1) tracker_tools.get_effective_budget()
+#  2) api_server dashboard_budget endpoint (separate code path for the PWA)
+# Both now use income-wins logic: income alone is the spendable pool when
+# present, budget only kicks in if no income has been logged.
+# ══════════════════════════════════════════════
+
+class TestEffectiveBudgetNoDoubleCount:
+    def test_income_wins_when_both_present(self):
+        """Pure-logic test: with both budget and income, income alone wins."""
+        # We can't import tracker_tools cleanly without Mongo, but we can grep
+        # the source for the buggy `limit + income_total` pattern.
+        with open("tracker_tools.py") as f:
+            src = f.read()
+        # The single combined-add pattern must be gone
+        assert "return limit + income_total" not in src, (
+            "tracker_tools.get_effective_budget still adds budget + income — "
+            "this double-counts income on the dashboard"
+        )
+
+    def test_api_server_budget_is_month_scoped(self):
+        """The journal dashboard's budget endpoint must filter budget_limits by month."""
+        with open("api_server.py") as f:
+            src = f.read()
+        # The bug query (no month filter) must be gone, and the fixed one must be present
+        # Look for the dashboard_budget block specifically
+        import re
+        m = re.search(
+            r'def dashboard_budget.*?return\s*\{"budget":\s*\{',
+            src, re.DOTALL,
+        )
+        if m is None:
+            # fallback: just scan around the limit_doc line
+            assert '"month": month_str' in src, (
+                "api_server dashboard_budget must filter budget_limits by month"
+            )
+            return
+        block = m.group(0)
+        assert '"month": month_str' in block or "month\": month_str" in block, (
+            "Dashboard budget endpoint not filtering by month"
+        )
+
+    def test_api_server_no_double_count(self):
+        """The dashboard endpoint must use income-wins logic, not budget+income."""
+        with open("api_server.py") as f:
+            src = f.read()
+        assert "effective_budget = budget_limit + total_income" not in src, (
+            "api_server still adds budget_limit + total_income — same double-count bug as Discord had"
+        )
