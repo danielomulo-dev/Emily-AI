@@ -182,13 +182,26 @@ def get_monthly_spending(user_id, month_str=None):
         return None
 
 
-def set_budget_limit(user_id, monthly_limit):
-    """Set a monthly budget limit for a user."""
+def _current_month_str():
+    """Returns the current month as 'YYYY-MM' in EAT — what counts as 'this month'
+    for budget/income/spending purposes."""
+    return datetime.now(EAT_ZONE).strftime("%Y-%m")
+
+
+def set_budget_limit(user_id, monthly_limit, month_str=None):
+    """Set a monthly budget limit for a user. Defaults to the current EAT month.
+
+    Budgets are now scoped per-month so that on the 1st of each new month, the
+    'effective budget' starts fresh at 0 and the user re-sets it (or simply lets
+    logged income drive the spendable pool). Old months' budgets remain in the DB
+    as historical records but no longer leak into the new month."""
     if budgets_col is None:
         return False
+    if month_str is None:
+        month_str = _current_month_str()
     try:
         db["budget_limits"].update_one(
-            {"user_id": str(user_id)},
+            {"user_id": str(user_id), "month": month_str},
             {"$set": {"monthly_limit": float(monthly_limit), "updated_at": _now()}},
             upsert=True,
         )
@@ -198,13 +211,56 @@ def set_budget_limit(user_id, monthly_limit):
         return False
 
 
-def get_budget_limit(user_id):
-    """Get user's monthly budget limit."""
+def get_budget_limit(user_id, month_str=None):
+    """Get user's budget limit for a specific month (default: current EAT month).
+
+    Returns None if no budget has been set for that month. This is the key fix:
+    on May 1st, get_budget_limit() returns None even if April had a budget,
+    so 'effective budget' resets to 0 + whatever fresh income gets logged.
+    """
+    if month_str is None:
+        month_str = _current_month_str()
     try:
-        doc = db["budget_limits"].find_one({"user_id": str(user_id)})
-        return doc.get("monthly_limit") if doc else None
+        # Try the new month-scoped record first
+        doc = db["budget_limits"].find_one(
+            {"user_id": str(user_id), "month": month_str}
+        )
+        if doc:
+            return doc.get("monthly_limit")
+        # Migration safety net: if there's a legacy doc with no `month` field
+        # AND the current call is for the current month, ignore it. We deliberately
+        # do NOT carry the legacy budget over — that's the very behavior the user
+        # asked us to break. Old records remain in the DB as history.
+        return None
     except Exception:
         return None
+
+
+def get_budget_limit_legacy(user_id):
+    """Read the pre-fix unscoped budget record, if any. Used by the one-time migration
+    so we can preserve the user's last set budget as April's historical record."""
+    try:
+        return db["budget_limits"].find_one(
+            {"user_id": str(user_id), "month": {"$exists": False}}
+        )
+    except Exception:
+        return None
+
+
+def clear_budget_limit(user_id, month_str=None):
+    """Remove the budget for a specific month so the user can start fresh."""
+    if budgets_col is None:
+        return False
+    if month_str is None:
+        month_str = _current_month_str()
+    try:
+        r = db["budget_limits"].delete_one(
+            {"user_id": str(user_id), "month": month_str}
+        )
+        return r.deleted_count > 0
+    except PyMongoError as e:
+        logger.error(f"Clear budget error: {e}")
+        return False
 
 
 def format_budget_summary(user_id):

@@ -33,7 +33,7 @@ from finance_tools import get_stock_price
 from voice_tools import generate_voice_note, cleanup_voice_file, transcribe_audio, is_openai_configured
 from tracker_tools import (
     log_expense, get_daily_spending, get_monthly_spending, set_budget_limit,
-    get_budget_limit, format_budget_summary,
+    get_budget_limit, clear_budget_limit, get_budget_limit_legacy, format_budget_summary,
     log_income, get_monthly_income, get_effective_budget, format_full_budget_summary,
     delete_last_income, INCOME_CATEGORIES,
     recategorize_expenses,
@@ -2079,6 +2079,36 @@ async def on_ready():
 
     # Record startup time
     bot_status["started_at"] = datetime.now(pytz.timezone('Africa/Nairobi')).isoformat()
+
+    # ── One-time migration: clean up legacy unscoped budget records ──
+    # Pre-fix, budgets had no `month` field and persisted forever, double-counting
+    # against logged income. This migration finds any legacy docs and stamps them
+    # with the month they were last updated so they become historical records,
+    # not a permanent overlay on every future month.
+    try:
+        from tracker_tools import db as _tdb
+        if _tdb is not None:
+            legacy = list(_tdb["budget_limits"].find({"month": {"$exists": False}}))
+            migrated = 0
+            for doc in legacy:
+                ts = doc.get("updated_at") or doc.get("set_at")
+                # Default to a far-back month if no timestamp exists
+                if ts and hasattr(ts, "strftime"):
+                    month_str = ts.strftime("%Y-%m")
+                else:
+                    month_str = "2025-01"  # historical placeholder
+                _tdb["budget_limits"].update_one(
+                    {"_id": doc["_id"]},
+                    {"$set": {"month": month_str, "migrated": True}},
+                )
+                migrated += 1
+            if migrated:
+                logger.info(
+                    f"Budget migration: stamped {migrated} legacy record(s) with their original month. "
+                    f"New months now start at zero budget by default."
+                )
+    except Exception as e:
+        logger.error(f"Budget migration failed (non-fatal): {e}")
 
     # Sync slash commands
     try:
@@ -4467,7 +4497,7 @@ async def cmd_help(ctx):
     """Show all available commands."""
     page1 = """**Emily's Commands** 🇰🇪 **(1/3)**
 
-**💰 Budget:** `!spent 500 lunch` · `!income 50000 freelance` · `!delincome` · `!budget` · `!setbudget 50000` · `!report` · `!financetip`
+**💰 Budget:** `!spent 500 lunch` · `!income 50000 freelance` · `!delincome` · `!budget` · `!setbudget 50000` · `!resetbudget` · `!report` · `!financetip`
 **📈 Portfolio:** `!buy SCOM 100 25` · `!sell SCOM` · `!portfolio`
 **💱 Finance:** `!convert` · `!loan` · `!mshwari` · `!bankloan <lender> <amt> <months>` · `!compareloan <amt> <months>`
 
@@ -4702,15 +4732,34 @@ async def cmd_daily(ctx, *, date_str: str = ""):
 
 @bot.command(name="setbudget")
 async def cmd_setbudget(ctx, amount: str):
-    """Set monthly budget limit."""
+    """Set monthly budget limit. Resets automatically on the 1st of each month."""
     try:
         amt = float(amount.replace(",", "").replace("KES", "").replace("ksh", "").strip())
         if set_budget_limit(str(ctx.author.id), amt):
-            await ctx.reply(f"✅ Monthly budget set to **KES {amt:,.2f}**. I'll keep you accountable, manze!")
+            await ctx.reply(
+                f"✅ Budget for this month set to **KES {amt:,.2f}**.\n"
+                f"_Fresh start every 1st — I'll ping you to set the next one._"
+            )
         else:
             await ctx.reply("Couldn't set budget. Try again?")
     except ValueError:
         await ctx.reply("Invalid amount. Try: `!setbudget 50000`")
+
+
+@bot.command(name="resetbudget")
+async def cmd_resetbudget(ctx):
+    """Clear this month's budget so income alone drives the available pool."""
+    if clear_budget_limit(str(ctx.author.id)):
+        await ctx.reply(
+            "🧹 Budget for this month cleared.\n"
+            "_Logged income will now drive your 'Available' total directly. "
+            "Set a new one anytime with `!setbudget <amount>`._"
+        )
+    else:
+        await ctx.reply(
+            "No budget set for this month — already clean!\n"
+            "_Just log income and Emily will track availability automatically._"
+        )
 
 
 @bot.command(name="income")

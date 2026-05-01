@@ -1172,3 +1172,64 @@ class TestPDFMemorySafe:
         m = re.search(r'async def process_pdf\(att\):(.+?)(?=\nasync def |\ndef )', src, re.DOTALL)
         body = m.group(1)
         assert "ImportError" in body, "Missing pypdf must be caught as ImportError"
+
+
+# ══════════════════════════════════════════════
+# Bug #24 — Budget bled across months, double-counted with income
+# Symptom (from May 1, 2026 chat screenshot): user logs KES 111,264.80 income
+# and Emily replies "Available: KES 219,393.23 this month" — exactly double.
+# Root cause: get_budget_limit() returned a forever-stored value with no month
+# scope, so a budget set in March kept inflating "effective_budget" in April,
+# May, etc. — and once income was added on top, the math became
+# old_budget + new_income = double-counted available balance.
+#
+# Fix: budgets are now per-month documents keyed by user_id + 'YYYY-MM'.
+# On the 1st of each new month, get_budget_limit() returns None until the
+# user re-sets it with !setbudget. Old months remain in the DB as history.
+# ══════════════════════════════════════════════
+
+class TestBudgetMonthScoping:
+    def test_set_budget_signature_accepts_month(self):
+        """Verify the public function still accepts (user_id, amount) AND optional month."""
+        import inspect
+        from tracker_tools import set_budget_limit, get_budget_limit, clear_budget_limit
+        for fn in (set_budget_limit, get_budget_limit, clear_budget_limit):
+            sig = inspect.signature(fn)
+            assert "month_str" in sig.parameters, f"{fn.__name__} missing month_str param"
+            # month_str must default to None so existing callers still work
+            assert sig.parameters["month_str"].default is None
+
+    def test_current_month_helper(self):
+        """The internal helper must produce a 'YYYY-MM' string in EAT."""
+        from tracker_tools import _current_month_str
+        s = _current_month_str()
+        import re
+        assert re.match(r"^\d{4}-\d{2}$", s), f"Bad month format: {s}"
+
+    def test_legacy_helper_exists(self):
+        """The legacy reader is needed for the one-time migration."""
+        from tracker_tools import get_budget_limit_legacy
+        assert callable(get_budget_limit_legacy)
+
+    def test_budget_command_help_mentions_reset(self):
+        """!help must surface the new !resetbudget command."""
+        with open("main.py") as f:
+            src = f.read()
+        assert "`!resetbudget`" in src, "!resetbudget not advertised in !help"
+
+    def test_resetbudget_command_exists(self):
+        """The !resetbudget command must be wired up."""
+        with open("main.py") as f:
+            src = f.read()
+        assert "@bot.command(name=\"resetbudget\")" in src
+        assert "clear_budget_limit" in src
+
+    def test_one_time_migration_in_on_ready(self):
+        """The legacy-budget migration must run on startup so existing users heal automatically."""
+        with open("main.py") as f:
+            src = f.read()
+        # Must look for unscoped docs and stamp a month onto them
+        assert "month\": {\"$exists\": False}" in src or 'month": {"$exists": False}' in src, (
+            "Migration query missing — old users won't be cleaned up"
+        )
+        assert '"migrated": True' in src, "Migration must mark records so it's idempotent"
