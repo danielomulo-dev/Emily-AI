@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 # --- CONSTANTS ---
 EAT_ZONE = pytz.timezone('Africa/Nairobi')
 MAX_FACTS = 50       # Max stored facts per user
-MAX_HISTORY = 30     # Max chat messages per user
+MAX_HISTORY = 100    # Max chat messages per user (~3-4 days of context for an active user)
 FACT_SIMILARITY_THRESHOLD = 0.85  # For dedup (simple keyword overlap)
 
 # --- CONNECT TO MONGODB ---
