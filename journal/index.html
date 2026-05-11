@@ -717,18 +717,10 @@ textarea.journal-input::placeholder{color:var(--text-muted)}
 <body>
 
 <!-- ═══ LOGIN ═══ -->
-<div id="loginScreen">
-  <div class="bh-login-ic">📓</div>
-  <div class="bh-login-h">Emily <em>Journal</em></div>
-  <div class="bh-login-sub">Your personal mood & reflection journal. Private, fast, offline-capable.</div>
-  <div class="field"><input type="password" id="tokenInput" placeholder="Paste your token"></div>
-  <button class="bh-login-btn" id="loginBtn" onclick="login()">Connect to Emily →</button>
-  <div class="login-err" id="loginError"></div>
-  <div class="bh-login-hint">Run <strong>!apptoken</strong> in Discord to get your token</div>
-</div>
+<div id="loginScreen" style="display:none"></div>
 
 <!-- ═══ APP ═══ -->
-<div id="app" style="display:none">
+<div id="app">
 
 <!-- HOME -->
 <div id="homeScreen" class="screen active">
@@ -1213,7 +1205,6 @@ const MC={1:'var(--mood-1)',2:'var(--mood-2)',3:'var(--mood-3)',4:'var(--mood-4)
 const ML={1:'Terrible',2:'Rough',3:'Okay',4:'Good',5:'Amazing'};
 const DAYS=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
 
-let TOKEN=localStorage.getItem('ej_token')||'';
 const API='https://supporting-hermia-gentech254-ffa8b848.koyeb.app';
 let selMoodVal=null;
 let selectedWriteTags=[];
@@ -1224,30 +1215,15 @@ let pendingPhotos=[];  // base64 photos for current entry
 
 // ═══ API ═══
 async function api(m,p,b=null){
-  const o={method:m,headers:{'Content-Type':'application/json','Authorization':`Bearer ${TOKEN}`}};
+  const o={method:m,headers:{'Content-Type':'application/json'}};
   if(b)o.body=JSON.stringify(b);
   const r=await fetch(`${API}${p}`,o);
-  if(r.status===401){logout();throw new Error('Auth')}
   return r.json();
 }
 
-// ═══ AUTH ═══
-async function login(){
-  const t=document.getElementById('tokenInput').value.trim();
-  const e=document.getElementById('loginError');
-  const btn=document.getElementById('loginBtn');
-  if(!t){e.textContent='Paste your token from !apptoken';return}
-  btn.disabled=true;btn.textContent='Connecting...';e.textContent='';
-  TOKEN=t;
-  try{
-    await api('GET','/api/journal/stats');
-    localStorage.setItem('ej_token',TOKEN);
-    showApp();
-  }catch(err){e.textContent='Connection failed. Check your token.';TOKEN=''}
-  btn.disabled=false;btn.textContent='Connect to Emily';
-}
-function logout(){TOKEN='';localStorage.removeItem('ej_token');document.getElementById('app').style.display='none';document.getElementById('loginScreen').style.display='flex'}
-function showApp(){document.getElementById('loginScreen').style.display='none';document.getElementById('app').style.display='block';updateGreet();buildCal();loadHome()}
+// ═══ AUTH (removed — single-user mode) ═══
+function logout(){/* no-op in single-user mode */}
+function showApp(){updateGreet();buildCal();loadHome()}
 
 // ═══ NAVIGATION ═══
 function go(name,btn){
@@ -2774,8 +2750,8 @@ function escAttr(s){return esc(s).replace(/'/g,'&#39;').replace(/"/g,'&quot;')}
 // ═══ INIT ═══
 window.addEventListener('DOMContentLoaded',()=>{
   const standalone=window.matchMedia('(display-mode:standalone)').matches||window.navigator.standalone;
-  if(standalone)document.getElementById('installBanner').classList.add('hidden');
-  if(TOKEN)showApp();
+  if(standalone){const ib=document.getElementById('installBanner');if(ib)ib.classList.add('hidden')}
+  showApp();
   if('serviceWorker' in navigator)navigator.serviceWorker.register('sw.js').catch(()=>{});
   initVoice();
 });

@@ -18,9 +18,12 @@ from pymongo import MongoClient
 logger = logging.getLogger(__name__)
 EAT_ZONE = pytz.timezone('Africa/Nairobi')
 
-# CORS — restrict to journal app origin (set JOURNAL_APP_URL in env)
-# Falls back to '*' if not set (for local dev)
-ALLOWED_ORIGIN = os.getenv("JOURNAL_APP_URL", "*")
+# Single-user mode: OWNER_USER_ID is the only user who can use the journal.
+# Set this in Koyeb env vars to your Discord user ID.
+OWNER_USER_ID = os.getenv("OWNER_USER_ID", "625749973094498314")
+
+# CORS — '*' since there's no auth gate; the journal API trusts anyone with the URL.
+ALLOWED_ORIGIN = "*"
 
 # ══════════════════════════════════════════════
 # OBSERVABILITY — shared bot status (updated by main.py)
@@ -820,12 +823,8 @@ class EmilyAPIHandler(BaseHTTPRequestHandler):
         self._send_json({"error": message}, status)
 
     def _get_user(self):
-        """Extract user_id from Authorization header."""
-        auth = self.headers.get('Authorization', '')
-        if auth.startswith('Bearer '):
-            token = auth[7:]
-            return verify_token(token)
-        return None
+        """Return the owner's user_id. Token check removed for single-user mode."""
+        return OWNER_USER_ID
 
     def _read_body(self):
         """Read and parse JSON request body."""
