@@ -725,10 +725,6 @@ textarea.journal-input::placeholder{color:var(--text-muted)}
   <button class="bh-login-btn" id="loginBtn" onclick="login()">Connect to Emily →</button>
   <div class="login-err" id="loginError"></div>
   <div class="bh-login-hint">Run <strong>!apptoken</strong> in Discord to get your token</div>
-  <details class="adv">
-    <summary>API URL</summary>
-    <input type="url" id="apiUrlInput" placeholder="https://your-app.koyeb.app">
-  </details>
 </div>
 
 <!-- ═══ APP ═══ -->
@@ -1218,7 +1214,7 @@ const ML={1:'Terrible',2:'Rough',3:'Okay',4:'Good',5:'Amazing'};
 const DAYS=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
 
 let TOKEN=localStorage.getItem('ej_token')||'';
-let API=localStorage.getItem('ej_api')||'';
+const API='https://supporting-hermia-gentech254-ffa8b848.koyeb.app';
 let selMoodVal=null;
 let selectedWriteTags=[];
 let selectedEditTags=[];
@@ -1238,19 +1234,16 @@ async function api(m,p,b=null){
 // ═══ AUTH ═══
 async function login(){
   const t=document.getElementById('tokenInput').value.trim();
-  const u=document.getElementById('apiUrlInput').value.trim();
   const e=document.getElementById('loginError');
   const btn=document.getElementById('loginBtn');
   if(!t){e.textContent='Paste your token from !apptoken';return}
-  if(!u&&!API){e.textContent='Enter API URL in settings below';return}
   btn.disabled=true;btn.textContent='Connecting...';e.textContent='';
-  TOKEN=t;if(u)API=u;
+  TOKEN=t;
   try{
     await api('GET','/api/journal/stats');
     localStorage.setItem('ej_token',TOKEN);
-    localStorage.setItem('ej_api',API);
     showApp();
-  }catch(err){e.textContent='Connection failed. Check token & API URL.';TOKEN=''}
+  }catch(err){e.textContent='Connection failed. Check your token.';TOKEN=''}
   btn.disabled=false;btn.textContent='Connect to Emily';
 }
 function logout(){TOKEN='';localStorage.removeItem('ej_token');document.getElementById('app').style.display='none';document.getElementById('loginScreen').style.display='flex'}
@@ -2780,10 +2773,9 @@ function escAttr(s){return esc(s).replace(/'/g,'&#39;').replace(/"/g,'&quot;')}
 
 // ═══ INIT ═══
 window.addEventListener('DOMContentLoaded',()=>{
-  if(API)document.getElementById('apiUrlInput').value=API;
   const standalone=window.matchMedia('(display-mode:standalone)').matches||window.navigator.standalone;
   if(standalone)document.getElementById('installBanner').classList.add('hidden');
-  if(TOKEN&&API)showApp();
+  if(TOKEN)showApp();
   if('serviceWorker' in navigator)navigator.serviceWorker.register('sw.js').catch(()=>{});
   initVoice();
 });
