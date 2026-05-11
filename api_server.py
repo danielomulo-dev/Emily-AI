@@ -102,7 +102,7 @@ def _get_db():
 # ══════════════════════════════════════════════
 # AUTH: Token management
 # ══════════════════════════════════════════════
-TOKEN_EXPIRY_DAYS = 30  # Tokens expire after 30 days
+TOKEN_EXPIRY_DAYS = 3650  # ~10 years (single-user app — friction > security gain from short expiry)
 
 
 def generate_app_token(user_id, username):
