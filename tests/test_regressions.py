@@ -1291,3 +1291,151 @@ class TestEffectiveBudgetNoDoubleCount:
         assert "effective_budget = budget_limit + total_income" not in src, (
             "api_server still adds budget_limit + total_income — same double-count bug as Discord had"
         )
+
+
+# ══════════════════════════════════════════════
+# Feature #23 — Document Memory
+# Lets users save reference documents (PDFs, text files) to permanent
+# memory and pin them to active projects. While pinned, the doc's text
+# is auto-injected into every AI response's system prompt so Emily can
+# answer questions about it weeks or months later.
+# Tests cover validation, formatting, and the context-injection contract.
+# All pure-logic, no Mongo, no network.
+# ══════════════════════════════════════════════
+
+class TestDocumentMemory:
+    def test_name_validation_accepts_good_names(self):
+        from document_memory import _validate_name
+        for n in ["tabasamu", "client-acme", "personal_brand_2026", "ab", "x" * 40]:
+            ok, _ = _validate_name(n)
+            assert ok, f"Should accept {n!r}"
+
+    def test_name_validation_rejects_bad_names(self):
+        from document_memory import _validate_name
+        bad = ["", " ", "a", "x" * 41, "has space", "has!bang", "UPPER", "with.dot", "emoji😊"]
+        for n in bad:
+            ok, _ = _validate_name(n)
+            assert not ok, f"Should reject {n!r}"
+
+    def test_normalize_name_lowercases(self):
+        from document_memory import normalize_name
+        assert normalize_name("Tabasamu") == "tabasamu"
+        assert normalize_name("  CLIENT-X  ") == "client-x"
+        assert normalize_name("") == ""
+
+    def test_pin_indicator_empty_when_no_pins(self):
+        # Mock get_active_pins by monkeypatching to return []
+        import document_memory
+        original = document_memory.get_active_pins
+        try:
+            document_memory.get_active_pins = lambda uid: []
+            assert document_memory.get_pin_indicator("test_user") == ""
+        finally:
+            document_memory.get_active_pins = original
+
+    def test_pin_indicator_renders_names(self):
+        import document_memory
+        original = document_memory.get_active_pins
+        try:
+            document_memory.get_active_pins = lambda uid: [
+                {"doc_name": "tabasamu"},
+                {"doc_name": "client-acme"},
+            ]
+            out = document_memory.get_pin_indicator("test_user")
+            assert "tabasamu" in out
+            assert "client-acme" in out
+            assert "📌" in out
+        finally:
+            document_memory.get_active_pins = original
+
+    def test_pin_indicator_truncates_long_lists(self):
+        import document_memory
+        original = document_memory.get_active_pins
+        try:
+            document_memory.get_active_pins = lambda uid: [
+                {"doc_name": f"doc{i}"} for i in range(5)
+            ]
+            out = document_memory.get_pin_indicator("test_user")
+            # Should show first 3 + "+2"
+            assert "+2" in out
+        finally:
+            document_memory.get_active_pins = original
+
+    def test_format_docs_list_empty(self):
+        from document_memory import format_docs_list
+        out = format_docs_list([], [])
+        assert "haven't saved" in out.lower()
+        assert "!savedoc" in out
+
+    def test_format_docs_list_shows_pin_marker(self):
+        from document_memory import format_docs_list
+        from datetime import datetime
+        docs = [
+            {"name": "tabasamu", "char_count": 12000, "saved_at": datetime.now(), "original_filename": "guide.pdf"},
+        ]
+        pins = [{"doc_name": "tabasamu"}]
+        out = format_docs_list(docs, pins)
+        assert "📌" in out
+        assert "tabasamu" in out
+        assert "12,000" in out
+
+    def test_format_doc_detail_unpinned(self):
+        from document_memory import format_doc_detail
+        from datetime import datetime
+        doc = {
+            "name": "tabasamu",
+            "saved_at": datetime.now(),
+            "char_count": 12000,
+            "source": "pdf",
+            "content": "Some content here." * 50,
+            "summary": "Brand visual guide for Tabasamu Sips.",
+        }
+        out = format_doc_detail(doc, is_pinned=False)
+        assert "Not pinned" in out
+        assert "!pin tabasamu" in out
+        assert "Brand visual guide" in out
+
+    def test_format_doc_detail_pinned(self):
+        from document_memory import format_doc_detail
+        from datetime import datetime, timedelta
+        import pytz
+        EAT = pytz.timezone("Africa/Nairobi")
+        doc = {"name": "tabasamu", "saved_at": datetime.now(EAT), "char_count": 100, "source": "pdf"}
+        # Use timedelta(days=15, hours=12) so flooring still yields 15
+        pin_info = {"expires_at": datetime.now(EAT) + timedelta(days=15, hours=12)}
+        out = format_doc_detail(doc, is_pinned=True, pin_info=pin_info)
+        assert "Pinned" in out
+        assert "15" in out  # days left
+
+    def test_help_menu_advertises_doc_memory(self):
+        with open("main.py") as f:
+            src = f.read()
+        assert "📚 Document Memory" in src, "Document Memory section missing from !help"
+        for cmd in ["!savedoc", "!docs", "!doc <name>", "!pin", "!unpin", "!deldoc"]:
+            assert cmd in src, f"{cmd} not advertised in !help"
+
+    def test_pinned_context_injected_into_prompt(self):
+        """The system prompt builder must call build_pinned_context_block."""
+        with open("main.py") as f:
+            src = f.read()
+        assert "build_pinned_context_block" in src, (
+            "main.py never calls build_pinned_context_block — pinned docs won't reach Claude/Gemini"
+        )
+
+    def test_max_chars_constants_reasonable(self):
+        from document_memory import MAX_DOC_CHARS, MAX_DOCS_PER_USER, MAX_PIN_DAYS
+        assert 10_000 <= MAX_DOC_CHARS <= 200_000, "Doc char cap outside reasonable range"
+        assert 5 <= MAX_DOCS_PER_USER <= 100, "Doc count cap outside reasonable range"
+        assert 30 <= MAX_PIN_DAYS <= 730, "Pin duration cap outside reasonable range"
+
+    def test_extract_text_from_attachment_handles_text(self):
+        from document_memory import extract_text_from_attachment
+        text, src = extract_text_from_attachment(b"Hello, world!", "notes.txt")
+        assert text == "Hello, world!"
+        assert src == "txt"
+
+    def test_extract_text_from_attachment_decodes_safely(self):
+        from document_memory import extract_text_from_attachment
+        # Invalid utf-8 bytes shouldn't crash, just produce replacement chars
+        text, _ = extract_text_from_attachment(b"\xff\xfe invalid utf8", "broken.txt")
+        assert text is not None

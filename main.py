@@ -115,6 +115,13 @@ from messaging_tools import (
     get_reminder_log, log_reminder_sent,
 )
 from agent_tools import setup_agent_commands
+from document_memory import (
+    save_document, delete_document, get_document, list_documents,
+    pin_document, unpin_document, get_active_pins,
+    build_pinned_context_block, get_pin_indicator,
+    format_docs_list, format_doc_detail,
+    extract_text_from_attachment,
+)
 from job_scout_tools import (
     run_scout, get_top_matches, get_matches_by_category,
     get_jobs_needing_dm, mark_notified, mark_reaction,
@@ -1463,6 +1470,17 @@ they bring it up — just let it inform your tone and awareness.
 """
         except Exception:
             pass  # Don't break conversations if journal lookup fails
+
+        # ─── PINNED REFERENCE DOCUMENTS ───
+        # If the user has any pinned docs (saved via !savedoc + !pin), inject
+        # their full text into the system prompt so Emily can reference them
+        # naturally. See document_memory.py for the storage model.
+        try:
+            pinned_block = build_pinned_context_block(user_id)
+            if pinned_block:
+                emily_prompt += pinned_block
+        except Exception as e:
+            logger.warning(f"pinned docs injection failed (non-fatal): {e}")
 
         # ─── CUSTOM SERVER PERSONA ───
         if guild_id:
@@ -4575,7 +4593,15 @@ _Or just @ mention me to chat!_ 😊"""
 `!jobs design` · `!jobs dev` · `!jobs hybrid` — Filter by category
 `!jobscout` — Run the scout now
 `!applied <source> <id>` — Mark a match as applied
-`!jobskip <source> <id>` — Tell me a match was off"""
+`!jobskip <source> <id>` — Tell me a match was off
+
+**📚 Document Memory** _(save reference docs, pin them to active projects)_
+`!savedoc <name>` — Save an attached file to memory
+`!docs` — List all saved documents
+`!doc <name>` — Show details of one document
+`!pin <name> [days]` — Pin doc as reference for N days (default 30)
+`!unpin <name>` — Remove pin (doc stays saved)
+`!deldoc <name>` — Permanently delete a document"""
 
     await ctx.send(page1)
     await ctx.send(page2)
@@ -6033,6 +6059,164 @@ async def _send_pending_job_dms():
                 logger.error(f"job DM failed: {e}")
     except Exception as e:
         logger.error(f"_send_pending_job_dms failed: {e}")
+
+
+# ══════════════════════════════════════════════
+# DOCUMENT MEMORY COMMANDS
+# ══════════════════════════════════════════════
+# Personal long-term reference docs. Save a PDF/file once, pin it to a
+# project for N days, and Emily references it automatically in every reply.
+# See document_memory.py for the full design.
+
+@bot.command(name="savedoc")
+async def cmd_savedoc(ctx, name: str = ""):
+    """Save an attached file to Emily's permanent memory. Usage: !savedoc <name> (with file attached)"""
+    if not name:
+        await ctx.reply(
+            "Usage: `!savedoc <name>` with a file attached.\n"
+            "Example: attach `brand-guide.pdf` then type `!savedoc tabasamu`."
+        )
+        return
+
+    if not ctx.message.attachments:
+        await ctx.reply(
+            f"You didn't attach a file. Re-send with the document attached and `!savedoc {name}`."
+        )
+        return
+
+    att = ctx.message.attachments[0]
+    if att.size > 20 * 1024 * 1024:
+        await ctx.reply(f"File too large ({att.size // (1024*1024)}MB). Max is 20MB.")
+        return
+
+    async with ctx.typing():
+        try:
+            data = await att.read()
+            text, source = extract_text_from_attachment(data, att.filename)
+            if not text or not text.strip():
+                await ctx.reply(
+                    f"I couldn't extract any text from **{att.filename}**.\n"
+                    f"_If it's a scanned PDF or image-only file, the text isn't readable. "
+                    f"Try a text-based PDF, .txt, .md, or paste the content directly._"
+                )
+                return
+
+            # Generate a short summary so !docs preview is useful.
+            # Best-effort — failure here doesn't block the save.
+            summary = ""
+            try:
+                from anthropic import AsyncAnthropic
+                anthropic_key = os.getenv("ANTHROPIC_API_KEY")
+                if anthropic_key:
+                    a = AsyncAnthropic(api_key=anthropic_key)
+                    snippet = text[:6000]  # only need a small slice to summarize
+                    r = await a.messages.create(
+                        model=MODEL_CLAUDE,
+                        max_tokens=200,
+                        messages=[{
+                            "role": "user",
+                            "content": (
+                                f"Summarize this document in 1-2 short sentences (max 150 chars). "
+                                f"Just the summary, no preamble.\n\n{snippet}"
+                            ),
+                        }],
+                    )
+                    if r.content and len(r.content) > 0:
+                        summary = (r.content[0].text or "").strip()[:200]
+            except Exception as e:
+                logger.warning(f"savedoc summary generation failed (non-fatal): {e}")
+
+            ok, msg = save_document(
+                user_id=str(ctx.author.id),
+                name=name,
+                content=text,
+                source=source,
+                summary=summary,
+                original_filename=att.filename,
+            )
+            await ctx.reply(
+                msg + (f"\n_Use `!pin {name.lower()}` to activate it for this project._" if ok else "")
+            )
+        except Exception as e:
+            logger.error(f"!savedoc failed: {e}", exc_info=True)
+            await ctx.reply("Couldn't save that. Try again in a bit.")
+
+
+@bot.command(name="docs")
+async def cmd_docs(ctx):
+    """List all your saved documents."""
+    try:
+        docs = list_documents(str(ctx.author.id))
+        pins = get_active_pins(str(ctx.author.id))
+        await ctx.reply(format_docs_list(docs, pins))
+    except Exception as e:
+        logger.error(f"!docs failed: {e}", exc_info=True)
+        await ctx.reply("Couldn't fetch your docs.")
+
+
+@bot.command(name="doc")
+async def cmd_doc(ctx, name: str = ""):
+    """Show details of a saved document. Usage: !doc <name>"""
+    if not name:
+        await ctx.reply("Usage: `!doc <name>` — see `!docs` for the list.")
+        return
+    try:
+        doc = get_document(str(ctx.author.id), name)
+        if not doc:
+            await ctx.reply(f"No document named **{name}**. See `!docs` for the list.")
+            return
+        pins = get_active_pins(str(ctx.author.id))
+        is_pinned = any(p["doc_name"] == name.lower() for p in pins)
+        pin_info = next((p for p in pins if p["doc_name"] == name.lower()), None)
+        await ctx.reply(format_doc_detail(doc, is_pinned, pin_info))
+    except Exception as e:
+        logger.error(f"!doc failed: {e}", exc_info=True)
+        await ctx.reply("Couldn't fetch that doc.")
+
+
+@bot.command(name="pin")
+async def cmd_pin(ctx, name: str = "", days: int = 30):
+    """Pin a doc so Emily references it automatically. Usage: !pin <name> [days]"""
+    if not name:
+        await ctx.reply(
+            "Usage: `!pin <name>` or `!pin <name> <days>`.\n"
+            "Example: `!pin tabasamu 30` keeps it active for 30 days."
+        )
+        return
+    try:
+        ok, msg = pin_document(str(ctx.author.id), name, days)
+        await ctx.reply(msg)
+    except Exception as e:
+        logger.error(f"!pin failed: {e}", exc_info=True)
+        await ctx.reply("Couldn't pin. Try again.")
+
+
+@bot.command(name="unpin")
+async def cmd_unpin(ctx, name: str = ""):
+    """Remove a pin (doc stays saved). Usage: !unpin <name>"""
+    if not name:
+        await ctx.reply("Usage: `!unpin <name>`.")
+        return
+    try:
+        ok, msg = unpin_document(str(ctx.author.id), name)
+        await ctx.reply(msg)
+    except Exception as e:
+        logger.error(f"!unpin failed: {e}", exc_info=True)
+        await ctx.reply("Couldn't unpin. Try again.")
+
+
+@bot.command(name="deldoc")
+async def cmd_deldoc(ctx, name: str = ""):
+    """Permanently delete a saved document. Usage: !deldoc <name>"""
+    if not name:
+        await ctx.reply("Usage: `!deldoc <name>`.")
+        return
+    try:
+        ok, msg = delete_document(str(ctx.author.id), name)
+        await ctx.reply(msg)
+    except Exception as e:
+        logger.error(f"!deldoc failed: {e}", exc_info=True)
+        await ctx.reply("Couldn't delete. Try again.")
 
 
 @bot.command(name="music")
